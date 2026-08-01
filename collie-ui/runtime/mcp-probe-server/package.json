@@ -1,0 +1,11 @@
+{
+  "name": "@collie/mcp-probe-server",
+  "version": "0.1.0",
+  "description": "Pinned MCP stdio server used to verify the Collie Windows bundle.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": "24.18.0"
+  }
+}

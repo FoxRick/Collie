@@ -1,0 +1,47 @@
+{
+  "name": "collie",
+  "version": "0.1.0-alpha.1",
+  "description": "Your personal AI. With a dog.",
+  "main": "./out/main/index.js",
+  "author": "Collie",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json",
+    "start": "electron-vite preview",
+    "stage:core": "node scripts/stage-core.cjs",
+    "smoke:packaged-core": "node scripts/smoke-packaged-core.cjs",
+    "dist": "electron-vite build && npm run stage:core && electron-builder",
+    "test": "vitest run",
+    "test:ui:running": "node scripts/verify-ui-ux.cjs"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9",
+    "lucide-react": "^0.545.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.16",
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.5",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "electron": "^43.2.0",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^4.0.1",
+    "jsdom": "26.1.0",
+    "tailwindcss": "^4.1.16",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.11",
+    "vitest": "^3.2.4"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.1": true
+  }
+}

@@ -1,0 +1,30 @@
+# Local runtime state
+__pycache__/
+*.py[cod]
+.tmp/
+
+# Local test and coverage state
+.pytest_cache/
+.pytest-*/
+collie-core/.pytest-final-*/
+.coverage
+coverage/
+
+# Local environment files; retain explicit, documented examples
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Reproducible package and staging output (never release source)
+collie-core/build/
+collie-core/dist/
+collie-ui/.electron-bundle/
+collie-ui/dist/
+collie-ui/out/
+*.egg-info/
+*.tmp
+
+# Generated build and visual QA artifacts
+*.tsbuildinfo
+collie-ui/screenshots/

@@ -1,0 +1,326 @@
+import { useEffect, useRef, useState } from 'react'
+import {
+  Clock3,
+  History,
+  Pause,
+  Play,
+  Plus,
+  RotateCcw,
+  Rocket,
+  Trash2,
+  X
+} from 'lucide-react'
+import {
+  collieClient,
+  type CollieAutomation as LoopItem,
+  type CollieRun
+} from '../lib/ipc'
+
+const LOOP_STARTERS = [
+  'Every weekday at 8am, give me a short weather, calendar, and priorities briefing.',
+  'Every Friday at 5pm, help me review the week and plan something enjoyable.',
+  'On the first day of every month at 9am, remind me to review my budget.'
+]
+
+export default function RoutinesScreen(): React.JSX.Element {
+  const [loops, setLoops] = useState<LoopItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [creating, setCreating] = useState(false)
+  const [description, setDescription] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState('')
+  const [history, setHistory] = useState<Record<string, CollieRun[]>>({})
+
+  const refresh = async (): Promise<void> => {
+    if (new URLSearchParams(window.location.search).has('preview')) {
+      setLoading(false)
+      return
+    }
+    try {
+      const data = await collieClient.listRoutines()
+      setLoops(data.routines)
+    } catch {
+      setNotice('I could not check your routines just yet.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const refreshRef = useRef(refresh)
+  refreshRef.current = refresh
+
+  useEffect(() => {
+    void refreshRef.current()
+  }, [])
+
+  // Live refresh: routine runs and their steps change while running.
+  useEffect(() => {
+    return collieClient.on((event) => {
+      if (
+        event.type === 'routine_updated' ||
+        event.type === 'run_started' ||
+        event.type === 'run_completed' ||
+        event.type === 'run_failed' ||
+        event.type === 'run_step_updated'
+      ) {
+        void refreshRef.current()
+      }
+    })
+  }, [])
+
+  const toggle = async (loop: LoopItem): Promise<void> => {
+    const enabled = loop.enabled !== 1
+    setBusy(true)
+    try {
+      if (enabled) {
+        const result = await collieClient.resumeRoutine(loop.id)
+        setLoops((current) =>
+          current.map((item) => (item.id === loop.id ? result.routine : item))
+        )
+      } else {
+        const result = await collieClient.pauseRoutine(loop.id)
+        setLoops((current) =>
+          current.map((item) => (item.id === loop.id ? result.routine : item))
+        )
+      }
+      setNotice(enabled ? `${loop.name} is enabled.` : `${loop.name} is paused.`)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'I could not update that loop.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const createLoop = async (): Promise<void> => {
+    if (!description.trim()) return
+    setBusy(true)
+    try {
+      await collieClient.createAutomation(
+        description.trim(),
+        undefined,
+        Intl.DateTimeFormat().resolvedOptions().timeZone
+      )
+      setDescription('')
+      setCreating(false)
+      await refresh()
+      setNotice('Your new routine is scheduled.')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'I could not create that loop.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const remove = async (loop: LoopItem): Promise<void> => {
+    if (!window.confirm(`Delete ${loop.name}?`)) return
+    setBusy(true)
+    try {
+      await collieClient.deleteAutomation(loop.id)
+      await refresh()
+      setNotice(`${loop.name} was deleted.`)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'I could not delete that loop.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const runNow = async (loop: LoopItem): Promise<void> => {
+    setBusy(true)
+    try {
+      await collieClient.runRoutineNow(loop.id)
+      setNotice(`${loop.name} is running now.`)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'I could not start that routine.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const toggleHistory = async (loop: LoopItem): Promise<void> => {
+    if (history[loop.id]) {
+      setHistory((current) => {
+        const next = { ...current }
+        delete next[loop.id]
+        return next
+      })
+      return
+    }
+    const data = await collieClient.listRoutineRuns(loop.id)
+    setHistory((current) => ({ ...current, [loop.id]: data.runs }))
+  }
+
+  return (
+    <main className="section-workspace flex min-w-0 flex-1 flex-col overflow-hidden">
+      <header className="section-header">
+        <div>
+          <h1>Routines</h1>
+          <p>Schedule approved plans with visible history and recovery.</p>
+        </div>
+        <button type="button" className="primary-button" onClick={() => setCreating(true)}>
+          <Plus size={16} /> Create routine
+        </button>
+      </header>
+
+      <div className="section-scroll">
+        {notice && <p className="inline-notice" role="status">{notice}</p>}
+        {loading ? (
+          <div className="section-loading">Checking your routines...</div>
+        ) : loops.length > 0 ? (
+          <div className="loop-list">
+            {loops.map((loop) => (
+              <article key={loop.id} className={`loop-card ${loop.enabled === 1 ? '' : 'is-paused'}`}>
+                <div className="loop-icon"><Clock3 size={20} /></div>
+                <div className="loop-copy">
+                  <div className="loop-title-row">
+                    <h2>{loop.name}</h2>
+                    <span className={`loop-state ${loop.enabled === 1 ? 'is-running' : ''}`}>
+                      {loop.routine_status === 'needs_attention'
+                        ? 'Needs attention'
+                        : loop.enabled === 1 ? 'Enabled' : 'Paused'}
+                    </span>
+                  </div>
+                  {loop.description && <p>{loop.description}</p>}
+                  <div className="loop-schedule"><Clock3 size={13} /> {loop.schedule || 'Schedule set by Collie'}</div>
+                  <div className="routine-facts">
+                    <span>Next: {loop.next_run_at ? new Date(loop.next_run_at).toLocaleString() : 'Not scheduled'}</span>
+                    <span>Last success: {loop.last_success_at ? new Date(loop.last_success_at).toLocaleString() : 'Never'}</span>
+                    {loop.last_failure_at ? <span>Last failure: {new Date(loop.last_failure_at).toLocaleString()}</span> : null}
+                    <span>Plan: {loop.plan_version ? `v${loop.plan_version}` : 'Needs review'}</span>
+                  </div>
+                  {history[loop.id] ? (
+                    <div className="routine-history">
+                      {history[loop.id].length ? history[loop.id].slice(0, 5).map((run) => (
+                        <div key={run.id}>
+                          <strong>{run.status}</strong>
+                          <span>{run.started_at ? new Date(run.started_at).toLocaleString() : run.trigger_type}</span>
+                          {run.error_message ? <small>{run.error_message}</small> : null}
+                          {run.status === 'failed' ? (
+                            <button
+                              className="routine-retry"
+                              onClick={() => void (async () => {
+                                await collieClient.retryRoutineRun(run.id)
+                                setNotice('Retry started.')
+                                const data = await collieClient.listRoutineRuns(loop.id)
+                                setHistory((current) => ({ ...current, [loop.id]: data.runs }))
+                              })()}
+                            >
+                              <RotateCcw size={11} /> Retry
+                            </button>
+                          ) : null}
+                        </div>
+                      )) : <span>No runs yet.</span>}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="loop-actions">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => void runNow(loop)}
+                    disabled={busy || (loop.action_type === 'approved_plan' && !loop.plan_version)}
+                  >
+                    <Rocket size={14} /> Run now
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => void toggleHistory(loop)}
+                    disabled={busy}
+                  >
+                    <History size={14} /> History
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    role="switch"
+                    aria-checked={loop.enabled === 1}
+                    onClick={() => void toggle(loop)}
+                    disabled={busy}
+                  >
+                    {loop.enabled === 1 ? <Pause size={14} /> : <Play size={14} />}
+                    {loop.enabled === 1 ? 'Pause' : 'Resume'}
+                  </button>
+                  {!loop.id.startsWith('collie-') && (
+                    <button
+                      type="button"
+                      className="icon-button loop-delete"
+                      aria-label={`Delete ${loop.name}`}
+                      onClick={() => void remove(loop)}
+                      disabled={busy}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="loops-empty">
+            <span className="section-placeholder-icon"><Clock3 size={25} /></span>
+            <h2>Put an approved plan on repeat</h2>
+            <p>Describe what Collie should do and when. Plain language works best.</p>
+            <div className="loop-starters">
+              {LOOP_STARTERS.map((starter) => (
+                <button
+                  key={starter}
+                  type="button"
+                  onClick={() => {
+                    setDescription(starter)
+                    setCreating(true)
+                  }}
+                >
+                  {starter}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {creating && (
+        <div className="dialog-backdrop" role="presentation">
+          <section
+            className="dialog-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="new-loop-title"
+          >
+            <div className="dialog-heading">
+              <div>
+                <span className="detail-label">NEW ROUTINE</span>
+                <h2 id="new-loop-title">What should Collie repeat?</h2>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setCreating(false)} aria-label="Close">
+                <X size={17} />
+              </button>
+            </div>
+            <label className="form-field">
+              <span>Describe the task and schedule</span>
+              <textarea
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                rows={5}
+                placeholder="Every weekday at 8am, brief me on today's weather, calendar, and priorities."
+                autoFocus
+              />
+            </label>
+            <p className="dialog-hint">Include both what you want and when it should happen.</p>
+            <div className="dialog-actions">
+              <button type="button" className="secondary-button" onClick={() => setCreating(false)}>Cancel</button>
+              <button
+                type="button"
+                className="primary-button"
+                disabled={busy || !description.trim()}
+                onClick={() => void createLoop()}
+              >
+                {busy ? 'Setting the schedule...' : 'Create routine'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+    </main>
+  )
+}

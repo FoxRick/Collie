@@ -1,0 +1,31 @@
+appId: com.collie.app
+productName: Collie
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+extraResources:
+  - from: .electron-bundle/collie-core
+    to: collie-core
+  - from: .electron-bundle/mcp-runtime
+    to: mcp-runtime
+  - from: build/icon.png
+    to: icon.png
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: Collie-Setup-${version}.exe
+nsis:
+  oneClick: true
+  perMachine: false
+  warningsAsErrors: false
+publish:
+  provider: github
+  owner: FoxRick
+  repo: Collie
+  channel: alpha
+  releaseType: prerelease

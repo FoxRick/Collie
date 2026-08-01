@@ -1,0 +1,48 @@
+/** English — the reference dictionary. Every key must exist here. */
+export const en = {
+  'app.loading': 'Collie is waking up...',
+  'app.loadingSub': '*stretching paws, wagging tail*',
+
+  'sidebar.newChat': 'New chat',
+  'sidebar.searchPlaceholder': 'Sniff through chats...',
+  'sidebar.searchLabel': 'Search conversations',
+  'sidebar.empty': "Nothing here yet! Start a chat — I'm all ears.",
+  'sidebar.noMatches': 'No matches — my nose came up empty.',
+  'sidebar.settings': 'Settings',
+  'sidebar.delete': 'Delete chat: {title}',
+  'sidebar.working': 'Collie is working on this chat',
+  'sidebar.agents': 'Agents',
+  'sidebar.skills': 'Skills',
+  'sidebar.routines': 'Routines',
+  'sidebar.connectors': 'Connections',
+
+  'chat.emptyTitle': "Hey! What's up?",
+  'chat.emptySub': 'Ask me anything — weather, plans, ideas, or just say hi.',
+  'chat.inputPlaceholder': 'Ask me anything...',
+  'chat.inputLabel': 'Message Collie',
+  'chat.send': 'Send message',
+  'chat.digUp': 'Dig up {count} earlier messages ({hidden} buried)',
+
+  'settings.title': '⚙️ Settings',
+  'settings.back': 'Back to chat',
+  'settings.tabs.account': 'Account',
+  'settings.tabs.profile': 'Profile',
+  'settings.tabs.context': 'Context',
+  'settings.tabs.memory': 'Memory',
+  'settings.tabs.subagents': 'Subagents',
+  'settings.tabs.services': 'Services',
+  'settings.tabs.automations': 'Automations',
+  'settings.tabs.phone': 'Phone',
+  'settings.tabs.pet': 'Pet',
+
+  'settings.appearance': 'Appearance',
+  'settings.theme.system': 'Match system',
+  'settings.theme.light': 'Light',
+  'settings.theme.dark': 'Dark',
+  'settings.textSize': 'Text size',
+  'settings.textSize.normal': 'Normal',
+  'settings.textSize.large': 'Large',
+  'settings.textSize.largest': 'Largest',
+  'settings.language': 'Language',
+  'settings.language.system': 'Match system'
+} as const

@@ -1,0 +1,352 @@
+import { useEffect, useState } from 'react'
+import {
+  Brain,
+  CircleUserRound,
+  Cloud,
+  Dog,
+  KeyRound,
+  Mic2,
+  Palette,
+  RefreshCw,
+  RotateCcw,
+  Send,
+  ShieldCheck,
+  UserRound
+} from 'lucide-react'
+import {
+  collieClient,
+  type ClearAllDataResult,
+  type RuntimeStatus
+} from '../lib/ipc'
+import { useT, type TranslationKey } from '../lib/i18n'
+import {
+  getFontScale,
+  getThemePreference,
+  setFontScale,
+  setThemePreference,
+  type FontScale,
+  type ThemePreference
+} from '../lib/theme'
+import CollieFace from '../components/CollieFace'
+import ProfileTab from '../components/settings/ProfileTab'
+import ContextTab from '../components/settings/ContextTab'
+import MemoryTab from '../components/settings/MemoryTab'
+import ServicesTab from '../components/settings/ServicesTab'
+import PetTab from '../components/settings/PetTab'
+import PhoneTab from '../components/settings/PhoneTab'
+import SafetyApprovalsTab from '../components/settings/SafetyApprovalsTab'
+import ProviderManager from '../components/settings/ProviderManager'
+import AudioInputTab from '../components/settings/AudioInputTab'
+import UpdateTab from '../components/settings/UpdateTab'
+import type { AppView } from '../lib/navigation'
+
+type Tab =
+  | 'models'
+  | 'account'
+  | 'appearance'
+  | 'audio'
+  | 'profile'
+  | 'context'
+  | 'memory'
+  | 'services'
+  | 'phone'
+  | 'pet'
+  | 'safety'
+  | 'onboarding'
+  | 'updates'
+
+const SETTINGS_GROUPS = [
+  {
+    label: 'Models',
+    items: [{ key: 'models' as const, label: 'Models & API keys', icon: KeyRound }]
+  },
+  {
+    label: 'Personalization',
+    items: [
+      { key: 'profile' as const, label: 'Collie personality', icon: CircleUserRound },
+      { key: 'context' as const, label: 'Context', icon: UserRound },
+      { key: 'memory' as const, label: 'Memory', icon: Brain }
+    ]
+  },
+  {
+    label: 'Connections',
+    items: [
+      { key: 'services' as const, label: 'Services', icon: Cloud },
+      { key: 'phone' as const, label: 'Telegram', icon: Send }
+    ]
+  },
+  {
+    label: 'Experience',
+    items: [
+      { key: 'audio' as const, label: 'Audio & input', icon: Mic2 },
+      { key: 'appearance' as const, label: 'Appearance', icon: Palette },
+      { key: 'pet' as const, label: 'Desktop pet', icon: Dog }
+    ]
+  },
+  {
+    label: 'Account & safety',
+    items: [
+      { key: 'account' as const, label: 'Account', icon: CircleUserRound },
+      { key: 'updates' as const, label: 'Updates', icon: RefreshCw },
+      { key: 'onboarding' as const, label: 'Onboarding', icon: RotateCcw },
+      { key: 'safety' as const, label: 'Safety & approvals', icon: ShieldCheck }
+    ]
+  }
+]
+
+interface Props {
+  initialTab?: Tab
+  onRedoOnboarding?: () => void
+  onNavigate?: (view: AppView) => void
+}
+
+export function clearAllDataNotice(result: ClearAllDataResult): string {
+  if (result.cleared) return 'All clear. Fresh start! 🐕'
+
+  const warningCount = result.warnings.length
+  if (result.database_cleared) {
+    const locations =
+      warningCount === 1
+        ? '1 local file or folder'
+        : `${warningCount} local files or folders`
+    return (
+      `I cleared Collie's saved records, but couldn't remove ${locations}. ` +
+      'Close apps using them, then try again.'
+    )
+  }
+
+  return (
+    "I couldn't clear Collie's database, so I left local files in place. " +
+    'Close other Collie windows and try again.'
+  )
+}
+
+const TAB_COPY: Record<Tab, { title: string; description: string }> = {
+  models: { title: 'Models & API keys', description: 'Choose how Collie thinks and connects to AI providers.' },
+  appearance: { title: 'Appearance', description: 'Make Collie comfortable to read and pleasant to use.' },
+  audio: { title: 'Audio & input', description: 'Choose a microphone and make sure Collie can hear you.' },
+  account: { title: 'Account', description: 'Manage your local data and account actions.' },
+  profile: { title: 'Collie personality', description: 'Shape Collie’s voice, tone, and behavior.' },
+  context: { title: 'Context', description: 'Give Collie durable instructions about your life and work.' },
+  memory: { title: 'Memory', description: 'Review and control the facts Collie remembers.' },
+  services: { title: 'Services', description: 'Connect the tools and accounts Collie can work with.' },
+  phone: { title: 'Telegram', description: 'Keep Collie within reach when you are away from this app.' },
+  pet: { title: 'Desktop pet', description: 'Control how your Collie companion behaves on the desktop.' },
+  safety: { title: 'Safety & approvals', description: 'Decide when Collie needs permission before acting.' },
+  onboarding: {
+    title: 'Onboarding',
+    description: 'Walk through setup again without deleting your data.'
+  },
+  updates: { title: 'Updates', description: 'Check, download, and install Collie alpha releases.' }
+}
+
+export default function SettingsScreen({
+  initialTab = 'models',
+  onRedoOnboarding,
+  onNavigate
+}: Props): React.JSX.Element {
+  const [tab, setTab] = useState<Tab>(initialTab)
+  const [status, setStatus] = useState<RuntimeStatus>({})
+  const [settings, setSettings] = useState<Record<string, unknown>>({})
+  const [oauth, setOauth] = useState<{ chatgpt: boolean; claude: boolean }>({
+    chatgpt: false,
+    claude: false
+  })
+  const [notice, setNotice] = useState('')
+  const [theme, setTheme] = useState<ThemePreference>(getThemePreference())
+  const [fontScale, setFontScaleState] = useState<FontScale>(getFontScale())
+  const t = useT()
+
+  const refresh = async (): Promise<void> => {
+    try {
+      const [statusData, settingsData, chatgpt, claude] = await Promise.all([
+        collieClient.getStatus(),
+        collieClient.getSettings(),
+        collieClient.authStatus('chatgpt').catch(() => ({ signed_in: false })),
+        collieClient.authStatus('claude').catch(() => ({ signed_in: false }))
+      ])
+      setStatus(statusData)
+      setSettings(settingsData.settings)
+      setOauth({ chatgpt: chatgpt.signed_in, claude: claude.signed_in })
+    } catch {
+      // core offline; screen shows placeholders
+    }
+  }
+
+  useEffect(() => {
+    void refresh()
+  }, [])
+
+  const renderTab = () => {
+    switch (tab) {
+      case 'models':
+        return (
+          <ProviderManager
+            status={status}
+            settings={settings}
+            oauth={oauth}
+            onRefresh={refresh}
+            onNotice={setNotice}
+          />
+        )
+      case 'appearance':
+        return (
+            <section className="settings-card settings-control-card">
+              <h3 className="mb-2 font-medium">{t('settings.appearance')}</h3>
+              <div className="flex gap-2" role="radiogroup" aria-label={t('settings.appearance')}>
+                {(['system', 'light', 'dark'] as const).map((pref) => (
+                  <button
+                    key={pref}
+                    role="radio"
+                    aria-checked={theme === pref}
+                    onClick={() => {
+                      setThemePreference(pref)
+                      setTheme(pref)
+                    }}
+                    className={`settings-button ${theme === pref ? 'is-selected' : ''}`}
+                  >
+                    {t(`settings.theme.${pref}` as TranslationKey)}
+                  </button>
+                ))}
+              </div>
+              <h4 className="mb-2 mt-4 text-sm font-medium">{t('settings.textSize')}</h4>
+              <div className="flex gap-2" role="radiogroup" aria-label={t('settings.textSize')}>
+                {(['normal', 'large', 'largest'] as const).map((scale) => (
+                  <button
+                    key={scale}
+                    role="radio"
+                    aria-checked={fontScale === scale}
+                    onClick={() => {
+                      setFontScale(scale)
+                      setFontScaleState(scale)
+                    }}
+                    className={`settings-button ${fontScale === scale ? 'is-selected' : ''}`}
+                  >
+                    {t(`settings.textSize.${scale}` as TranslationKey)}
+                  </button>
+                ))}
+              </div>
+            </section>
+        )
+      case 'audio':
+        return <AudioInputTab />
+      case 'account':
+        return (
+            <section className="settings-card">
+              <h3 className="mb-2 font-medium">Your data</h3>
+              <div className="flex gap-2">
+                <button
+                  onClick={() =>
+                    void collieClient
+                      .exportData()
+                      .then((r) => setNotice(`All packed up! Saved to ${r.path}`))
+                      .catch((e) =>
+                        setNotice(e instanceof Error ? e.message : 'Export failed.')
+                      )
+                  }
+                  className="settings-button"
+                >
+                  Export my data
+                </button>
+                <button
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        'Delete everything Collie remembers? Chats, memories, ' +
+                          'people, automations — all of it. This cannot be undone.'
+                      )
+                    ) {
+                      void collieClient
+                        .clearAllData()
+                        .then((result) => setNotice(clearAllDataNotice(result)))
+                        .catch((e) =>
+                          setNotice(e instanceof Error ? e.message : 'Could not clear.')
+                        )
+                    }
+                  }}
+                  className="settings-button is-danger"
+                >
+                  Delete all data
+                </button>
+              </div>
+            </section>
+        )
+      case 'updates':
+        return <UpdateTab />
+      case 'onboarding':
+        return (
+          <section className="settings-card onboarding-card">
+            <div className="settings-card-icon"><RotateCcw size={19} /></div>
+            <div>
+              <h3>Run setup again</h3>
+              <p>
+                Revisit provider sign-in and connection choices. Your chats, memories, and
+                existing settings stay intact.
+              </p>
+            </div>
+            <button className="settings-button is-primary" onClick={onRedoOnboarding}>
+              Start onboarding
+            </button>
+          </section>
+        )
+      case 'safety':
+        return <SafetyApprovalsTab />
+      case 'profile':
+        return <ProfileTab onNotice={setNotice} />
+      case 'context':
+        return <ContextTab onNotice={setNotice} />
+      case 'memory':
+        return <MemoryTab onNotice={setNotice} />
+      case 'services':
+        return <ServicesTab onOpenConnectors={() => onNavigate?.('connectors')} />
+      case 'phone':
+        return <PhoneTab onNotice={setNotice} />
+      case 'pet':
+        return <PetTab onNotice={setNotice} />
+    }
+  }
+
+  return (
+    <div className="settings-layout h-full">
+      <aside className="settings-nav" aria-label="Settings sections">
+        <div className="settings-nav-heading">
+          <h1>{t('settings.title')}</h1>
+        </div>
+        {SETTINGS_GROUPS.map((group) => (
+          <div key={group.label} className="settings-nav-group">
+            <div className="settings-nav-label">{group.label}</div>
+            {group.items.map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setTab(key)}
+                className={`settings-nav-item ${tab === key ? 'is-active' : ''}`}
+                aria-current={tab === key ? 'page' : undefined}
+              >
+                <Icon size={15} /> {label}
+              </button>
+            ))}
+          </div>
+        ))}
+      </aside>
+
+      <div className="settings-content">
+        <div className="settings-content-inner">
+          {notice && (
+            <p className="inline-notice flex items-center gap-2" role="status">
+              <CollieFace size={16} />
+              <span>{notice}</span>
+            </p>
+          )}
+          <div className="settings-page">
+            <header className="settings-page-header">
+              <h2>{TAB_COPY[tab].title}</h2>
+              <p>{TAB_COPY[tab].description}</p>
+            </header>
+            <div className="settings-page-body">{renderTab()}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
