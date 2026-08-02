@@ -1,22 +1,56 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ActiveAgent, ThinkingState } from '../lib/ipc'
-import { portraitStateForEngine, type PortraitState } from './portraitStates'
+import { LOOK_DIRECTION_STEP_MS, stepPortraitDirection } from './colliePortraitMotion'
+import {
+  gazeEnabledForState,
+  portraitStateForEngine,
+  supportsFaceOnlyDeepWork,
+  type PortraitState
+} from './portraitStates'
+
+const DEEP_WORK_DELAY_MS = 11_000
+const COMPLETION_DURATION_MS = 2_400
+const CLICK_REACTION_DURATION_MS = 850
+const CLICK_COOLDOWN_MS = 1_000
 
 interface PortraitModel {
   state: PortraitState
   pawVisible: boolean
   paused: boolean
+  reducedMotion: boolean
+  gazeDirection: number | null
+  triggerReaction: () => void
 }
 
 export function useColliePortraitState(
   thinking: ThinkingState | null,
   isTyping: boolean,
   activeAgents: ActiveAgent[],
-  hovered: boolean
+  pointerTarget: number | null
 ): PortraitModel {
   const [transient, setTransient] = useState<PortraitState | null>(null)
   const [sleepy, setSleepy] = useState(false)
   const [paused, setPaused] = useState(document.hidden)
+  const [reducedMotion, setReducedMotion] = useState(() =>
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  )
+  const [deepWorkReady, setDeepWorkReady] = useState(false)
+  const [gazeDirection, setGazeDirection] = useState<number | null>(null)
+  const clickCooldownUntil = useRef(0)
+  const transientTimer = useRef<number | null>(null)
+
+  const engineState = portraitStateForEngine(thinking?.state)
+  const isAssistantWorking = engineState === 'working'
+  const isActive = isAssistantWorking || engineState === 'review' || isTyping || activeAgents.length > 0
+
+  const setTimedTransient = useCallback((next: PortraitState, duration: number): void => {
+    if (transientTimer.current !== null) window.clearTimeout(transientTimer.current)
+    setTransient(next)
+    transientTimer.current = window.setTimeout(() => {
+      setTransient((current) => (current === next ? null : current))
+      transientTimer.current = null
+    }, duration)
+  }, [])
 
   useEffect(() => {
     const onVisibilityChange = (): void => setPaused(document.hidden)
@@ -25,43 +59,94 @@ export function useColliePortraitState(
   }, [])
 
   useEffect(() => {
-    setSleepy(false)
-    const engineIsActive =
-      Boolean(thinking) && !['idle', 'done', 'error'].includes(thinking?.state || '')
-    if (engineIsActive || isTyping || activeAgents.length > 0) return
-    const timer = window.setTimeout(() => setSleepy(true), 20_000)
-    return () => window.clearTimeout(timer)
-  }, [activeAgents.length, isTyping, thinking])
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const onChange = (): void => setReducedMotion(query.matches)
+    query.addEventListener('change', onChange)
+    return () => query.removeEventListener('change', onChange)
+  }, [])
 
   useEffect(() => {
-    const timers: number[] = []
-    if (thinking?.state === 'done') {
-      setTransient('celebrate')
-      timers.push(window.setTimeout(() => setTransient('bark'), 900))
-      timers.push(window.setTimeout(() => setTransient('happy'), 1220))
-      timers.push(window.setTimeout(() => setTransient(null), 3600))
-    } else if (thinking?.state === 'error') {
-      setTransient('concerned')
-      timers.push(window.setTimeout(() => setTransient(null), 1800))
-    } else {
-      setTransient(null)
+    setSleepy(false)
+    if (isActive) return
+    const timer = window.setTimeout(() => setSleepy(true), 20_000)
+    return () => window.clearTimeout(timer)
+  }, [isActive])
+
+  useEffect(() => {
+    setDeepWorkReady(false)
+    if (!isAssistantWorking || !supportsFaceOnlyDeepWork()) return
+    const timer = window.setTimeout(() => setDeepWorkReady(true), DEEP_WORK_DELAY_MS)
+    return () => window.clearTimeout(timer)
+  }, [isAssistantWorking])
+
+  useEffect(() => {
+    if (engineState !== 'waiting') return
+    if (transientTimer.current !== null) {
+      window.clearTimeout(transientTimer.current)
+      transientTimer.current = null
     }
-    return () => timers.forEach(window.clearTimeout)
-  }, [thinking?.state])
+    setTransient(null)
+  }, [engineState])
+
+  useEffect(() => {
+    if (thinking?.state === 'done') setTimedTransient('completion', COMPLETION_DURATION_MS)
+    else if (thinking?.state === 'error') setTimedTransient('error', 1800)
+  }, [setTimedTransient, thinking?.state])
+
+  useEffect(
+    () => () => {
+      if (transientTimer.current !== null) window.clearTimeout(transientTimer.current)
+    },
+    []
+  )
 
   const state = useMemo<PortraitState>(() => {
+    // Priority matches the approved interaction model: hard states, then
+    // short reactions, then work, pointer attention, and finally idle.
+    if (thinking?.state === 'error') return 'error'
+    if (engineState === 'waiting') return 'waiting'
     if (transient) return transient
-    const engineState = portraitStateForEngine(thinking?.state)
+    // Gate on the current base state as well as the timer so glasses disappear
+    // in the same render that work ends, before the reset effect runs.
+    if (deepWorkReady && isAssistantWorking) return 'deep_work_glasses'
     if (engineState) return engineState
-    if (isTyping) return 'attentive'
-    if (activeAgents.length > 0) return 'listening'
-    if (hovered) return 'paw_over_ring'
+    if (isTyping || activeAgents.length > 0) return 'working'
+    if (!reducedMotion && pointerTarget !== null) return 'pointer_look'
     return sleepy ? 'sleepy' : 'idle'
-  }, [activeAgents.length, hovered, isTyping, sleepy, thinking?.state, transient])
+  }, [deepWorkReady, engineState, isAssistantWorking, pointerTarget, reducedMotion, sleepy, thinking?.state, transient])
+
+  useEffect(() => {
+    if (!gazeEnabledForState(state) || pointerTarget === null) {
+      setGazeDirection(null)
+      return
+    }
+    if (reducedMotion) {
+      setGazeDirection(null)
+      return
+    }
+    setGazeDirection((current) => current ?? pointerTarget)
+    const timer = window.setInterval(() => {
+      setGazeDirection((current) =>
+        current === null || current === pointerTarget ? pointerTarget : stepPortraitDirection(current, pointerTarget)
+      )
+    }, LOOK_DIRECTION_STEP_MS)
+    return () => window.clearInterval(timer)
+  }, [pointerTarget, reducedMotion, state])
+
+  const triggerReaction = useCallback(() => {
+    if (state === 'error' || state === 'waiting' || state === 'completion') return
+    const now = Date.now()
+    if (now < clickCooldownUntil.current) return
+    clickCooldownUntil.current = now + CLICK_COOLDOWN_MS
+    setTimedTransient('click_reaction', CLICK_REACTION_DURATION_MS)
+  }, [setTimedTransient, state])
 
   return {
     state,
-    pawVisible: state === 'paw_over_ring' || state === 'happy',
-    paused
+    pawVisible: state === 'click_reaction' || state === 'completion',
+    paused,
+    reducedMotion,
+    gazeDirection,
+    triggerReaction
   }
 }

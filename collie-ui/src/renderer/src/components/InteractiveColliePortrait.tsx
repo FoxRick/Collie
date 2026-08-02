@@ -1,8 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ActiveAgent, ThinkingState } from '../lib/ipc'
-import { PORTRAIT_ASSET, STATUS_COPY } from './portraitStates'
+import { quantizePortraitPointer } from './colliePortraitMotion'
+import {
+  PORTRAIT_FRAME_DURATION,
+  PORTRAIT_STATIC_FALLBACK,
+  portraitFramesFor,
+  STATUS_COPY
+} from './portraitStates'
 import { useColliePortraitState } from './useColliePortraitState'
 import AgentAvatar from './AgentAvatar'
+import ColliePortraitFrame from './ColliePortraitFrame'
 
 const pawFront = new URL('../assets/portrait/paw-front-brand.webp', import.meta.url).href
 
@@ -39,19 +46,22 @@ export default function InteractiveColliePortrait({
   isTyping,
   activeAgents
 }: Props): React.JSX.Element {
-  const [hovered, setHovered] = useState(false)
+  const [pointerTarget, setPointerTarget] = useState<number | null>(null)
   const [copyIndex, setCopyIndex] = useState(0)
-  const { state, pawVisible, paused } = useColliePortraitState(
+  const [frameIndex, setFrameIndex] = useState(0)
+  const { state, pawVisible, paused, reducedMotion, gazeDirection, triggerReaction } = useColliePortraitState(
     thinking,
     isTyping,
     activeAgents,
-    hovered
+    pointerTarget
   )
+  const frames = portraitFramesFor(state, gazeDirection)
+  const frame = frames[frameIndex % frames.length]
   const settledAfterTerminal =
-    ['idle', 'sleepy', 'paw_over_ring'].includes(state) &&
+    ['idle', 'sleepy'].includes(state) &&
     ['done', 'error'].includes(thinking?.state || '')
   const effectivePhrase =
-    state === 'attentive'
+    state === 'pointer_look'
       ? 'I’m listening…'
       : settledAfterTerminal
         ? 'Ready when you are.'
@@ -76,24 +86,53 @@ export default function InteractiveColliePortrait({
     return () => window.clearInterval(timer)
   }, [copyPool])
 
+  useEffect(() => {
+    setFrameIndex(0)
+    if (paused || reducedMotion || frames.length < 2) return
+    const timer = window.setInterval(
+      () => setFrameIndex((current) => (current + 1) % frames.length),
+      PORTRAIT_FRAME_DURATION[state]
+    )
+    return () => window.clearInterval(timer)
+  }, [frames.length, paused, reducedMotion, state])
+
+  function handlePointerMove(event: React.PointerEvent<HTMLDivElement>): void {
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const x = (event.clientX - bounds.left - bounds.width / 2) / (bounds.width / 2)
+    const y = (event.clientY - bounds.top - bounds.height / 2) / (bounds.height / 2)
+    setPointerTarget(quantizePortraitPointer(x, y))
+  }
+
+  function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>): void {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    triggerReaction()
+  }
+
   const status = copyPool[copyIndex] || 'Ready when you are.'
 
   return (
     <section
       className={`collie-portrait-stage is-${state}${paused ? ' is-paused' : ''}`}
       aria-label={`Collie is ${state.replaceAll('_', ' ')}`}
-      onPointerEnter={() => setHovered(true)}
-      onPointerLeave={() => setHovered(false)}
     >
-      <div className="collie-portrait-ring">
+      <div
+        className="collie-portrait-ring"
+        role="button"
+        tabIndex={0}
+        aria-label="Pet Collie"
+        data-gaze-direction={gazeDirection ?? 'idle'}
+        onPointerMove={handlePointerMove}
+        onPointerLeave={() => setPointerTarget(null)}
+        onClick={triggerReaction}
+        onKeyDown={handleKeyDown}
+      >
         <span className="collie-ring-background" aria-hidden="true" />
         <div className="collie-portrait-clip">
-          <img
-            key={PORTRAIT_ASSET[state]}
+          <ColliePortraitFrame
             className="collie-portrait-base"
-            src={PORTRAIT_ASSET[state]}
-            alt=""
-            draggable={false}
+            frame={frame}
+            fallbackSrc={PORTRAIT_STATIC_FALLBACK}
           />
         </div>
         <span className="collie-ring-foreground" aria-hidden="true" />

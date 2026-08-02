@@ -79,7 +79,7 @@ function stageSource() {
     if (!rel) return true
     if (isCacheOrBytecode(rel)) return false
     return statSync(join(coreRoot, 'collie_core', rel)).isDirectory() ||
-      /\.(py|png|json|md)$/i.test(rel)
+      /\.(py|png|webp|json|md)$/i.test(rel)
   })
   copyTree(join(coreRoot, 'nanobot'), join(stageRoot, 'nanobot'), (rel) => {
     if (!rel) return true
@@ -199,6 +199,7 @@ function verifyBundle() {
       '-c',
       [
         'import collie_core.runtime',
+        'from collie_core.pet.v2 import asset_paths; asset_paths()',
         'import nanobot',
         'import websockets',
         'import pydantic',

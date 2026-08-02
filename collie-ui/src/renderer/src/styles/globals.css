@@ -2549,6 +2549,13 @@ button {
   width: 100%;
   aspect-ratio: 1;
   overflow: visible;
+  cursor: pointer;
+  outline: none;
+}
+
+.collie-portrait-ring:focus-visible {
+  border-radius: 50%;
+  box-shadow: 0 0 0 4px rgba(224, 151, 36, 0.46);
 }
 
 .collie-ring-background,
@@ -2581,8 +2588,8 @@ button {
   height: 100%;
   object-fit: contain;
   user-select: none;
-  animation: portrait-crossfade 160ms ease-out both, portrait-breathe 4.8s ease-in-out infinite;
-  transform-origin: 50% 78%;
+  animation: portrait-crossfade 160ms ease-out both;
+  will-change: opacity;
 }
 
 .collie-ring-foreground {
@@ -2596,7 +2603,8 @@ button {
   transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
-.collie-portrait-stage:hover .collie-ring-foreground {
+.collie-portrait-ring:hover .collie-ring-foreground,
+.collie-portrait-ring:focus-visible .collie-ring-foreground {
   border-color: #9b5d0a;
   box-shadow:
     inset 0 0 0 2px rgba(255, 244, 205, 0.82),
@@ -2697,16 +2705,6 @@ button {
   -webkit-line-clamp: 2;
 }
 
-.collie-portrait-stage.is-attentive .collie-portrait-base { transform: scale(1.015); }
-.collie-portrait-stage.is-thinking .collie-portrait-base { animation: portrait-crossfade 160ms ease-out both; }
-.collie-portrait-stage.is-searching .collie-portrait-base {
-  animation: portrait-crossfade 160ms ease-out both;
-}
-.collie-portrait-stage.is-writing .collie-portrait-base { animation: portrait-crossfade 160ms ease-out both; }
-.collie-portrait-stage.is-listening .collie-portrait-base { transform: rotate(-1.5deg); }
-.collie-portrait-stage.is-celebrate .collie-portrait-base { animation: portrait-pop 900ms cubic-bezier(.2,.8,.2,1) both; }
-.collie-portrait-stage.is-bark .collie-portrait-base { animation: portrait-bark 320ms ease-out both; }
-.collie-portrait-stage.is-concerned .collie-portrait-base { animation: portrait-crossfade 160ms ease-out both; }
 .collie-portrait-stage.is-paused *,
 .collie-portrait-stage.is-paused *::before,
 .collie-portrait-stage.is-paused *::after { animation-play-state: paused !important; }
@@ -2714,34 +2712,6 @@ button {
 @keyframes portrait-crossfade {
   from { opacity: 0.35; }
   to { opacity: 1; }
-}
-
-@keyframes portrait-breathe {
-  0%, 100% { transform: scale(1) translateY(0); }
-  50% { transform: scale(1.012) translateY(-1px); }
-}
-
-@keyframes portrait-attentive {
-  0%, 100% { transform: scale(1.025) translateY(-1px) rotate(-0.5deg); }
-  50% { transform: scale(1.045) translateY(-2px) rotate(0.5deg); }
-}
-
-@keyframes portrait-scan {
-  0%, 100% { transform: rotate(0); }
-  45% { transform: rotate(-1.3deg); }
-  70% { transform: rotate(1deg); }
-}
-
-@keyframes portrait-pop {
-  0% { transform: scale(0.96) translateY(4px); }
-  40% { transform: scale(1.06) translateY(-4px); }
-  70% { transform: scale(1.01) translateY(0); }
-  100% { transform: scale(1.025); }
-}
-
-@keyframes portrait-bark {
-  0%, 100% { transform: scale(1.02); }
-  45% { transform: scale(1.08) translateY(-2px); }
 }
 
 .dark .collie-ring-background {

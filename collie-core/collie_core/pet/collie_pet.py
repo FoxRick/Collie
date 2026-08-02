@@ -20,6 +20,7 @@ import random
 import sys
 import tkinter as tk
 from pathlib import Path
+from time import monotonic
 from typing import Dict, List, Optional, Tuple
 
 try:
@@ -35,6 +36,15 @@ from .sprites import (
     FRAME_DURATIONS,
     RENDER_STATES,
     STATE_GENERATORS,
+)
+from .v2 import (
+    FRAME_SEQUENCES as V2_FRAME_SEQUENCES,
+)
+from .v2 import (
+    V2AnimationController,
+    V2AssetError,
+    V2SpriteRenderer,
+    quantize_pointer_direction,
 )
 
 
@@ -66,7 +76,10 @@ PERSONALITY_MAX_IDLE_S = 90
 
 # Pet "moods" / autonomous states the pet can wander into
 AUTONOMOUS_STATES = ["idle", "sleep"]
-WALK_STATES = ["walk", "walk_left"]
+LEGACY_WALK_STATES = ["walk", "walk_left"]
+V2_WALK_STATES = ["walk_right", "walk_left"]
+V2_BASE_STATES = {"idle", "working", "review", "waiting", "error"}
+V2_CONTEXT_STATES = ("idle", "working", "review", "waiting", "error", "completion")
 
 LEGACY_STATE_ALIASES = {
     "sit": "working",
@@ -178,11 +191,22 @@ class ColliePet:
         self._frame_index = 0
         self._animating = False
         self._anim_job: Optional[str] = None
+        self._walk_job: Optional[str] = None
+        self._walk_generation = 0
         self._scale = load_scale()
         self._facing_right = False
         self._dragging = False
         self._drag_offset = (0, 0)
+        self._drag_origin = (0, 0)
         self._status_hide_job: Optional[str] = None
+
+        self._v2_renderer: Optional[V2SpriteRenderer] = None
+        self._v2_controller: Optional[V2AnimationController] = None
+        try:
+            self._v2_renderer = V2SpriteRenderer()
+            self._v2_controller = V2AnimationController("idle", self._now_ms())
+        except V2AssetError as exc:
+            print(f"[pet] Collie v2 assets unavailable; using legacy fallback: {exc}")
 
         # Generated sprite frames: state -> list of PhotoImage (scaled)
         self._frames: Dict[str, List[ImageTk.PhotoImage]] = {}
@@ -276,6 +300,8 @@ class ColliePet:
         self._label.bind("<ButtonPress-1>", self._on_drag_start)
         self._label.bind("<B1-Motion>", self._on_drag_move)
         self._label.bind("<ButtonRelease-1>", self._on_drag_end)
+        self._label.bind("<Motion>", self._on_pointer_move)
+        self._label.bind("<Leave>", self._on_pointer_leave)
 
         # Scale on mouse wheel
         self._label.bind("<MouseWheel>", self._on_scale)
@@ -288,7 +314,8 @@ class ColliePet:
         menu = tk.Menu(self.root, tearoff=0)
 
         state_menu = tk.Menu(menu, tearoff=0)
-        for state in ANIM_STATES:
+        states = V2_CONTEXT_STATES if self._v2_renderer is not None else ANIM_STATES
+        for state in states:
             state_menu.add_command(
                 label=state.title(),
                 command=lambda s=state: self.set_state(s),
@@ -323,6 +350,17 @@ class ColliePet:
     def _generate_all_frames(self) -> None:
         """Pre-render all animation state frames at the current scale."""
         self._frames.clear()
+        if self._v2_renderer is not None:
+            for state in V2_FRAME_SEQUENCES:
+                scaled: List[ImageTk.PhotoImage] = []
+                for pil_img in self._v2_renderer.frames_for(state):
+                    if self._scale != 1.0:
+                        w = max(1, int(CELL_W * self._scale))
+                        h = max(1, int(CELL_H * self._scale))
+                        pil_img = pil_img.resize((w, h), Image.LANCZOS)
+                    scaled.append(ImageTk.PhotoImage(pil_img))
+                self._frames[state] = scaled
+            return
         for state in RENDER_STATES:
             gen = STATE_GENERATORS.get(state)
             if gen is None:
@@ -357,6 +395,11 @@ class ColliePet:
 
     def set_state(self, state: str) -> None:
         """Transition to a new animation state."""
+        if state not in V2_WALK_STATES and state not in LEGACY_WALK_STATES:
+            self._cancel_walk()
+        if self._v2_controller is not None:
+            self._set_v2_state(state)
+            return
         if state not in self._frames or not self._frames[state]:
             return
         self._stop_animation()
@@ -372,11 +415,76 @@ class ColliePet:
         self._label.config(image=self._frames[state][0])
         self._start_animation()
 
+    def _now_ms(self) -> int:
+        return round(monotonic() * 1000)
+
+    def _set_v2_state(self, state: str) -> None:
+        controller = self._v2_controller
+        if controller is None:
+            return
+        now = self._now_ms()
+        if state in V2_WALK_STATES:
+            controller.start_directional_motion(state, now)
+        elif state == "completion" or state == "happy":
+            controller.complete(now)
+        elif state in {"click_reaction", "wave", "jump"}:
+            controller.trigger_click(now)
+        else:
+            mapped = {
+                "walk": "review",
+                "sleep": "idle",
+                "concerned": "error",
+                "sit": "waiting",
+                "run": "working",
+                "run_right": "working",
+                "chase": "working",
+                "play": "working",
+                "belly": "idle",
+                "wag": "idle",
+            }.get(state, state)
+            if mapped in V2_BASE_STATES:
+                controller.set_base_state(mapped, now)
+            else:
+                return
+        self._stop_animation()
+        self._show_v2_snapshot(now, reset_frame=True)
+        self._start_animation()
+
+    def _show_v2_snapshot(self, now: int, *, reset_frame: bool = False) -> None:
+        controller = self._v2_controller
+        if controller is None:
+            return
+        snapshot = controller.snapshot(now)
+        target_frame = snapshot.direction if snapshot.state == "pointer_look" else 0
+        if target_frame is None:
+            target_frame = 0
+        if reset_frame or snapshot.state != self._state or self._frame_index != target_frame:
+            self._state = snapshot.state
+            self._frame_index = target_frame
+            frames = self._frames.get(self._state, [])
+            if frames:
+                self._label.config(image=frames[self._frame_index])
+
     def _start_animation(self) -> None:
         if self._animating:
             return
         self._animating = True
+        if self._v2_controller is not None:
+            self._schedule_v2_frame()
+            return
         self._advance_frame()
+
+    def _schedule_v2_frame(self) -> None:
+        frames = self._frames.get(self._state, [])
+        sequence = V2_FRAME_SEQUENCES.get(self._state)
+        if not frames or sequence is None:
+            self._animating = False
+            return
+        if self._state == "pointer_look":
+            self._anim_job = self.root.after(72, self._advance_frame)
+            return
+        delay = sequence.durations_ms[self._frame_index % len(sequence.durations_ms)]
+        self._anim_job = self.root.after(delay, self._advance_frame)
 
     def _stop_animation(self) -> None:
         self._animating = False
@@ -386,6 +494,18 @@ class ColliePet:
 
     def _advance_frame(self) -> None:
         if not self._animating:
+            return
+        if self._v2_controller is not None:
+            previous_state = self._state
+            self._show_v2_snapshot(self._now_ms())
+            frames = self._frames.get(self._state, [])
+            if not frames:
+                self._animating = False
+                return
+            if previous_state == self._state and self._state != "pointer_look":
+                self._frame_index = (self._frame_index + 1) % len(frames)
+                self._label.config(image=frames[self._frame_index])
+            self._schedule_v2_frame()
             return
         frames = self._frames.get(self._state, [])
         if not frames:
@@ -414,6 +534,11 @@ class ColliePet:
         def tick() -> None:
             if not self.root.winfo_exists():
                 return
+            if self._v2_controller is not None:
+                if self._state == "idle" and random.random() < 0.1 and self._roaming:
+                    self._walk_across()
+                self._schedule_personality()
+                return
             # Only change from non-animated/idle-ish states
             current = self._state
             if current in AUTONOMOUS_STATES:
@@ -424,7 +549,7 @@ class ColliePet:
                     new_state = random.choice(AUTONOMOUS_STATES)
                     if new_state != current:
                         self.set_state(new_state)
-            elif current in WALK_STATES:
+            elif current in LEGACY_WALK_STATES:
                 # Finish walk, transition to idle
                 self.set_state("idle")
             self._schedule_personality()
@@ -455,12 +580,25 @@ class ColliePet:
         if command.startswith("status:"):
             payload = command.split(":", 1)[1]
             state, separator, text = payload.partition("|")
-            if separator and state in ANIM_STATES:
+            valid_states = set(ANIM_STATES) | set(V2_CONTEXT_STATES)
+            if separator and state in valid_states:
                 self._set_status(text, state=state)
             else:
                 self._set_status(payload)
             return
         command = command.lower()
+        if self._v2_controller is not None:
+            if command in V2_BASE_STATES or command in {"completion", "click_reaction"}:
+                self.set_state(command)
+            elif command in {"wave", "jump", "happy"}:
+                self.set_state("completion" if command == "happy" else "click_reaction")
+            elif command == "sit":
+                self.set_state("waiting")
+            elif command in {"sleep", "walk", "concerned"}:
+                self.set_state(command)
+            elif command in {"hide", "show", "roam", "stay", "quit"} or command.startswith("size:"):
+                self._apply_pet_window_command(command)
+            return
         command = LEGACY_STATE_ALIASES.get(command, command)
         if command in self._frames:
             self.set_state(command)
@@ -476,8 +614,29 @@ class ColliePet:
             self._roaming = True
         elif command == "stay":
             self._roaming = False
-            if self._state in WALK_STATES:
+            if self._state in LEGACY_WALK_STATES:
                 self.set_state("idle")
+        elif command.startswith("size:"):
+            try:
+                self._set_scale(float(command.split(":", 1)[1]))
+            except (ValueError, IndexError):
+                pass
+        elif command == "quit":
+            self.destroy()
+
+    def _apply_pet_window_command(self, command: str) -> None:
+        if command == "hide":
+            self.root.withdraw()
+        elif command == "show":
+            self.root.deiconify()
+        elif command == "roam":
+            self._roaming = True
+        elif command == "stay":
+            self._roaming = False
+            if self._state in V2_WALK_STATES:
+                self.set_state("idle")
+            else:
+                self._cancel_walk()
         elif command.startswith("size:"):
             try:
                 self._set_scale(float(command.split(":", 1)[1]))
@@ -511,18 +670,20 @@ class ColliePet:
             pass
 
         lowered = clean.lower()
-        is_completion = state == "happy" or lowered.startswith(("finished", "done", "all done"))
+        is_completion = state in {"happy", "completion"} or lowered.startswith(
+            ("finished", "done", "all done")
+        )
         needs_attention = lowered.startswith(("approval needed", "waiting for approval"))
-        if state in ANIM_STATES:
+        if state in set(ANIM_STATES) | set(V2_CONTEXT_STATES):
             self.set_state(state)
         elif lowered.startswith(("working", "thinking", "writing", "sorting", "mapping")):
             self.set_state("working")
         elif lowered.startswith(("checking", "fetching", "looking", "sniffing")):
-            self.set_state("walk")
+            self.set_state("review")
         elif lowered.startswith(("i hit a snag", "uh oh", "error", "couldn't", "could not")):
-            self.set_state("concerned")
+            self.set_state("error")
         elif is_completion:
-            self.set_state("happy")
+            self.set_state("completion")
 
         # Progress notes are transient. Completion announcements remain until
         # the user clicks the bubble or returns to the Collie window.
@@ -547,23 +708,32 @@ class ColliePet:
 
     def _walk_across(self) -> None:
         """Perform an autonomous walk across part of the screen."""
+        self._cancel_walk()
         screen_w = self.root.winfo_screenwidth()
         x = self.root.winfo_x()
         pet_w = int(CELL_W * self._scale)
 
         # Walk toward center if at edge, otherwise random direction
         if x < screen_w * 0.2:
-            direction = "walk"
+            direction = "walk_right" if self._v2_controller is not None else "walk"
         elif x > screen_w * 0.8:
             direction = "walk_left"
         else:
-            direction = random.choice(WALK_STATES)
+            direction = random.choice(
+                V2_WALK_STATES if self._v2_controller is not None else LEGACY_WALK_STATES
+            )
 
         self.set_state(direction)
-        step = 6 if direction == "walk" else -6
+        if self._state != direction:
+            return
+        step = 6 if direction in {"walk", "walk_right"} else -6
         steps = random.randint(8, 20)
+        generation = self._walk_generation
 
         def move(remaining: int) -> None:
+            self._walk_job = None
+            if generation != self._walk_generation or self._state != direction:
+                return
             if remaining <= 0 or not self.root.winfo_exists():
                 if self.root.winfo_exists():
                     self.set_state("idle")
@@ -572,9 +742,18 @@ class ColliePet:
             cur_y = self.root.winfo_y()
             new_x = max(EDGE_MARGIN, min(screen_w - pet_w - EDGE_MARGIN, cur_x + step))
             self._set_position(new_x, cur_y)
-            self.root.after(80, lambda: move(remaining - 1))
+            self._walk_job = self.root.after(80, lambda: move(remaining - 1))
 
-        self.root.after(200, lambda: move(steps))
+        self._walk_job = self.root.after(200, lambda: move(steps))
+
+    def _cancel_walk(self) -> None:
+        self._walk_generation += 1
+        if self._walk_job is not None:
+            try:
+                self.root.after_cancel(self._walk_job)
+            except tk.TclError:
+                pass
+            self._walk_job = None
 
     # ------------------------------------------------------------------
     # Drag
@@ -583,9 +762,10 @@ class ColliePet:
     def _on_drag_start(self, event: tk.Event) -> None:
         self._dragging = True
         self._drag_offset = (event.x, event.y)
+        self._drag_origin = (self.root.winfo_x(), self.root.winfo_y())
         self._label.config(cursor="fleur")
         # Pause walk animation during drag
-        if self._state in WALK_STATES:
+        if self._state in V2_WALK_STATES or self._state in LEGACY_WALK_STATES:
             self.set_state("idle")
 
     def _on_drag_move(self, event: tk.Event) -> None:
@@ -598,6 +778,41 @@ class ColliePet:
     def _on_drag_end(self, event: tk.Event) -> None:
         self._dragging = False
         save_position(self.root.winfo_x(), self.root.winfo_y())
+        if self._v2_controller is not None:
+            distance = abs(self.root.winfo_x() - self._drag_origin[0]) + abs(
+                self.root.winfo_y() - self._drag_origin[1]
+            )
+            if distance <= 4:
+                self.set_state("click_reaction")
+
+    def _on_pointer_move(self, event: tk.Event) -> None:
+        controller = self._v2_controller
+        if controller is None or self._dragging:
+            return
+        direction = quantize_pointer_direction(
+            event.x - self._label.winfo_width() / 2,
+            event.y - self._label.winfo_height() / 2,
+            min(self._label.winfo_width(), self._label.winfo_height()) * 0.16,
+        )
+        now = self._now_ms()
+        controller.set_pointer_target(direction, now)
+        previous_state = self._state
+        self._show_v2_snapshot(now)
+        if self._state != previous_state:
+            self._stop_animation()
+            self._start_animation()
+
+    def _on_pointer_leave(self, _event: tk.Event) -> None:
+        controller = self._v2_controller
+        if controller is None:
+            return
+        now = self._now_ms()
+        controller.set_pointer_target(None, now)
+        previous_state = self._state
+        self._show_v2_snapshot(now)
+        if self._state != previous_state:
+            self._stop_animation()
+            self._start_animation()
 
     # ------------------------------------------------------------------
     # Scale (mouse wheel)
@@ -668,6 +883,7 @@ class ColliePet:
         try:
             if self.root.winfo_exists():
                 save_position(self.root.winfo_x(), self.root.winfo_y())
+            self._cancel_walk()
             self._stop_animation()
             self.root.destroy()
         except (tk.TclError, RuntimeError):
@@ -687,6 +903,9 @@ class ColliePet:
 
     def wave(self) -> None:
         """Public: make the pet do a happy/wag animation, then return to idle."""
+        if self._v2_controller is not None:
+            self.set_state("click_reaction")
+            return
         self.set_state("happy")
         # Return to idle after one loop
         frames = self._frames.get("happy", [])
@@ -700,10 +919,16 @@ class ColliePet:
         self.root.after(total_ms, back_to_idle)
 
     def sit(self) -> None:
+        if self._v2_controller is not None:
+            self.set_state("waiting")
+            return
         self.set_state("working")
 
     def jump(self) -> None:
         """Legacy API: use the single happy celebration animation."""
+        if self._v2_controller is not None:
+            self.set_state("click_reaction")
+            return
         self.set_state("happy")
         frames = self._frames.get("happy", [])
         durations = FRAME_DURATIONS.get("happy", [])
@@ -715,6 +940,9 @@ class ColliePet:
         ))
 
     def toggle_sleep(self) -> None:
+        if self._v2_controller is not None:
+            self.set_state("idle")
+            return
         if self._state == "sleep":
             self.set_state("idle")
         else:
