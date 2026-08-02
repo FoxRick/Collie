@@ -89,9 +89,18 @@ class ConnectorManager:
                 and definition.available
                 and row["driver"] == definition.driver.value
             )
-            if row["status"] == ConnectionStatus.CONNECTED.value and compatible:
-                counts[provider_id] = counts.get(provider_id, 0) + 1
-            if compatible:
+            if not compatible:
+                continue
+            if row["status"] == ConnectionStatus.CONNECTED.value:
+                # A connected row only counts (and stays green) when its
+                # credentials actually exist.
+                if self._has_credentials(row):
+                    counts[provider_id] = counts.get(provider_id, 0) + 1
+                else:
+                    statuses.setdefault(
+                        provider_id, ConnectionStatus.AUTH_REQUIRED.value
+                    )
+            else:
                 statuses.setdefault(provider_id, str(row["status"]))
         return [
             {
@@ -133,6 +142,10 @@ class ConnectorManager:
             self.db, credentials=self.credentials
         ).catalog_view()
 
+    def _has_credentials(self, row: dict[str, Any]) -> bool:
+        """A connection is only genuinely connected when its token exists."""
+        return self.credentials.load(f"connector:{row['id']}") is not None
+
     def _connection_view(self, row: dict[str, Any]) -> dict[str, Any]:
         definition = connector_def(str(row["provider_id"]))
         compatible = bool(
@@ -150,6 +163,18 @@ class ConnectorManager:
             last_error_code = "provider_unavailable"
             last_error_message = (
                 "This connection is not available in this build and cannot be used."
+            )
+        # A connected row without stored credentials (token deleted, DB
+        # restored without the credential files, legacy migration gap) must
+        # not look healthy or bind at runtime — it needs a fresh sign-in.
+        elif status == ConnectionStatus.CONNECTED.value and not self._has_credentials(
+            row
+        ):
+            status = ConnectionStatus.AUTH_REQUIRED.value
+            last_error_code = "credentials_missing"
+            last_error_message = (
+                "The saved credentials for this connection are missing — "
+                "sign in again."
             )
         return {
             "id": row["id"],
@@ -486,6 +511,7 @@ class ConnectorManager:
                 or not definition.available
                 or definition.driver != ConnectorDriverKind.OFFICIAL_MCP
                 or row["driver"] != definition.driver.value
+                or not self._has_credentials(row)
             ):
                 continue
             name = f"{definition.id}_{str(row['id'])[-8:]}"
@@ -511,6 +537,7 @@ class ConnectorManager:
             return False
         return any(
             row["status"] == ConnectionStatus.CONNECTED.value
+            and self._has_credentials(row)
             for row in self.db.list_connector_connections(provider_id)
         )
 

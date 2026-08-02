@@ -12,6 +12,7 @@ class ConnectionStatus(StrEnum):
     AUTHORIZING = "authorizing"
     TESTING = "testing"
     CONNECTED = "connected"
+    AUTH_REQUIRED = "auth_required"
     ATTENTION = "attention"
     FAILED = "failed"
     REVOKING = "revoking"

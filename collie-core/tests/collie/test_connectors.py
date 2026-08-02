@@ -81,6 +81,24 @@ def test_launch_catalog_enables_direct_mcp_routes_ready_for_live_oauth() -> None
     assert by_id["notion"].endpoint == "https://mcp.notion.com/mcp"
 
 
+def test_enabled_catalog_routes_declare_explicit_least_privilege_scopes() -> None:
+    by_id = {item.id: item for item in CONNECTOR_CATALOG}
+    enabled = {item.id for item in CONNECTOR_CATALOG if item.available}
+    assert enabled == {"notion", "linear", "todoist", "atlassian", "airtable"}
+    for provider_id in enabled:
+        definition = by_id[provider_id]
+        # Empty scopes make the MCP SDK omit the scope parameter, which the
+        # authorization server reads as "everything advertised".
+        assert definition.scopes, f"{provider_id} must request explicit scopes"
+    assert by_id["linear"].scopes == ("read", "write")
+    assert by_id["todoist"].scopes == ("data:read_write",)
+    assert by_id["airtable"].scopes == (
+        "data.records:read",
+        "data.records:write",
+        "schema.bases:read",
+    )
+
+
 def _enable_connector_for_unit_test(monkeypatch: pytest.MonkeyPatch, provider_id: str) -> None:
     from collie_core.connectors import catalog
     from collie_core.connectors import manager as connector_manager
@@ -190,11 +208,43 @@ def test_disabled_connector_cannot_connect_or_rebind_existing_runtime(
     db.close()
 
 
-def test_enabled_provider_historical_connected_row_stays_healthy_and_rebinds(
+def test_enabled_provider_historical_connected_row_without_credentials_requires_auth(
     tmp_path: Path, connector_store: CredentialStore
 ) -> None:
     db = CollieDB(tmp_path / "collie.db")
     manager = ConnectorManager(db, credentials=connector_store)
+    db.upsert_connector_connection(
+        "con_old_notion",
+        provider_id="notion",
+        driver="official_mcp",
+        auth_type="oauth",
+        status="connected",
+        enabled_tools=["search_pages"],
+    )
+    # A connected row without stored credentials (token deleted, DB restored
+    # without the credential files) must not report healthy or bind at
+    # runtime — it needs a fresh sign-in.
+    assert manager.is_connected("notion") is False
+    assert manager.mcp_servers_for_config() == {}
+    connection = manager.get_connection("con_old_notion")
+    assert connection is not None
+    assert connection["status"] == "auth_required"
+    assert connection["last_error_code"] == "credentials_missing"
+    catalog = {item["id"]: item for item in manager.catalog_view()}
+    assert catalog["notion"]["status"] == "auth_required"
+    assert catalog["notion"]["connection_count"] == 0
+    db.close()
+
+
+def test_enabled_provider_connected_row_with_credentials_stays_healthy_and_rebinds(
+    tmp_path: Path, connector_store: CredentialStore
+) -> None:
+    db = CollieDB(tmp_path / "collie.db")
+    manager = ConnectorManager(db, credentials=connector_store)
+    connector_store.save(
+        "connector:con_old_notion",
+        {"tokens": {"access_token": "tok", "token_type": "Bearer"}},
+    )
     db.upsert_connector_connection(
         "con_old_notion",
         provider_id="notion",
@@ -209,6 +259,9 @@ def test_enabled_provider_historical_connected_row_stays_healthy_and_rebinds(
     assert connection is not None
     assert connection["status"] == "connected"
     assert connection["last_error_code"] is None
+    catalog = {item["id"]: item for item in manager.catalog_view()}
+    assert catalog["notion"]["status"] == "connected"
+    assert catalog["notion"]["connection_count"] == 1
     db.close()
 
 
@@ -222,6 +275,11 @@ def test_recheck_only_exposes_identity_returned_by_the_provider(
 
     class _NoIdentityDriver(_FakeDriver):
         def probe(self, definition, connection_id: str) -> ProbeResult:
+            # A re-test runs against a connection that already has tokens.
+            self.store.save(
+                f"connector:{connection_id}",
+                {"tokens": {"access_token": "secret-access-token"}},
+            )
             return ProbeResult(
                 tools=[{"name": "search_pages", "risk": "read", "schema_hash": "h"}]
             )

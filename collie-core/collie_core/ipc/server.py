@@ -2265,6 +2265,8 @@ class CollieIPCServer:
                 content,
                 session_key=session_key,
                 origin=command_origin,
+                conversation_id=conv_id,
+                execution_mode=str(conversation.get("execution_mode") or "execute"),
             )
             if command_result and command_result.get("new_conversation"):
                 conversation = self.db.create_conversation(

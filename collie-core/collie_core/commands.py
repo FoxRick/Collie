@@ -7,6 +7,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
+from collie_core.permissions.broker import PermissionDeniedError
+from collie_core.permissions.models import ExecutionContext
 from nanobot.agent.skills import SkillsLoader
 
 _COMMAND = re.compile(r"^/([a-z][a-z0-9-]*)(?:\s+(.*))?$", re.IGNORECASE | re.DOTALL)
@@ -88,6 +90,9 @@ class CommandController:
         status_provider: Callable[[], dict[str, Any]],
         model_switcher: Callable[[str], Awaitable[dict[str, Any]]] | None = None,
         providers_provider: Callable[[], list[dict[str, Any]]] | None = None,
+        model_authorizer: Callable[
+            [ExecutionContext, dict[str, Any]], Awaitable[None]
+        ] | None = None,
     ) -> None:
         self.workspace = workspace
         self.subagents = subagent_loader
@@ -95,6 +100,7 @@ class CommandController:
         self._status_provider = status_provider
         self._model_switcher = model_switcher
         self._providers_provider = providers_provider
+        self._model_authorizer = model_authorizer
 
     def catalog(self) -> dict[str, Any]:
         agents = self.subagents.sync() if self.subagents is not None else []
@@ -129,6 +135,8 @@ class CommandController:
         *,
         session_key: str,
         origin: str,
+        conversation_id: str | None = None,
+        execution_mode: str = "execute",
     ) -> dict[str, Any] | None:
         if _MODEL_IDENTITY_QUERY.fullmatch(content.strip()):
             status = self._status_provider()
@@ -251,7 +259,12 @@ class CommandController:
             }
 
         if command == "model":
-            return await self._handle_model(arguments)
+            return await self._handle_model(
+                arguments,
+                conversation_id=conversation_id,
+                execution_mode=execution_mode,
+                origin=origin,
+            )
 
         if command == "stop":
             stopped = await loop.cancel_session(session_key) if loop is not None else 0
@@ -373,14 +386,42 @@ class CommandController:
 
         return None
 
-    async def _handle_model(self, arguments: str) -> dict[str, Any]:
-        """Implement ``/model [model-id]`` — show or switch the active model."""
+    async def _handle_model(
+        self,
+        arguments: str,
+        *,
+        conversation_id: str | None,
+        execution_mode: str,
+        origin: str,
+    ) -> dict[str, Any]:
+        """Implement ``/model [model-id]`` — show or switch the active model.
+
+        Switching mutates provider settings, so it goes through the same
+        permission broker as the ``set_model`` tool (approval-gated
+        LOCAL_WRITE; denied in plan mode) before the runtime switcher runs.
+        """
         if arguments:
             if self._model_switcher is None:
                 return {
                     "handled": True,
                     "content": "Model switching isn't available in this session.",
                 }
+            if self._model_authorizer is not None:
+                context = ExecutionContext(
+                    execution_mode=execution_mode,
+                    conversation_id=conversation_id,
+                    origin=origin,
+                )
+                try:
+                    await self._model_authorizer(context, {"model": arguments})
+                except PermissionDeniedError as error:
+                    return {
+                        "handled": True,
+                        "content": (
+                            "I can't switch models right now: "
+                            f"{error}"
+                        ),
+                    }
             result = await self._model_switcher(arguments)
             if not result.get("switched"):
                 return {

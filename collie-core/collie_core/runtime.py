@@ -17,6 +17,7 @@ import sys
 import urllib.parse
 import uuid
 from contextlib import suppress
+from types import SimpleNamespace
 from typing import Any
 
 from loguru import logger
@@ -31,13 +32,14 @@ from collie_core.memory.profile import ProfileStore
 from collie_core.messengers import CollieBus, MessengerManager
 from collie_core.permissions.broker import ApprovalBroker
 from collie_core.permissions.evaluator import PermissionEvaluator
+from collie_core.permissions.models import ExecutionContext
 from collie_core.permissions.store import PermissionStore
 from collie_core.services.manager import bind_service_manager
 from collie_core.session_identity import desktop_session_key
 from collie_core.subagents.loader import SubagentLoader, bind_subagent_loader
 from collie_core.tools.life_db import bind_life_db
 from collie_core.tools.memory import bind_profile_store
-from collie_core.tools.model_switch import bind_model_switcher
+from collie_core.tools.model_switch import SetModelTool, bind_model_switcher
 from collie_core.tools.plans import bind_plans_db
 from collie_core.tools.reminders import bind_reminders_db
 from collie_core.tools.suggest_profile import bind_suggest_workspace
@@ -108,6 +110,7 @@ class CollieRuntime:
             status_provider=self._status,
             model_switcher=self._switch_model,
             providers_provider=lambda: self.db.list_providers(),
+            model_authorizer=self._authorize_model_switch,
         )
         self.ipc = CollieIPCServer(
             self.db,
@@ -217,11 +220,31 @@ class CollieRuntime:
         *,
         session_key: str,
         origin: str,
+        conversation_id: str | None = None,
+        execution_mode: str = "execute",
     ) -> dict[str, Any] | None:
         return await self.commands.execute(
             content,
             session_key=session_key,
             origin=origin,
+            conversation_id=conversation_id,
+            execution_mode=execution_mode,
+        )
+
+    async def _authorize_model_switch(
+        self,
+        context: ExecutionContext,
+        params: dict[str, Any],
+    ) -> None:
+        """Route the /model command through the same broker as set_model.
+
+        Uses the identical PermissionRequest (``runtime.set_model``,
+        LOCAL_WRITE, reversible) so approval posture and plan-mode denial
+        match the agent tool exactly.
+        """
+        tool_call = SimpleNamespace(name="set_model", id="")
+        await self.approvals.authorize(
+            context, tool_call, SetModelTool.create(None), params
         )
 
     @staticmethod
@@ -884,7 +907,9 @@ class CollieRuntime:
         name = str(model).strip()
         if not name:
             return {"switched": False, "error": "A model name is required."}
-        previous = self.db.get_setting("provider.model")
+        # Sync SQLite calls stay off the event loop (project boundary:
+        # ipc/server.py wraps every db call in asyncio.to_thread).
+        previous = await asyncio.to_thread(self.db.get_setting, "provider.model")
         if name == previous:
             return {
                 "switched": True,
@@ -893,7 +918,7 @@ class CollieRuntime:
                 "unchanged": True,
                 "applied": True,
             }
-        self.db.set_setting("provider.model", name)
+        await asyncio.to_thread(self.db.set_active_model, name)
         applied = False
         loop = self.loop
         if loop is not None:

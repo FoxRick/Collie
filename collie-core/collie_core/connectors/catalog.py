@@ -1,7 +1,9 @@
 """Curated consumer connector catalog.
 
 Only official provider endpoints or official APIs belong here. Availability
-means the complete authorization and live-probe path is implemented.
+means the complete authorization and live-probe path is implemented. Alpha
+enablement (``release_status="alpha"``) means the route is live and labeled
+with its pending packaged-app verification — it is not a release claim.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ def _mcp(
     available: bool = True,
     note: str = "",
     overrides: dict[str, str] | None = None,
+    scopes: tuple[str, ...] = (),
 ) -> ConnectorDefinition:
     from urllib.parse import urlparse
 
@@ -38,6 +41,7 @@ def _mcp(
         endpoint=endpoint,
         capabilities=capabilities,
         permissions=permissions,
+        scopes=scopes,
         featured=featured,
         available=available,
         release_status="alpha" if available else "coming_soon",
@@ -56,6 +60,25 @@ _ALPHA_VERIFICATION = (
     "sign-in verification is still pending."
 )
 
+# Least-privilege OAuth scopes per provider (documented scope vocabularies).
+# Requesting no scope makes the MCP SDK omit the parameter, which the
+# authorization servers interpret as "everything advertised" — an explicit,
+# narrow set keeps consent honest. Values still need live confirmation on
+# the owner's packaged-app acceptance pass (each provider's OAuth server is
+# authoritative).
+_SCOPES: dict[str, tuple[str, ...]] = {
+    "notion": ("web:read", "web:update"),
+    "linear": ("read", "write"),
+    "todoist": ("data:read_write",),
+    "atlassian": (
+        "read:jira:user",
+        "read:jira-work",
+        "write:jira-work",
+        "read:confluence-content.summary",
+    ),
+    "airtable": ("data.records:read", "data.records:write", "schema.bases:read"),
+}
+
 CONNECTOR_CATALOG: tuple[ConnectorDefinition, ...] = (
     _mcp(
         "notion",
@@ -68,6 +91,7 @@ CONNECTOR_CATALOG: tuple[ConnectorDefinition, ...] = (
         featured=True,
         available=True,
         note=_ALPHA_VERIFICATION,
+        scopes=_SCOPES["notion"],
     ),
     _mcp(
         "linear",
@@ -80,6 +104,7 @@ CONNECTOR_CATALOG: tuple[ConnectorDefinition, ...] = (
         available=True,
         note=_ALPHA_VERIFICATION,
         overrides={"delete_issue": "destructive"},
+        scopes=_SCOPES["linear"],
     ),
     _mcp(
         "todoist",
@@ -92,6 +117,7 @@ CONNECTOR_CATALOG: tuple[ConnectorDefinition, ...] = (
         featured=True,
         available=True,
         note=_ALPHA_VERIFICATION,
+        scopes=_SCOPES["todoist"],
     ),
     _mcp(
         "atlassian",
@@ -103,6 +129,7 @@ CONNECTOR_CATALOG: tuple[ConnectorDefinition, ...] = (
         permissions=("read Jira and Confluence", "create and update with approval"),
         available=True,
         note=_ALPHA_VERIFICATION,
+        scopes=_SCOPES["atlassian"],
     ),
     _mcp(
         "gmail",
@@ -213,6 +240,7 @@ CONNECTOR_CATALOG: tuple[ConnectorDefinition, ...] = (
         available=True,
         release_status="alpha",
         note=_ALPHA_VERIFICATION,
+        scopes=_SCOPES["airtable"],
     ),
     ConnectorDefinition(
         id="github",

@@ -1,6 +1,6 @@
 # Connectors: research and implementation plan
 
-Status: in progress — four official MCP routes live as alpha; packaged-provider acceptance pending
+Status: in progress — five official MCP routes live as alpha; packaged-provider acceptance pending
 
 Date: 2026-07-29
 
@@ -29,6 +29,22 @@ Implementation checkpoint (2026-08-02) — alpha enablement:
   packaged build: OAuth, probe, read, restart, removal, approval) is still
   the gate before any public release claim — it is no longer a code
   blocker for the five enabled routes.
+
+Implementation checkpoint (2026-08-02) — review round 1 (`fix/codex-review-round-1`):
+
+- connected rows are only reported healthy and bound into the runtime when
+  their stored credentials actually exist; a connected row whose token is
+  missing surfaces as `auth_required` (`credentials_missing`) instead of a
+  phantom "Connected" badge;
+- the five enabled routes now declare explicit least-privilege OAuth scopes
+  (empty scopes made the MCP SDK omit the parameter, which the authorization
+  servers read as "everything advertised"); the recorded `granted_scopes`
+  prefer the scopes actually returned in the stored token. Scope strings are
+  documented vocabulary and still need live confirmation on the acceptance
+  pass;
+- VISION.md's alpha boundary now matches behavior: routes that have not
+  passed the packaged-app acceptance pass are labeled alpha with visible
+  verification status; acceptance remains the release gate.
 
 Implementation checkpoint (2026-07-29):
 

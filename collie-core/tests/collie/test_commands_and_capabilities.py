@@ -13,8 +13,10 @@ import pytest
 from collie_core.commands import CommandController, parse_command
 from collie_core.db import CollieDB
 from collie_core.ipc.server import CollieIPCServer
+from collie_core.permissions.broker import ApprovalBroker, PermissionDeniedError
 from collie_core.permissions.evaluator import PermissionEvaluator
 from collie_core.permissions.models import Effect, ExecutionContext, Risk
+from collie_core.permissions.store import PermissionStore
 from collie_core.runtime import CollieRuntime
 from collie_core.subagents.loader import SubagentLoader
 from collie_core.tools.capabilities import (
@@ -441,6 +443,7 @@ def _model_controller(
     *,
     switcher=None,
     providers=None,
+    authorizer=None,
 ) -> CommandController:
     return CommandController(
         workspace=tmp_path / "workspace",
@@ -452,6 +455,7 @@ def _model_controller(
         },
         model_switcher=switcher,
         providers_provider=lambda: providers or [],
+        model_authorizer=authorizer,
     )
 
 
@@ -571,6 +575,102 @@ async def test_model_command_reports_unchanged_and_failures(
         origin="desktop",
     )
     assert unavailable and "isn't available" in unavailable["content"]
+
+
+@ pytest.mark.asyncio
+async def test_model_command_switch_requires_approval_and_reports_denial(
+    tmp_path: Path,
+) -> None:
+    calls: list[str] = []
+
+    async def switcher(name: str) -> dict:
+        calls.append(name)
+        return {"switched": True, "model": name, "applied": True}
+
+    async def denying(context: ExecutionContext, params: dict) -> None:
+        raise PermissionDeniedError("You rejected this action.")
+
+    controller = _model_controller(
+        tmp_path, switcher=switcher, authorizer=denying
+    )
+    result = await controller.execute(
+        "/model deepseek-v4-flash",
+        session_key="collie:one",
+        origin="desktop",
+        conversation_id="conv_1",
+    )
+    assert result is not None
+    assert result["handled"] is True
+    assert "I can't switch models right now" in result["content"]
+    assert "You rejected this action." in result["content"]
+    assert calls == []  # the switcher never ran without approval
+
+
+@ pytest.mark.asyncio
+async def test_model_command_switch_passes_execution_context_to_authorizer(
+    tmp_path: Path,
+) -> None:
+    seen: list[tuple[ExecutionContext, dict]] = []
+
+    async def approving(context: ExecutionContext, params: dict) -> None:
+        seen.append((context, params))
+
+    async def switcher(name: str) -> dict:
+        return {"switched": True, "model": name, "applied": True}
+
+    controller = _model_controller(
+        tmp_path, switcher=switcher, authorizer=approving
+    )
+    result = await controller.execute(
+        "/model deepseek-v4-flash",
+        session_key="collie:one",
+        origin="desktop",
+        conversation_id="conv_1",
+        execution_mode="plan",
+    )
+    assert result is not None and result["handled"] is True
+    assert len(seen) == 1
+    context, params = seen[0]
+    assert context.conversation_id == "conv_1"
+    assert context.execution_mode == "plan"
+    assert params == {"model": "deepseek-v4-flash"}
+
+
+@ pytest.mark.asyncio
+async def test_model_command_switch_is_denied_in_plan_mode(tmp_path: Path) -> None:
+    db = CollieDB(tmp_path / "collie.db")
+    evaluator = PermissionEvaluator(PermissionStore(db), local_write_preset="allow")
+    broker = ApprovalBroker(db, evaluator)
+    calls: list[str] = []
+
+    async def switcher(name: str) -> dict:
+        calls.append(name)
+        return {"switched": True, "model": name, "applied": True}
+
+    async def broker_authorizer(
+        context: ExecutionContext, params: dict
+    ) -> None:
+        await broker.authorize(
+            context,
+            SimpleNamespace(name="set_model", id=""),
+            SetModelTool.create(None),
+            params,
+        )
+
+    controller = _model_controller(
+        tmp_path, switcher=switcher, authorizer=broker_authorizer
+    )
+    result = await controller.execute(
+        "/model deepseek-v4-flash",
+        session_key="collie:one",
+        origin="desktop",
+        execution_mode="plan",
+    )
+    assert result is not None
+    assert result["handled"] is True
+    assert "I can't switch models right now" in result["content"]
+    assert calls == []
+    db.close()
 
 
 # ---------------------------------------------------------------------------
@@ -697,6 +797,53 @@ async def test_runtime_switch_model_without_loop_persists_only(
         assert result["switched"] is True
         assert result["applied"] is False
         assert db.get_setting("provider.model") == "gpt-5.5"
+    finally:
+        db.close()
+
+
+@ pytest.mark.asyncio
+async def test_runtime_switch_model_keeps_provider_row_and_setting_in_sync(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = tmp_path / "collie-home"
+    monkeypatch.setenv("COLLIE_HOME", str(home))
+    db = CollieDB(home / "collie.db")
+    db.upsert_provider(
+        "deepseek",
+        name="DeepSeek",
+        auth_type="api_key",
+        model="deepseek-v4-pro",
+        is_default=True,
+    )
+    db.upsert_provider(
+        "openai",
+        name="OpenAI",
+        auth_type="api_key",
+        model="gpt-5.5",
+    )
+    runtime = CollieRuntime(port=0, db=db)
+    try:
+        result = await runtime._switch_model("deepseek-v4-flash")
+        assert result["switched"] is True
+        assert db.get_setting("provider.model") == "deepseek-v4-flash"
+        default = db.get_provider("deepseek")
+        assert default is not None and default["model"] == "deepseek-v4-flash"
+        openai_row = db.get_provider("openai")
+        assert openai_row is not None and openai_row["model"] == "gpt-5.5"
+
+        # A provider reconfiguration that re-upserts the row's current model
+        # cannot revert the switch — both sources were updated together.
+        db.upsert_provider(
+            "deepseek",
+            name="DeepSeek",
+            auth_type="api_key",
+            model=str(default["model"]),
+            is_default=True,
+        )
+        assert db.get_setting("provider.model") == "deepseek-v4-flash"
+        reupserted = db.get_provider("deepseek")
+        assert reupserted is not None and reupserted["model"] == "deepseek-v4-flash"
     finally:
         db.close()
 
