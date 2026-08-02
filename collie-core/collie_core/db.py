@@ -3208,10 +3208,10 @@ class CollieDB:
         turn_id: str,
         conversation_id: str | None = None,
         session_key: str | None = None,
-        turn_kind: str = "chat",
+        turn_kind: str | None = None,
         provider: str | None = None,
         model: str | None = None,
-        status: str = "running",
+        status: str | None = None,
         error_message: str | None = None,
         tokens_in: int = 0,
         tokens_out: int = 0,
@@ -3224,7 +3224,9 @@ class CollieDB:
 
         The recorder writes a ``running`` row when a turn starts and an
         upsert with the final status when it finishes; COALESCE keeps the
-        start-time fields intact across the two writes.
+        start-time fields (and the ``turn_kind`` captured at start) intact
+        across the two writes. Defaults are applied on INSERT only so a
+        finishing write can never clobber values it does not carry.
         """
         with self._write() as conn:
             updated = conn.execute(
@@ -3261,9 +3263,10 @@ class CollieDB:
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
-                        turn_id, conversation_id, session_key, turn_kind, provider,
-                        model, status, error_message, tokens_in, tokens_out,
-                        latency_ms, tool_count, started_at or utc_now(), finished_at,
+                        turn_id, conversation_id, session_key, turn_kind or "chat",
+                        provider, model, status or "running", error_message,
+                        tokens_in, tokens_out, latency_ms, tool_count,
+                        started_at or utc_now(), finished_at,
                     ),
                 )
 
@@ -3283,8 +3286,11 @@ class CollieDB:
         started_at: str | None = None,
         finished_at: str | None = None,
     ) -> None:
-        """Insert or update one tool event row (upsert keyed by id)."""
-        started_at = started_at or utc_now()
+        """Insert or update one tool event row (upsert keyed by id).
+
+        ``started_at`` defaults to now on INSERT only, so the finishing
+        write preserves the original start time.
+        """
         with self._write() as conn:
             updated = conn.execute(
                 """
@@ -3317,7 +3323,7 @@ class CollieDB:
                     (
                         tool_id, turn_id, tool_name, action, resource, input_summary,
                         output_summary, status, error_message, latency_ms,
-                        started_at, finished_at,
+                        started_at or utc_now(), finished_at,
                     ),
                 )
 
@@ -3424,6 +3430,12 @@ class CollieDB:
             "conversation_review_gates": self._rows(
                 "SELECT * FROM conversation_review_gates ORDER BY declared_at"
             ),
+            "turn_events": self._rows(
+                "SELECT * FROM turn_events ORDER BY started_at"
+            ),
+            "tool_events": self._rows(
+                "SELECT * FROM tool_events ORDER BY started_at"
+            ),
             "approval_rules": self.list_approval_rules(),
             "approval_requests": self._rows(
                 "SELECT * FROM approval_requests ORDER BY requested_at"
@@ -3451,6 +3463,7 @@ class CollieDB:
         tables = [
             "task_checklist_steps", "task_checklists", "conversation_review_gates",
             "plan_change_requests", "run_task_state_revisions",
+            "tool_events", "turn_events",
             "run_steps",
             "approval_requests", "approval_rules", "runs", "plans",
             "messages", "conversations", "profile", "people", "important_dates",

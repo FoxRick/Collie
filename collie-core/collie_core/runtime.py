@@ -157,17 +157,22 @@ class CollieRuntime:
         )
         bus = CollieBus(on_inbound=self._on_messenger_inbound)
         provider_override = self._provider_override()
+        telemetry_factories = [create_telemetry_hook_factory(self.db)]
         if provider_override is not None:
             loop = AgentLoop.from_config(
                 config, bus=bus, provider=provider_override,
                 session_manager=self._session_manager,
-                hook_factories=[create_telemetry_hook_factory(self.db)],
+                hook_factories=telemetry_factories,
             )
         else:
             loop = AgentLoop.from_config(
                 config, bus=bus, session_manager=self._session_manager,
-                hook_factories=[create_telemetry_hook_factory(self.db)],
+                hook_factories=telemetry_factories,
             )
+        # Subagents bypass the loop's turn-hook chain (they run AgentRunner
+        # directly with their own _SubagentHook) — mirror the factories so
+        # subagent turns are telemetry-recorded too.
+        loop.subagents.hook_factories = list(telemetry_factories)
         loop.context.command_guidance = True
 
         from nanobot.runtime_context import RuntimeContextBlock

@@ -7,6 +7,7 @@ telemetry failure can never break or slow down an agent turn.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from loguru import logger
@@ -17,13 +18,50 @@ from collie_core.permissions.classifier import redact_parameters
 TURN_INPUT_LIMIT = 500
 TOOL_OUTPUT_LIMIT = 1000
 
+# Secret-shaped patterns scrubbed from ANY telemetry text (outputs, errors,
+# resources). Keys are already handled by ``redact_parameters``; this layer
+# catches secrets that appear inside string values.
+_SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # Authorization headers and bare Bearer tokens
+    re.compile(r"(?i)(authorization\s*[:=]\s*)(?:bearer\s+)?\S+"),
+    re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{16,}"),
+    # OpenAI/Anthropic-style sk- keys
+    re.compile(r"\bsk-[A-Za-z0-9]{16,}"),
+    # GitHub tokens
+    re.compile(r"\bghp_[A-Za-z0-9]{20,}"),
+    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"),
+    # AWS access key ids
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+    # Slack tokens
+    re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}"),
+    # Generic key=value / key: value with a long value
+    re.compile(
+        r"(?i)\b(api[_-]?key|token|secret|password|passwd|credential)\b"
+        r"\s*[:=]\s*[\"']?[A-Za-z0-9._~+/=!@#$%^&*-]{12,}"
+    ),
+    # PEM private keys
+    re.compile(
+        r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
+        re.DOTALL,
+    ),
+)
+
+
+def sanitize_text(text: str) -> str:
+    """Scrub secret-shaped values from arbitrary telemetry text."""
+    for pattern in _SECRET_PATTERNS:
+        text = pattern.sub("[redacted]", text)
+    return text
+
 
 def summarize(value: Any, limit: int) -> str | None:
     """Redact and truncate a value for telemetry storage.
 
-    Dicts are run through ``redact_parameters`` (secrets become
-    ``[redacted]``); everything else is stringified. Output never exceeds
-    ``limit`` characters. Core invariant: secrets never reach telemetry.
+    Dicts are run through ``redact_parameters`` (secret-named keys become
+    ``[redacted]``); everything is then passed through ``sanitize_text`` so
+    secret-shaped values inside innocent keys or bare strings never reach
+    the database. Output never exceeds ``limit`` characters. Core
+    invariant: secrets never reach telemetry.
     """
     try:
         if value is None:
@@ -34,6 +72,7 @@ def summarize(value: Any, limit: int) -> str | None:
             )
         else:
             text = str(value)
+        text = sanitize_text(text)
         text = " ".join(text.split())
         return text if len(text) <= limit else text[: limit - 3] + "..."
     except Exception:
@@ -96,7 +135,9 @@ class RunRecorder:
             self._db.record_turn_event(
                 turn_id=turn_id,
                 status=status,
-                error_message=error_message,
+                error_message=(
+                    sanitize_text(error_message) if error_message else None
+                ),
                 tokens_in=tokens_in,
                 tokens_out=tokens_out,
                 latency_ms=latency_ms,
@@ -115,6 +156,8 @@ class RunRecorder:
         turn_id: str,
         tool_name: str,
         input_summary: str | None = None,
+        action: str | None = None,
+        resource: str | None = None,
     ) -> None:
         try:
             self._db.record_tool_event(
@@ -122,6 +165,8 @@ class RunRecorder:
                 turn_id=turn_id,
                 tool_name=tool_name,
                 input_summary=input_summary,
+                action=action,
+                resource=sanitize_text(resource) if resource else None,
                 status="running",
                 started_at=utc_now(),
             )
@@ -146,9 +191,47 @@ class RunRecorder:
                 tool_name=tool_name,
                 status=status,
                 output_summary=output_summary,
-                error_message=error_message,
+                error_message=(
+                    sanitize_text(error_message) if error_message else None
+                ),
                 latency_ms=latency_ms,
                 finished_at=utc_now(),
             )
         except Exception:
             logger.exception("telemetry finish_tool failed")
+
+    def blocked_tool(
+        self,
+        *,
+        tool_id: str,
+        turn_id: str,
+        tool_name: str,
+        status: str,
+        reason: str | None,
+        input_summary: str | None = None,
+        action: str | None = None,
+        resource: str | None = None,
+    ) -> None:
+        """Record a tool that never executed (denied / prep / lookup block).
+
+        These paths return before ``before_execute_tool`` fires, so the
+        row is written complete in a single insert.
+        """
+        try:
+            now = utc_now()
+            self._db.record_tool_event(
+                tool_id=tool_id,
+                turn_id=turn_id,
+                tool_name=tool_name,
+                status=status,
+                error_message=(
+                    sanitize_text(reason) if reason else None
+                ),
+                input_summary=input_summary,
+                action=action,
+                resource=sanitize_text(resource) if resource else None,
+                started_at=now,
+                finished_at=now,
+            )
+        except Exception:
+            logger.exception("telemetry blocked_tool failed")

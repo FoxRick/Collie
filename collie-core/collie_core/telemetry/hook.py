@@ -4,14 +4,20 @@ Registered as a per-turn hook factory on the AgentLoop (the same pattern
 as ``create_file_edit_activity_hook``) so every turn kind — chat, plan,
 routine, cron, automation, subagent — is recorded with zero edits to the
 nanobot orchestration core.
+
+All recorder calls run through ``asyncio.to_thread``: SQLite writes never
+block the event loop, and every write is wrapped so a telemetry failure
+can never break a turn.
 """
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any
 
 from collie_core.db import CollieDB, new_id
+from collie_core.permissions.classifier import classify_tool
 from collie_core.telemetry.recorder import (
     TOOL_OUTPUT_LIMIT,
     TURN_INPUT_LIMIT,
@@ -35,6 +41,8 @@ _INTERNAL_TURN_KINDS = (
     ("routine:", "routine"),
 )
 
+_KNOWN_TURN_KINDS = {"chat", "plan", "routine", "cron", "subagent", "automation"}
+
 
 def turn_kind_for_session_key(session_key: str | None) -> str:
     """Map an engine session key to a ``turn_events.turn_kind`` value."""
@@ -50,6 +58,27 @@ def conversation_id_for_session_key(session_key: str | None) -> str | None:
     if session_key and session_key.startswith("collie:"):
         return session_key[len("collie:"):]
     return None
+
+
+def resolve_turn_kind(
+    session_key: str | None, metadata: dict[str, Any] | None = None
+) -> str:
+    """Resolve the turn kind from metadata first, then the session key.
+
+    Subagents pass an explicit ``turn_kind`` hint; routines dispatch via
+    ``permission_context.origin == "routine"`` (their session key is a
+    plain ``collie:`` desktop key). Everything else falls back to the
+    session-key prefixes.
+    """
+    hint = (metadata or {}).get("turn_kind")
+    if hint in _KNOWN_TURN_KINDS:
+        return hint
+    permission_context = (metadata or {}).get("permission_context") or {}
+    if permission_context.get("origin") == "routine" or permission_context.get(
+        "routine_id"
+    ):
+        return "routine"
+    return turn_kind_for_session_key(session_key)
 
 
 class TelemetryHook(AgentHook):
@@ -78,26 +107,28 @@ class TelemetryHook(AgentHook):
     async def before_run(self, context: AgentRunHookContext) -> None:
         self._turn_id = new_id()
         self._turn_started = time.monotonic()
-        self._recorder.start_turn(
+        await asyncio.to_thread(
+            self._recorder.start_turn,
             turn_id=self._turn_id,
             session_key=self._session_key,
             conversation_id=conversation_id_for_session_key(self._session_key),
-            turn_kind=turn_kind_for_session_key(self._session_key),
+            turn_kind=resolve_turn_kind(self._session_key, self._metadata),
         )
 
     async def after_run(self, context: AgentRunHookContext) -> None:
-        self._finish_turn(context)
+        await self._finish_turn(context)
 
     async def on_error(self, context: AgentRunHookContext) -> None:
-        self._finish_turn(context, forced_status="error")
+        await self._finish_turn(context, forced_status="error")
 
     async def on_finally(self, context: AgentRunHookContext) -> None:
         if self._turn_id is not None and not self._finished:
             status = "cancelled" if context.stop_reason == "cancelled" else "stopped"
-            self._finish_turn(context, forced_status=status)
+            await self._finish_turn(context, forced_status=status)
         # Turns that died mid-tool leave running rows behind — mark them.
         for tool_id in list(self._tool_ids.values()):
-            self._recorder.finish_tool(
+            await asyncio.to_thread(
+                self._recorder.finish_tool,
                 tool_id=tool_id,
                 turn_id=self._turn_id or "",
                 tool_name="unknown",
@@ -121,11 +152,15 @@ class TelemetryHook(AgentHook):
         self._tool_ids[tool_call.id] = tool_id
         self._tool_starts[tool_call.id] = time.monotonic()
         self._tool_count += 1
-        self._recorder.start_tool(
+        action, resource = self._classify(tool, tool_call, params)
+        await asyncio.to_thread(
+            self._recorder.start_tool,
             tool_id=tool_id,
             turn_id=self._turn_id,
             tool_name=getattr(tool_call, "name", "") or "",
             input_summary=summarize(params, TURN_INPUT_LIMIT),
+            action=action,
+            resource=resource,
         )
 
     async def after_execute_tool(
@@ -136,7 +171,7 @@ class TelemetryHook(AgentHook):
         params: Any,
         result: Any,
     ) -> None:
-        self._finish_tool(
+        await self._finish_tool(
             tool_call,
             status="ok",
             output_summary=summarize(result, TOOL_OUTPUT_LIMIT),
@@ -150,11 +185,48 @@ class TelemetryHook(AgentHook):
         params: Any,
         error: Any,
     ) -> None:
-        self._finish_tool(tool_call, status="error", error_message=str(error))
+        await self._finish_tool(tool_call, status="error", error_message=str(error))
+
+    async def on_tool_blocked(
+        self,
+        context: AgentHookContext,
+        tool_call: ToolCallRequest,
+        tool: Any,
+        params: Any,
+        status: str,
+        reason: str,
+    ) -> None:
+        """Record a tool that never executed (denied / prep / lookup block)."""
+        if self._turn_id is None:
+            return
+        self._tool_count += 1
+        action, resource = self._classify(tool, tool_call, params)
+        await asyncio.to_thread(
+            self._recorder.blocked_tool,
+            tool_id=new_id(),
+            turn_id=self._turn_id,
+            tool_name=getattr(tool_call, "name", "") or "",
+            status=status,
+            reason=reason,
+            input_summary=summarize(params, TURN_INPUT_LIMIT),
+            action=action,
+            resource=resource,
+        )
 
     # -- internals -----------------------------------------------------------------
 
-    def _finish_turn(
+    @staticmethod
+    def _classify(
+        tool: Any, tool_call: ToolCallRequest, params: Any
+    ) -> tuple[str | None, str | None]:
+        """Best-effort permission classification for action/resource columns."""
+        try:
+            request = classify_tool(tool, tool_call.name, params or {})
+            return request.action, request.resource
+        except Exception:
+            return None, None
+
+    async def _finish_turn(
         self, context: AgentRunHookContext, *, forced_status: str | None = None
     ) -> None:
         if self._turn_id is None or self._finished:
@@ -169,7 +241,8 @@ class TelemetryHook(AgentHook):
         else:
             status = "ok"
         usage = context.usage or {}
-        self._recorder.finish_turn(
+        await asyncio.to_thread(
+            self._recorder.finish_turn,
             turn_id=self._turn_id,
             status=status,
             error_message=context.error,
@@ -179,7 +252,7 @@ class TelemetryHook(AgentHook):
             tool_count=self._tool_count,
         )
 
-    def _finish_tool(
+    async def _finish_tool(
         self,
         tool_call: ToolCallRequest,
         *,
@@ -191,7 +264,8 @@ class TelemetryHook(AgentHook):
         if tool_id is None:
             return
         started = self._tool_starts.pop(tool_call.id, time.monotonic())
-        self._recorder.finish_tool(
+        await asyncio.to_thread(
+            self._recorder.finish_tool,
             tool_id=tool_id,
             turn_id=self._turn_id or "",
             tool_name=getattr(tool_call, "name", "") or "",

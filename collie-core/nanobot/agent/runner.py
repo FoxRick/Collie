@@ -1185,6 +1185,10 @@ class AgentRunner:
                 "status": "error",
                 "detail": "repeated external lookup blocked",
             }
+            await hook.on_tool_blocked(
+                context, tool_call, None, tool_call.arguments,
+                "error", "repeated external lookup blocked",
+            )
             if spec.fail_on_tool_error:
                 return lookup_error + hint, event, RuntimeError(lookup_error)
             return lookup_error + hint, event, None
@@ -1201,6 +1205,9 @@ class AgentRunner:
                 "status": "error",
                 "detail": prep_error.split(": ", 1)[-1][:120],
             }
+            await hook.on_tool_blocked(
+                context, tool_call, tool, params, "error", prep_error,
+            )
             handled = self._classify_violation(
                 raw_text=prep_error,
                 soft_payload=prep_error + hint,
@@ -1241,6 +1248,9 @@ class AgentRunner:
                     "status": "denied",
                     "detail": detail[:120],
                 }
+                await hook.on_tool_blocked(
+                    context, tool_call, tool, params, "denied", detail,
+                )
                 payload = f"Permission denied: {detail}"
                 return payload, event, (
                     RuntimeError(payload) if spec.fail_on_tool_error else None

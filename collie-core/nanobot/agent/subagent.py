@@ -11,7 +11,13 @@ from typing import Any, Callable
 
 from loguru import logger
 
-from nanobot.agent.hook import AgentHook, AgentHookContext
+from nanobot.agent.hook import (
+    AgentHook,
+    AgentHookContext,
+    AgentTurnHookContext,
+    AgentTurnHookFactory,
+    CompositeHook,
+)
 from nanobot.agent.runner import AgentRunner, AgentRunSpec
 from nanobot.agent.tools.context import (
     RequestContext,
@@ -95,6 +101,7 @@ class SubagentManager:
         max_concurrent_subagents: int | None = None,
         fail_on_tool_error: bool | None = None,
         llm_wall_timeout_for_session: Callable[[str | None], float | None] | None = None,
+        hook_factories: list[AgentTurnHookFactory] | None = None,
     ):
         if workspace is None:
             raise TypeError("SubagentManager.__init__() missing required argument: 'workspace'")
@@ -144,6 +151,7 @@ class SubagentManager:
         )
         self.runner = AgentRunner()
         self._llm_wall_timeout_for_session = llm_wall_timeout_for_session
+        self.hook_factories: list[AgentTurnHookFactory] = list(hook_factories or [])
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._task_statuses: dict[str, SubagentStatus] = {}
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
@@ -316,6 +324,29 @@ class SubagentManager:
                 if self._llm_wall_timeout_for_session
                 else None
             )
+            base_hook = _SubagentHook(task_id, status)
+            if self.hook_factories:
+                turn_context = AgentTurnHookContext(
+                    on_progress=None,
+                    workspace=root,
+                    channel=str(origin.get("channel") or "cli"),
+                    chat_id=str(origin.get("chat_id") or "direct"),
+                    message_id=origin_message_id,
+                    session_key=sess_key,
+                    metadata={"turn_kind": "subagent"},
+                )
+                extra_hooks = [
+                    factory(turn_context)
+                    for factory in self.hook_factories
+                ]
+                extra_hooks = [h for h in extra_hooks if h is not None]
+                hook = (
+                    CompositeHook([base_hook, *extra_hooks])
+                    if extra_hooks
+                    else base_hook
+                )
+            else:
+                hook = base_hook
             request_token = bind_request_context(RequestContext(
                 channel=origin["channel"],
                 chat_id=origin["chat_id"],
@@ -331,7 +362,7 @@ class SubagentManager:
                     runtime=runtime,
                     max_iterations=self.max_iterations,
                     max_tool_result_chars=self.max_tool_result_chars,
-                    hook=_SubagentHook(task_id, status),
+                    hook=hook,
                     max_iterations_message="Task completed but no final response was generated.",
                     finalize_on_max_iterations=False,
                     error_message=None,

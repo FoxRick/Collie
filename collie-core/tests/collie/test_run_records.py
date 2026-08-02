@@ -225,6 +225,45 @@ def test_tool_events_cascade_delete_with_turn(db: CollieDB) -> None:
     assert len(db.list_tool_events()) == 0
 
 
+def test_export_all_includes_telemetry_and_clear_all_removes_it(db: CollieDB) -> None:
+    db.record_turn_event(turn_id="t1", turn_kind="chat", status="ok",
+                         started_at="2026-08-02T00:00:00+00:00")
+    db.record_tool_event(tool_id="te1", turn_id="t1", tool_name="web_search",
+                         status="ok", started_at="2026-08-02T00:00:00+00:00")
+
+    data = db.export_all()
+    assert len(data["turn_events"]) == 1
+    assert len(data["tool_events"]) == 1
+
+    db.clear_all()
+    assert db.list_turn_events() == []
+    assert db.list_tool_events() == []
+
+
+def test_finish_turn_preserves_turn_kind_captured_at_start(db: CollieDB) -> None:
+    db.record_turn_event(turn_id="t1", turn_kind="routine", status="running",
+                         started_at="2026-08-02T00:00:00+00:00")
+    db.record_turn_event(turn_id="t1", status="ok",
+                         finished_at="2026-08-02T00:00:01+00:00")
+    row = db.list_turn_events()[0]
+    assert row["turn_kind"] == "routine"
+    assert row["status"] == "ok"
+
+
+def test_finish_tool_preserves_start_timestamp(db: CollieDB) -> None:
+    db.record_turn_event(turn_id="t1", turn_kind="chat", status="ok",
+                         started_at="2026-08-02T00:00:00+00:00")
+    db.record_tool_event(tool_id="te1", turn_id="t1", tool_name="web_search",
+                         status="running",
+                         started_at="2026-08-02T00:00:00+00:00")
+    db.record_tool_event(tool_id="te1", turn_id="t1", tool_name="web_search",
+                         status="ok",
+                         finished_at="2026-08-02T00:00:05+00:00")
+    row = db.list_tool_events()[0]
+    assert row["started_at"] == "2026-08-02T00:00:00+00:00"
+    assert row["finished_at"] == "2026-08-02T00:00:05+00:00"
+
+
 # ---------------------------------------------------------------------------
 # Task 1.2 — RunRecorder + TelemetryHook through AgentLoop.process_direct
 # ---------------------------------------------------------------------------
@@ -249,10 +288,50 @@ def test_summarize_redacts_secrets_and_truncates() -> None:
     assert summarize(None, limit=500) is None
 
 
+def test_summarize_redacts_secrets_in_strings_and_nested_values() -> None:
+    from collie_core.telemetry.recorder import summarize
+
+    # String tool outputs must not store secrets verbatim.
+    assert "sk-super-secret" not in (
+        summarize("Authorization: Bearer sk-super-secret-1234567890", 500) or ""
+    )
+    # Dict values whose KEYS are innocent still get value-level sanitizing.
+    nested = summarize({"text": "password: hunter2hunter2hunter2"}, 500)
+    assert nested is not None
+    assert "hunter2hunter2hunter2" not in nested
+    assert "ghp_" not in (
+        summarize("pat = ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ", 500) or ""
+    )
+
+
+def test_error_messages_are_sanitized(db: CollieDB) -> None:
+    from collie_core.telemetry.recorder import RunRecorder
+
+    rec = RunRecorder(db)
+    rec.start_turn(turn_id="t1", turn_kind="chat")
+    rec.finish_turn(
+        turn_id="t1", status="error",
+        error_message="Authorization: Bearer sk-leaky-secret-12345",
+    )
+    rec.start_tool(tool_id="te1", turn_id="t1", tool_name="web_search")
+    rec.finish_tool(
+        tool_id="te1", turn_id="t1", tool_name="web_search", status="error",
+        error_message="token: ghp_ABCDEFGHIJKLMNOPQRST",
+    )
+
+    turn = db.list_turn_events()[0]
+    tool = db.list_tool_events()[0]
+    assert "sk-leaky-secret" not in (turn["error_message"] or "")
+    assert "ghp_" not in (tool["error_message"] or "")
+
+
 def _make_loop(tmp_path: Path, *, hook_factories: list[Any] | None = None) -> AgentLoop:
+    from nanobot.providers.base import GenerationSettings
+
     bus = MessageBus()
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
+    provider.generation = GenerationSettings(temperature=0.1, max_tokens=4096)
     return AgentLoop(
         bus=bus,
         provider=provider,
@@ -381,6 +460,160 @@ async def test_telemetry_failure_never_breaks_turn(tmp_path: Path, db: CollieDB)
 
     assert result is not None
     assert result.content == "Done"
+
+
+class _DenyAll:
+    async def authorize(self, execution_context, tool_call, tool, params) -> None:
+        raise PermissionError("nope")
+
+
+async def test_process_direct_records_denied_tool_with_action_and_resource(
+    tmp_path: Path, db: CollieDB
+) -> None:
+    from collie_core.telemetry.hook import create_telemetry_hook_factory
+
+    loop = _make_loop(tmp_path, hook_factories=[create_telemetry_hook_factory(db)])
+    _fake_tool_turn(loop)
+    loop.authorizer = _DenyAll()
+
+    result = await loop.process_direct(
+        "hello", session_key="collie:conv1", channel="collie", chat_id="conv1"
+    )
+
+    assert result is not None
+    tools = db.list_tool_events()
+    assert len(tools) == 1
+    assert tools[0]["tool_name"] == "web_search"
+    assert tools[0]["status"] == "denied"
+    assert "nope" in (tools[0]["error_message"] or "")
+    assert tools[0]["action"] == "web.read"
+    assert tools[0]["resource"] == "web_search"
+
+    turn = db.list_turn_events()[0]
+    assert turn["status"] == "ok"  # denial is soft; turn continues
+    assert turn["tool_count"] == 1
+
+
+async def test_process_direct_marks_routine_turn_kind_from_metadata(
+    tmp_path: Path, db: CollieDB
+) -> None:
+    from collie_core.telemetry.hook import create_telemetry_hook_factory
+
+    loop = _make_loop(tmp_path, hook_factories=[create_telemetry_hook_factory(db)])
+    _fake_tool_turn(loop)
+
+    result = await loop.process_direct(
+        "hello",
+        session_key="collie:conv1",
+        channel="collie",
+        chat_id="conv1",
+        permission_context={"origin": "routine", "routine_id": "r1"},
+    )
+
+    assert result is not None
+    turn = db.list_turn_events()[0]
+    assert turn["turn_kind"] == "routine"
+
+
+async def test_subagent_run_composes_telemetry_hook(tmp_path: Path, db: CollieDB) -> None:
+    from unittest.mock import AsyncMock, MagicMock
+
+    from collie_core.telemetry.hook import TelemetryHook, create_telemetry_hook_factory
+    from nanobot.agent.hook import CompositeHook
+    from nanobot.agent.runner import AgentRunResult
+    from nanobot.agent.subagent import SubagentManager, SubagentStatus
+    from nanobot.bus.queue import MessageBus
+    from nanobot.utils.llm_runtime import LLMRuntime
+
+    mgr = SubagentManager(
+        workspace=tmp_path, bus=MessageBus(), max_tool_result_chars=16_000
+    )
+    mgr.hook_factories = [create_telemetry_hook_factory(db)]
+    mgr.runner.run = AsyncMock(return_value=AgentRunResult(
+        final_content="ok", messages=[], stop_reason="completed"
+    ))
+    mgr._announce_result = AsyncMock()
+
+    provider = MagicMock()
+    provider.get_default_model.return_value = "m"
+    status = SubagentStatus(
+        task_id="t1", label="lbl", task_description="task", started_at=0.0
+    )
+    await mgr._run_subagent(
+        "t1", "task", "lbl",
+        {"channel": "cli", "chat_id": "direct", "session_key": "cli:direct"},
+        status,
+        LLMRuntime.capture(provider, "m", context_window_tokens=128_000),
+    )
+
+    spec = mgr.runner.run.call_args[0][0]
+    assert isinstance(spec.hook, CompositeHook)
+    telemetry = [h for h in spec.hook._hooks if isinstance(h, TelemetryHook)]
+    assert len(telemetry) == 1
+    assert telemetry[0]._session_key == "cli:direct"
+    assert telemetry[0]._metadata.get("turn_kind") == "subagent"
+
+
+async def test_subagent_without_factories_keeps_plain_hook(tmp_path: Path) -> None:
+    from unittest.mock import AsyncMock, MagicMock
+
+    from nanobot.agent.hook import CompositeHook
+    from nanobot.agent.runner import AgentRunResult
+    from nanobot.agent.subagent import SubagentManager, SubagentStatus, _SubagentHook
+    from nanobot.bus.queue import MessageBus
+    from nanobot.utils.llm_runtime import LLMRuntime
+
+    mgr = SubagentManager(
+        workspace=tmp_path, bus=MessageBus(), max_tool_result_chars=16_000
+    )
+    mgr.runner.run = AsyncMock(return_value=AgentRunResult(
+        final_content="ok", messages=[], stop_reason="completed"
+    ))
+    mgr._announce_result = AsyncMock()
+
+    provider = MagicMock()
+    provider.get_default_model.return_value = "m"
+    status = SubagentStatus(
+        task_id="t1", label="lbl", task_description="task", started_at=0.0
+    )
+    await mgr._run_subagent(
+        "t1", "task", "lbl",
+        {"channel": "cli", "chat_id": "direct", "session_key": "cli:direct"},
+        status,
+        LLMRuntime.capture(provider, "m", context_window_tokens=128_000),
+    )
+
+    spec = mgr.runner.run.call_args[0][0]
+    assert isinstance(spec.hook, _SubagentHook)
+    assert not isinstance(spec.hook, CompositeHook)
+
+
+async def test_telemetry_writes_off_event_loop(
+    tmp_path: Path, db: CollieDB, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+
+    from collie_core.telemetry.hook import create_telemetry_hook_factory
+
+    write_idents: list[int] = []
+    original = CollieDB.record_turn_event
+
+    def spy(self, **kwargs: Any) -> None:
+        write_idents.append(threading.get_ident())
+        original(self, **kwargs)
+
+    monkeypatch.setattr(CollieDB, "record_turn_event", spy)
+
+    loop = _make_loop(tmp_path, hook_factories=[create_telemetry_hook_factory(db)])
+    _fake_tool_turn(loop)
+
+    await loop.process_direct(
+        "hello", session_key="collie:conv1", channel="collie", chat_id="conv1"
+    )
+
+    loop_thread = threading.get_ident()
+    assert write_idents, "expected at least one telemetry write"
+    assert all(ident != loop_thread for ident in write_idents)
 
 
 async def test_runtime_records_chat_turn_via_build_loop(
