@@ -2,11 +2,12 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AttachmentDraft, CollieEvent, CollieMessage } from '../lib/ipc'
+import type { AttachmentDraft, CollieEvent, CollieMessage, TaskState } from '../lib/ipc'
 
 interface ChatInputProps {
   onSend: (text: string, attachments: AttachmentDraft[]) => void
   onProjectChange: (path: string) => void
+  taskProgress?: TaskState | null
 }
 
 const hooks = vi.hoisted(() => {
@@ -178,6 +179,38 @@ describe('ChatScreen paced assistant completion order', () => {
       undefined,
       { mode: 'selected_folder' }
     )
+  })
+
+  it('passes active task progress into the chat input window', async () => {
+    const task: TaskState = {
+      id: 'task-1',
+      source: 'checklist',
+      status: 'active',
+      revision: 1,
+      title: 'Prepare the update',
+      completed_count: 0,
+      total_count: 2,
+      current_step_key: 'inspect',
+      steps: [
+        { key: 'inspect', title: 'Inspect the current UI', status: 'in_progress' },
+        { key: 'update', title: 'Update the composer', status: 'pending' }
+      ]
+    }
+
+    await act(async () => {
+      hooks.listener()({
+        type: 'message',
+        conversation_id: conversationId,
+        message: message('user-task', 'user', 'Prepare the update')
+      })
+      await Promise.resolve()
+    })
+    await act(async () => {
+      hooks.listener()({ type: 'task_state', conversation_id: conversationId, task })
+      await Promise.resolve()
+    })
+
+    expect(hooks.chatInput().taskProgress).toEqual(task)
   })
 
   it('starts a fresh General Chat instead of retaining an active project conversation scope', async () => {

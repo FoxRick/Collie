@@ -23,7 +23,8 @@ import type {
   ApprovalPreset,
   ExecutionMode,
   FileAccessScope,
-  ProviderInfo
+  ProviderInfo,
+  TaskState
 } from '../lib/ipc'
 import {
   MICROPHONE_STORAGE_KEY,
@@ -31,6 +32,7 @@ import {
   type LocalDictationRecorder
 } from '../lib/audio'
 import BrandLogo from './BrandLogo'
+import TaskProgress from './tasks/TaskProgress'
 
 const ROTATING_PROMPTS = [
   'Create a weekend shopping list and add tomatoes',
@@ -261,6 +263,7 @@ interface Props {
   onTypingChange?: (isTyping: boolean) => void
   onTranscribe: (audio: string) => Promise<string>
   commandCatalog?: CommandCatalog
+  taskProgress?: TaskState | null
 }
 
 export default function ChatInput({
@@ -285,7 +288,8 @@ export default function ChatInput({
   onChooseFileAccessFolders,
   onTypingChange,
   onTranscribe,
-  commandCatalog
+  commandCatalog,
+  taskProgress
 }: Props): React.JSX.Element {
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState<AttachmentDraft[]>([])
@@ -632,7 +636,12 @@ export default function ChatInput({
           <small>↑↓ choose · Tab insert · Enter run</small>
         </div>
       )}
-      <div className="composer flex items-end gap-2 px-3 py-2">
+      {taskProgress ? (
+        <TaskProgress task={taskProgress} onStop={onStop} attachedToComposer />
+      ) : null}
+      <div className={`composer flex items-end gap-2 px-3 py-2${
+        taskProgress ? ' composer--with-task-progress' : ''
+      }`}>
         <button
           type="button"
           className="composer-tool"

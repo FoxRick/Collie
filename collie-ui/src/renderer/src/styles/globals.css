@@ -1712,6 +1712,18 @@ button {
 
 .composer-wrap { position: relative; }
 
+.task-progress--composer {
+  position: relative;
+  z-index: 1;
+  margin-bottom: -1px;
+  border-radius: 16px 16px 0 0;
+  box-shadow: none;
+}
+
+.composer.composer--with-task-progress {
+  border-radius: 0 0 16px 16px;
+}
+
 .slash-palette {
   position: absolute;
   z-index: 30;

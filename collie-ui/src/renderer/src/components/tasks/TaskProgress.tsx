@@ -76,10 +76,17 @@ interface Props {
   onStop?: () => void
   /** History summaries remain compact and cannot issue task controls. */
   readOnly?: boolean
+  /** Visually joins live progress to the composer instead of rendering a standalone card. */
+  attachedToComposer?: boolean
 }
 
 /** Compact, accessible user-facing progress for one conversation only. */
-export default function TaskProgress({ task, onStop, readOnly = false }: Props): React.JSX.Element {
+export default function TaskProgress({
+  task,
+  onStop,
+  readOnly = false,
+  attachedToComposer = false
+}: Props): React.JSX.Element {
   const [expanded, setExpanded] = useState(false)
   const detailsId = useId()
   const terminal = isTaskTerminal(task)
@@ -89,8 +96,13 @@ export default function TaskProgress({ task, onStop, readOnly = false }: Props):
   const statusText = `${progress}. ${currentLabel(task)}.`
   return (
     <section
-      className="mx-auto mb-2 rounded-xl border bg-[var(--collie-surface)] shadow-sm"
-      style={{ borderColor: 'var(--collie-border)', width: 'min(calc(100% - 24px), 920px)' }}
+      className={`task-progress mx-auto rounded-xl border bg-[var(--collie-surface)] shadow-sm${
+        attachedToComposer ? ' task-progress--composer' : ' mb-2'
+      }`}
+      style={{
+        borderColor: 'var(--collie-border)',
+        width: attachedToComposer ? '100%' : 'min(calc(100% - 24px), 920px)'
+      }}
       aria-label="Task progress"
     >
       {readOnly ? (

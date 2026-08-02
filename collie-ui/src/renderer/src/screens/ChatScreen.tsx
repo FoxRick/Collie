@@ -27,7 +27,7 @@ import ConnectorsScreen from './ConnectorsScreen'
 import type { AppView } from '../lib/navigation'
 import { mergeStreamDelta, nextStreamReveal, visibleStreamText } from '../lib/stream'
 import ApprovalSheet from '../components/approvals/ApprovalSheet'
-import TaskProgress, { isTaskTerminal } from '../components/tasks/TaskProgress'
+import { isTaskTerminal } from '../components/tasks/TaskProgress'
 import {
   applyTaskState,
   beginTaskHydration,
@@ -979,7 +979,6 @@ export default function ChatScreen({
               }
             />
           ))}
-          {activeTask && !isTaskTerminal(activeTask) ? <TaskProgress task={activeTask} onStop={() => void stop()} /> : null}
           <div className="portrait-composer-layout">
             <InteractiveColliePortrait
               thinking={portraitThinking}
@@ -1011,6 +1010,7 @@ export default function ChatScreen({
               onTypingChange={setIsTyping}
               onTranscribe={async (audio) => (await collieClient.transcribe(audio)).text}
               commandCatalog={commandCatalog}
+              taskProgress={activeTask && !isTaskTerminal(activeTask) ? activeTask : null}
             />
           </div>
         </div>
