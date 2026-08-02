@@ -74,6 +74,54 @@ This is the critical path for the entire laboratory; nothing can be
 benchmarked until it exists. It is a ~1–2 day change, mostly wiring
 existing composition into a new entry point plus a focused test.
 
+## Parity: the headless engine IS the live app
+
+Headless mode is **not a second implementation** — it is the same engine
+without a window. Collie's architecture already guarantees this:
+
+- The Electron shell is only a client: renderer → preload → main →
+  localhost WebSocket → `collie_core.runtime`. All agent behavior (loop,
+  prompts, tools, permissions, memory, telemetry) lives in collie-core;
+  the UI contains no engine logic.
+- Headless mode reuses the exact same composition: `CollieRuntime._build_loop()`
+  (same `build_config` from settings, same `ToolLoader(collie_tools)`
+  discovery, same Jinja2 templates) and the same `AgentLoop.process_direct`
+  call the IPC server uses for every chat message. Only the entry point
+  differs; the engine does not.
+
+Anti-drift guarantees (so parity is enforced, not hoped for):
+
+1. **One-entry-point rule** — headless code may only reuse
+   `CollieRuntime` methods; it never re-composes the loop, tools, prompts,
+   or permissions. Enforced in review and by a consistency test asserting
+   both paths produce identical tool registries and rendered system
+   prompts from the same settings.
+2. **Phase-gate e2e tests run through the headless entry point too** —
+   the existing fake-OpenAI e2e gates (`tests/collie/test_e2e_phase1..4.py`)
+   already guard the live chat path; the same assertions run against
+   `collie_core.headless`, so any drift fails CI.
+3. **Prompt/config hashes in every trial** — the prompt-hash telemetry
+   makes parity visible in the data: each run records which rendered
+   system prompt and config it measured. When prompts change, the next
+   run's hash changes, and comparisons always know exactly what they
+   compared.
+4. **Pinned commit per run** — Harbor trials launch a pinned Collie
+   checkout (commit + image digest in the manifest), so a benchmark
+   measures the exact code the app runs at that commit. Prompts and tools
+   are data files in that checkout; nothing is copied into the lab.
+
+What "equal" does not cover: the UI layer itself (renderer, tray, pet,
+notifications) and Windows packaging/OS integrations stay out of the
+headless lane by design — the Windows acceptance lane covers the shell.
+The agent brain — loop, prompts, tools, permissions, settings, memory,
+telemetry — is identical.
+
+**The "no redoing" answer:** changes flow one way. Edit a prompt template,
+tool, or engine behavior in collie-core once; both the app and the next
+bench run read the same files at build time. The lab never copies Collie's
+prompts or tools — it only launches the pinned engine. The only thing that
+changes between runs is the recorded commit hash.
+
 ## Collie-side enabler: prompt-hash telemetry
 
 Reproducibility requires knowing *which* system prompt and tool schema a
