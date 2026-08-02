@@ -28,6 +28,7 @@ foundation and should not be re-litigated:
 | Decision | Choice | Why |
 |---|---|---|
 | Trial runner | **Harbor Framework** (`harbor-framework/harbor`, from the Terminal-Bench team) | Isolated Docker environments per trial, agent adapters, versioned datasets, trajectory/artifact/usage collection, RL-rollout support for the endgame |
+| Recording + visualization | **Harbor's built-in web viewer** (`harbor view`) — not a custom tool | Verified in Harbor source: job/trial lists, full trajectory inspection (input/output text per step), input/cached/output token counts, **cost in USD** via LiteLLM pricing, verifier results, per-job LLM analysis, run history, and launching runs from the UI. We only add a thin cross-run regression layer on top (below) |
 | Lab location | **Separate `collie-bench` repo**, Linux-native on the VM | Keeps untrusted harness code and generated commands away from the Windows-maintained Collie workflow; the benchmark VM is not a production Collie machine |
 | Phase 1 scope | 45 trials = 3 harnesses × 5 deterministic tasks × 3 reps | Proves measurement before building anything bigger |
 | First model | One cheap model (DeepSeek-class, OpenAI-compatible) | Cost discipline is a feature; cheap models amplify harness-quality differences |
@@ -108,44 +109,40 @@ collie-bench/
 Private holdout tasks and hidden verifier material live in a separate
 private repo/service; the optimization loop never reads them.
 
-## The small comparison tool
+## Recording and visualization (Harbor first)
 
-A deliberately tiny (~300–500 lines, stdlib-only) reporter that turns a
-directory of trial manifests into the side-by-side overview. It is *not* a
-framework — Harbor is the runner, this is the dashboard.
+**Harbor already records and visualizes the per-run detail the user wants
+to see.** Verified against Harbor source (`src/harbor/viewer/server.py`,
+`src/harbor/cli/view.py`):
 
-**Input:** one JSON-lines file per run (or a directory of them). Every
-trial record carries:
+- **Per trial, recorded automatically:** the full trajectory (every
+  input/output/tool-call step in the standard Agent Trajectory Interchange
+  Format), input / cached-input / output token counts, **cost in USD**
+  (LiteLLM pricing table), verifier pass/fail, artifacts, latency, and
+  environment metadata.
+- **Built-in web viewer** (`harbor view`): a FastAPI + React app that
+  lists jobs and trials, shows each trial's trajectory (input text, output
+  text, tool calls), usage and cost stats, per-job LLM analysis
+  (`/api/jobs/{job}/analysis`), run history, and can even start runs from
+  the browser.
 
-```json
-{
-  "run_id": "2026-08-03T10:00:00Z-collie-reminder-1",
-  "harness": "collie", "version": "0.2.2+abc123",
-  "model": "deepseek/deepseek-chat", "task": "reminder-set",
-  "prompt_hash": "sha256:...", "tool_schema_hash": "sha256:...",
-  "passed": true, "exit_state": "ok",
-  "usage": {"input": 1200, "output": 310, "cache_read": 0, "cache_write": 0},
-  "calls": {"model": 4, "tool": 7, "retries": 0},
-  "latency_ms": 18400, "cost_usd": 0.0042,
-  "failure_cluster": null, "trajectory_path": "runs/.../trajectory.jsonl"
-}
-```
+So the "something visual/recording" requirement is Harbor's job, not a
+custom dashboard. What Harbor does **not** provide out of the box is the
+*cross-run* view: "benchmark from last week vs today, per harness and per
+prompt version, side by side — and did prompt v3 beat prompt v2?" That is
+the one thin layer we add in `collie-bench`:
 
-**Output:** markdown + terminal tables:
+- `collie-bench/scripts/bench_report.py` (~300–500 lines, stdlib-only):
+  reads Harbor's stored job/trial records, renders side-by-side tables
+  (harness × task: pass rate, tokens in/out/cache, cost, p50 latency, tool
+  calls, failure cluster), a Pareto frontier, and the **baseline-vs-candidate
+  delta view** used for keep/revert decisions.
+- Later: a small time-series page (HTML) on top of the same records so
+  re-runs over weeks visibly show improvement — fed entirely by Harbor's
+  data, never re-measured.
 
-| harness | task | pass | tokens in | tokens out | cost | p50 lat | tool calls | failure cluster |
-|---|---|---|---|---|---|---|---|---|
-| collie | reminder-set | ✅ 3/3 | 3.4k | 1.1k | $0.013 | 18s | 7 | — |
-| hermes | reminder-set | ✅ 2/3 | 4.1k | 1.3k | $0.016 | 21s | 9 | context-loss |
-| codex | reminder-set | ❌ 1/3 | 5.2k | 0.9k | $0.019 | 29s | 12 | looping |
-
-Plus a Pareto frontier (pass rate × cost per solve), a paired baseline-vs-
-candidate delta view (the *only* view used for promotion decisions), and a
-failure-cluster histogram. One command: `python bench_report.py runs/`.
-
-Where it lives: `collie-bench/scripts/bench_report.py` (it is a lab tool,
-not a product feature). If a future UI wants it, the markdown output is
-already embeddable.
+Harbor runs the trials and records everything; the report layer only
+aggregates and compares what Harbor already stored.
 
 ## Iteration loop and the "1% per day" reality check
 
@@ -194,7 +191,8 @@ already embeddable.
 - Verifiers score artifacts without agent access; infrastructure failures
   are not counted as task failures.
 - The report shows quality, tokens, cost, caching, calls, latency, and
-  failure categories — the small tool's output.
+  failure categories — Harbor viewer for per-run detail, `bench_report.py`
+  for the cross-run side-by-side.
 - A second operator can reproduce the result from documented inputs.
 
 ## Open decisions
@@ -213,4 +211,5 @@ already embeddable.
 2. **Headless mode** — `collie_core/headless.py` entry point + test + docs
    (engineering decision: internal capability, not a product CLI).
 3. **Prompt-hash telemetry** — additive run-record fields + migration test.
-4. (Lab repo, after 2–3 merge) adapters, tasks, verifiers, `bench_report.py`.
+4. (Lab repo, after 2–3 merge) adapters, tasks, verifiers, and the
+   cross-run report layer on top of Harbor's viewer data.
