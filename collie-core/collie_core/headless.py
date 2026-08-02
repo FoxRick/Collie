@@ -265,6 +265,12 @@ async def run_one(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     # path writes, never a bypass. (argparse already restricts to
     # allow|ask|deny.)
     db.set_setting("permissions.local_write_preset", args.approval_preset)
+    # --max-iterations maps to agent.max_tool_iterations; build_config clamps
+    # to 1..2000, and the flag must never reach the engine outside that range.
+    db.set_setting(
+        "agent.max_tool_iterations",
+        min(MAX_ITERATIONS_MAX, max(MAX_ITERATIONS_MIN, args.max_iterations)),
+    )
     runtime: CollieRuntime | None = None
     try:
         runtime = CollieRuntime(port=0, db=db)
