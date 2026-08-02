@@ -37,6 +37,7 @@ from collie_core.session_identity import desktop_session_key
 from collie_core.subagents.loader import SubagentLoader, bind_subagent_loader
 from collie_core.tools.life_db import bind_life_db
 from collie_core.tools.memory import bind_profile_store
+from collie_core.tools.model_switch import bind_model_switcher
 from collie_core.tools.plans import bind_plans_db
 from collie_core.tools.reminders import bind_reminders_db
 from collie_core.tools.suggest_profile import bind_suggest_workspace
@@ -66,6 +67,7 @@ class CollieRuntime:
         bind_reminders_db(self.db)
         bind_life_db(self.db)
         bind_plans_db(self.db)
+        bind_model_switcher(self._switch_model)
         bind_task_checklists_db(self.db)
         # The connector manager keeps the old ServiceManager-shaped facade for
         # one transition release, so existing life-tool bridges stay bootable.
@@ -104,6 +106,8 @@ class CollieRuntime:
             subagent_loader=self.subagents,
             loop_provider=lambda: self.loop,
             status_provider=self._status,
+            model_switcher=self._switch_model,
+            providers_provider=lambda: self.db.list_providers(),
         )
         self.ipc = CollieIPCServer(
             self.db,
@@ -868,6 +872,48 @@ class CollieRuntime:
             except Exception:
                 pass
         return status
+
+    async def _switch_model(self, model: str) -> dict[str, Any]:
+        """Persist and live-apply a new active model for future turns.
+
+        The setting is saved first so a later loop rebuild (provider change,
+        app restart) keeps the choice. When a loop is running, the change is
+        also applied live via the runtime resolver so the very next turn uses
+        the new model — no loop rebuild, no interrupted turn.
+        """
+        name = str(model).strip()
+        if not name:
+            return {"switched": False, "error": "A model name is required."}
+        previous = self.db.get_setting("provider.model")
+        if name == previous:
+            return {
+                "switched": True,
+                "model": name,
+                "previous": previous,
+                "unchanged": True,
+                "applied": True,
+            }
+        self.db.set_setting("provider.model", name)
+        applied = False
+        loop = self.loop
+        if loop is not None:
+            resolver = getattr(loop, "runtime_resolver", None)
+            select = getattr(resolver, "select_model", None)
+            if callable(select):
+                try:
+                    select(name)
+                    applied = True
+                except Exception:
+                    logger.exception(
+                        "Live model switch failed; the new model will apply "
+                        "on the next loop rebuild"
+                    )
+        return {
+            "switched": True,
+            "model": name,
+            "previous": previous,
+            "applied": applied,
+        }
 
     async def _chat(
         self,

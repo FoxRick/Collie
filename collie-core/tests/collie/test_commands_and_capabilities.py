@@ -14,7 +14,7 @@ from collie_core.commands import CommandController, parse_command
 from collie_core.db import CollieDB
 from collie_core.ipc.server import CollieIPCServer
 from collie_core.permissions.evaluator import PermissionEvaluator
-from collie_core.permissions.models import Effect, ExecutionContext
+from collie_core.permissions.models import Effect, ExecutionContext, Risk
 from collie_core.runtime import CollieRuntime
 from collie_core.subagents.loader import SubagentLoader
 from collie_core.tools.capabilities import (
@@ -23,6 +23,12 @@ from collie_core.tools.capabilities import (
     LoadSkillTool,
     create_workspace_skill,
 )
+from collie_core.tools.model_switch import (
+    SetModelTool,
+    bind_model_switcher,
+    model_switcher,
+)
+from nanobot.agent.context import ContextBuilder
 from nanobot.agent.tools.loader import ToolLoader
 
 
@@ -423,3 +429,286 @@ async def test_messenger_new_cancels_and_deletes_only_short_term_session(
         assert calls == [("cancel", "telegram:42"), ("delete", "telegram:42")]
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# /model command
+# ---------------------------------------------------------------------------
+
+
+def _model_controller(
+    tmp_path: Path,
+    *,
+    switcher=None,
+    providers=None,
+) -> CommandController:
+    return CommandController(
+        workspace=tmp_path / "workspace",
+        subagent_loader=None,
+        loop_provider=lambda: None,
+        status_provider=lambda: {
+            "model": "deepseek-v4-pro",
+            "active_agents": [],
+        },
+        model_switcher=switcher,
+        providers_provider=lambda: providers or [],
+    )
+
+
+def test_model_command_is_in_catalog(tmp_path: Path) -> None:
+    db, _workspace, _loader, controller = _controller(tmp_path)
+    try:
+        model_command = next(
+            item
+            for item in controller.catalog()["commands"]
+            if item["name"] == "model"
+        )
+        assert model_command["usage"] == "/model [model-id]"
+    finally:
+        db.close()
+
+
+@pytest.mark.asyncio
+async def test_model_command_without_arguments_lists_current_and_providers(
+    tmp_path: Path,
+) -> None:
+    providers = [
+        {
+            "name": "deepseek",
+            "runtime_name": "DeepSeek",
+            "model": "deepseek-v4-pro",
+            "is_default": 1,
+        },
+        {
+            "name": "openai",
+            "runtime_name": "OpenAI",
+            "model": "gpt-5.5",
+            "is_default": 0,
+        },
+    ]
+    controller = _model_controller(tmp_path, providers=providers)
+    result = await controller.execute(
+        "/model",
+        session_key="collie:one",
+        origin="desktop",
+    )
+    assert result is not None
+    assert result["handled"] is True
+    assert "**Current model:** deepseek-v4-pro" in result["content"]
+    assert "**DeepSeek**: deepseek-v4-pro (active)" in result["content"]
+    assert "**OpenAI**: gpt-5.5" in result["content"]
+    assert result["card_type"] == "status"
+    assert result["card_data"]["model"] == "deepseek-v4-pro"
+
+
+@pytest.mark.asyncio
+async def test_model_command_switches_via_runtime_bridge(tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    async def switcher(name: str) -> dict:
+        calls.append(name)
+        return {
+            "switched": True,
+            "model": name,
+            "previous": "deepseek-v4-pro",
+            "applied": True,
+        }
+
+    controller = _model_controller(tmp_path, switcher=switcher)
+    result = await controller.execute(
+        "/model deepseek-v4-flash",
+        session_key="collie:one",
+        origin="desktop",
+    )
+    assert calls == ["deepseek-v4-flash"]
+    assert result is not None
+    assert result["handled"] is True
+    assert (
+        "switched from **deepseek-v4-pro** to **deepseek-v4-flash**"
+        in result["content"]
+    )
+    assert result["card_type"] == "status"
+    assert result["card_data"]["model"] == "deepseek-v4-flash"
+
+
+@pytest.mark.asyncio
+async def test_model_command_reports_unchanged_and_failures(
+    tmp_path: Path,
+) -> None:
+    async def unchanged(name: str) -> dict:
+        return {
+            "switched": True,
+            "model": name,
+            "previous": name,
+            "unchanged": True,
+            "applied": True,
+        }
+
+    async def failing(name: str) -> dict:
+        return {"switched": False, "error": "that model is not on the menu"}
+
+    controller = _model_controller(tmp_path, switcher=unchanged)
+    same = await controller.execute(
+        "/model deepseek-v4-pro",
+        session_key="collie:one",
+        origin="desktop",
+    )
+    assert same and "already on **deepseek-v4-pro**" in same["content"]
+
+    controller = _model_controller(tmp_path, switcher=failing)
+    failed = await controller.execute(
+        "/model nope-9",
+        session_key="collie:one",
+        origin="desktop",
+    )
+    assert failed and "I couldn't switch models" in failed["content"]
+    assert "that model is not on the menu" in failed["content"]
+
+    controller = _model_controller(tmp_path, switcher=None)
+    unavailable = await controller.execute(
+        "/model deepseek-v4-flash",
+        session_key="collie:one",
+        origin="desktop",
+    )
+    assert unavailable and "isn't available" in unavailable["content"]
+
+
+# ---------------------------------------------------------------------------
+# set_model tool
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_set_model_tool_switches_via_bound_runtime() -> None:
+    calls: list[str] = []
+
+    async def switcher(name: str) -> dict:
+        calls.append(name)
+        return {
+            "switched": True,
+            "model": name,
+            "previous": "deepseek-v4-pro",
+            "applied": True,
+        }
+
+    try:
+        bind_model_switcher(switcher)
+        assert model_switcher() is switcher
+        tool = SetModelTool()
+        out = await tool.execute(model="deepseek-v4-flash")
+        assert calls == ["deepseek-v4-flash"]
+        assert "deepseek-v4-flash" in out
+        assert "next messages" in out
+    finally:
+        bind_model_switcher(None)
+
+
+@pytest.mark.asyncio
+async def test_set_model_tool_errors_are_explicit() -> None:
+    try:
+        bind_model_switcher(None)
+        tool = SetModelTool()
+        missing = await tool.execute()
+        assert "Which model" in missing
+        unbound = await tool.execute(model="deepseek-v4-flash")
+        assert "not available" in unbound
+
+        async def failing(name: str) -> dict:
+            return {"switched": False, "error": "bad model"}
+
+        bind_model_switcher(failing)
+        failed = await tool.execute(model="deepseek-v4-flash")
+        assert "bad model" in failed
+    finally:
+        bind_model_switcher(None)
+
+
+def test_set_model_tool_permission_is_reversible_local_write() -> None:
+    request = SetModelTool().permission_request({"model": "deepseek-v4-flash"})
+    assert request.action == "runtime.set_model"
+    assert request.resource == "deepseek-v4-flash"
+    assert request.risk == Risk.LOCAL_WRITE
+    assert request.reversible is True
+    assert request.hard_approval is False
+    # Provider/settings operations stay approval-gated (never automatic).
+    assert request.approval_free is False
+    assert request.approve_for_me is False
+
+
+def test_set_model_tool_is_discoverable() -> None:
+    import collie_core.tools as collie_tools
+
+    names = {tool.__name__ for tool in ToolLoader(collie_tools).discover()}
+    assert "SetModelTool" in names
+
+
+# ---------------------------------------------------------------------------
+# runtime model switching
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_runtime_switch_model_persists_and_applies_live(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = tmp_path / "collie-home"
+    monkeypatch.setenv("COLLIE_HOME", str(home))
+    db = CollieDB(home / "collie.db")
+    runtime = CollieRuntime(port=0, db=db)
+    selected: list[str] = []
+    runtime.loop = SimpleNamespace(
+        runtime_resolver=SimpleNamespace(
+            select_model=lambda name: selected.append(name)
+        )
+    )
+    try:
+        result = await runtime._switch_model("deepseek-v4-flash")
+        assert result == {
+            "switched": True,
+            "model": "deepseek-v4-flash",
+            "previous": None,
+            "applied": True,
+        }
+        assert db.get_setting("provider.model") == "deepseek-v4-flash"
+        assert selected == ["deepseek-v4-flash"]
+
+        again = await runtime._switch_model("deepseek-v4-flash")
+        assert again["unchanged"] is True
+        assert selected == ["deepseek-v4-flash"]
+
+        bad = await runtime._switch_model("   ")
+        assert bad == {"switched": False, "error": "A model name is required."}
+    finally:
+        db.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_switch_model_without_loop_persists_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = tmp_path / "collie-home"
+    monkeypatch.setenv("COLLIE_HOME", str(home))
+    db = CollieDB(home / "collie.db")
+    runtime = CollieRuntime(port=0, db=db)
+    try:
+        result = await runtime._switch_model("gpt-5.5")
+        assert result["switched"] is True
+        assert result["applied"] is False
+        assert db.get_setting("provider.model") == "gpt-5.5"
+    finally:
+        db.close()
+
+
+def test_command_guidance_tells_the_agent_about_model_switching(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "memory").mkdir(exist_ok=True)
+    (tmp_path / "skills").mkdir(exist_ok=True)
+    builder = ContextBuilder(workspace=tmp_path)
+    builder.command_guidance = True
+    prompt = builder.build_system_prompt()
+    assert "/model" in prompt
+    assert "set_model" in prompt
+    assert "do not invent other model commands" in prompt

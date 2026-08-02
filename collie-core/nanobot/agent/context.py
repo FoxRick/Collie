@@ -100,11 +100,14 @@ class ContextBuilder:
         if self.command_guidance:
             parts.append(
                 "# User Commands\n\n"
-                "The user can type /new, /compact, /status, /stop, /agents, /skills, "
+                "The user can type /new, /compact, /status, /model, /stop, /agents, /skills, "
                 "/agent, /skill, /create-agent, and /create-skill. You may suggest the "
                 "most relevant command when it would help, but you cannot invoke commands "
                 "yourself and must never claim that printing command text executed it. "
-                "Only an exact command entered by the user is treated as authorization."
+                "Only an exact command entered by the user is treated as authorization.\n"
+                "To change the AI model, call the set_model tool with the exact model ID "
+                "(it applies to the next messages), or tell the user to type "
+                "/model <model-id> — do not invent other model commands."
             )
 
         if include_memory_recent_history:

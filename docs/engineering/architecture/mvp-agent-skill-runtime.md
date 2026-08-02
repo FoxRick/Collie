@@ -118,6 +118,16 @@ The always-on layer should be deterministic code wherever possible.
    - Stop when the tool or model budget is exhausted.
    - Report a concrete partial result or blocker.
 
+9. **In-chat model switching (`/model` + `set_model`)**
+   - `/model` shows the current model and configured providers; `/model <id>`
+     switches. The agent can also switch via the `set_model` tool.
+   - The change persists `provider.model` and applies live through the loop's
+     runtime resolver (`select_model`) — future turns use the new model, no
+     loop rebuild, no interrupted turn.
+   - Model changes are reversible local writes but stay approval-gated: they
+     mutate provider settings, so they never gain automatic or task-wide
+     authority.
+
 ### Do not turn these into hidden LLM agents
 
 - Permission checking
