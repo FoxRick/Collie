@@ -74,6 +74,20 @@ This is the critical path for the entire laboratory; nothing can be
 benchmarked until it exists. It is a ~1–2 day change, mostly wiring
 existing composition into a new entry point plus a focused test.
 
+**Why an entry point instead of driving the live IPC protocol?** The
+Electron shell is a WebSocket client, so a bench adapter could drive the
+existing `collie_core.runtime` directly — zero Collie changes, maximum
+fidelity. That path is viable (the e2e phase gates already exercise it),
+but the adapter would have to reimplement the streaming, approval, and
+readiness protocol, chase internal protocol changes, and boot background
+schedulers per trial. The headless entry point trades ~1–2 days of Collie
+work for a stable one-shot JSON contract, deterministic startup (no
+scheduler/reminder/messenger noise), and a trivial adapter — and doubles
+as the CI regression unit and the future optimization loop's task runner.
+No user-facing CLI is added; this is an internal capability. Interim
+option: the first smoke matrix can drive the IPC protocol with zero Collie
+changes while the entry point is built.
+
 ## Parity: the headless engine IS the live app
 
 Headless mode is **not a second implementation** — it is the same engine
