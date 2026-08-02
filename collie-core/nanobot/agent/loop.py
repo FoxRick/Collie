@@ -2101,7 +2101,6 @@ class AgentLoop:
                         "on_progress": on_progress,
                         "on_stream": on_stream,
                         "on_stream_end": on_stream_end,
-                        "on_superseded_response": on_superseded_response,
                         "ephemeral": ephemeral,
                     }
                     process_parameters = inspect.signature(self._process_message).parameters
@@ -2111,6 +2110,8 @@ class AgentLoop:
                     )
                     if accepts_extra or "pending_queue" in process_parameters:
                         kwargs["pending_queue"] = pending
+                    if accepts_extra or "on_superseded_response" in process_parameters:
+                        kwargs["on_superseded_response"] = on_superseded_response
                     if _run_extra_hooks_for_ephemeral:
                         kwargs["run_extra_hooks_for_ephemeral"] = True
                     if hooks is not None:
