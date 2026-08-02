@@ -1,5 +1,6 @@
 """Contract tests for the preserved full-body Collie v2 desktop pet."""
 
+from collie_core.ipc.thinking import PET_V2_STATE_BY_THINKING_STATE, PHRASES
 from collie_core.pet.v2 import (
     DEEP_WORK_THRESHOLD_MS,
     FRAME_SEQUENCES,
@@ -8,6 +9,17 @@ from collie_core.pet.v2 import (
     asset_paths,
     quantize_pointer_direction,
 )
+
+
+def test_pet_state_map_covers_all_phrases_and_stays_in_command_allowlist() -> None:
+    # Every thinking phrase the core can emit maps to a desktop-pet v2 state,
+    # and that state is one the Electron command allowlist accepts verbatim.
+    allowed = {"idle", "working", "review", "error", "completion"}
+    assert set(PET_V2_STATE_BY_THINKING_STATE) == set(PHRASES)
+    assert set(PET_V2_STATE_BY_THINKING_STATE.values()) <= allowed
+    # Consistency with the chat portrait: summarizing is visible work, not
+    # the review/sniff pose (the portrait maps it to "working" as well).
+    assert PET_V2_STATE_BY_THINKING_STATE["summarizing"] == "working"
 
 
 def test_preserved_assets_and_frame_contract() -> None:

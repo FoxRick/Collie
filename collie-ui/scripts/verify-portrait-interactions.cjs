@@ -8,7 +8,7 @@ app.whenReady().then(async () => {
   const window = new BrowserWindow({
     width: 1120,
     height: 780,
-    show: false,
+    show: true,
     webPreferences: { backgroundThrottling: false }
   })
   const page = pathToFileURL(join(__dirname, '..', 'out', 'renderer', 'index.html')).toString()

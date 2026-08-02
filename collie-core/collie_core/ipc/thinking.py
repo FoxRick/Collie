@@ -52,7 +52,7 @@ _TOOL_STATES: dict[str, str] = {
 
 PET_V2_STATE_BY_THINKING_STATE = {
     "searching": "review", "planning": "working", "fetching": "review",
-    "generating": "working", "processing": "working", "summarizing": "review",
+    "generating": "working", "processing": "working", "summarizing": "working",
     "remembering": "working", "recovering": "working", "done": "completion",
     "error": "error", "idle": "idle", "startup": "working", "pantry": "review",
     "mapping": "review", "calendar": "working", "mail": "working", "buddy": "review",

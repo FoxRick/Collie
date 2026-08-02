@@ -16,6 +16,7 @@ Features:
 from __future__ import annotations
 
 import json
+import logging
 import random
 import sys
 import tkinter as tk
@@ -46,6 +47,13 @@ from .v2 import (
     V2SpriteRenderer,
     quantize_pointer_direction,
 )
+
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    _pet_handler = logging.StreamHandler(sys.stderr)
+    _pet_handler.setFormatter(logging.Formatter("[pet] %(message)s"))
+    logger.addHandler(_pet_handler)
+    logger.setLevel(logging.INFO)
 
 
 # Persistence — honor COLLIE_HOME like the rest of the runtime (the Electron
@@ -206,7 +214,7 @@ class ColliePet:
             self._v2_renderer = V2SpriteRenderer()
             self._v2_controller = V2AnimationController("idle", self._now_ms())
         except V2AssetError as exc:
-            print(f"[pet] Collie v2 assets unavailable; using legacy fallback: {exc}")
+            logger.warning("Collie v2 assets unavailable; using legacy fallback: %s", exc)
 
         # Generated sprite frames: state -> list of PhotoImage (scaled)
         self._frames: Dict[str, List[ImageTk.PhotoImage]] = {}
@@ -431,7 +439,6 @@ class ColliePet:
             controller.trigger_click(now)
         else:
             mapped = {
-                "walk": "review",
                 "sleep": "idle",
                 "concerned": "error",
                 "sit": "waiting",
@@ -594,7 +601,9 @@ class ColliePet:
                 self.set_state("completion" if command == "happy" else "click_reaction")
             elif command == "sit":
                 self.set_state("waiting")
-            elif command in {"sleep", "walk", "concerned"}:
+            elif command == "walk":
+                self._walk_across()
+            elif command in {"sleep", "concerned"}:
                 self.set_state(command)
             elif command in {"hide", "show", "roam", "stay", "quit"} or command.startswith("size:"):
                 self._apply_pet_window_command(command)
