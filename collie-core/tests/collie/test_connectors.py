@@ -10,7 +10,7 @@ import pytest
 
 from collie_core.connectors.catalog import CONNECTOR_CATALOG, connector_def
 from collie_core.connectors.manager import ConnectorManager
-from collie_core.connectors.models import ProbeResult
+from collie_core.connectors.models import ConnectorDriverKind, ProbeResult
 from collie_core.connectors.policy import classify_connector_tool
 from collie_core.db import CollieDB
 from collie_core.services.credentials import CredentialStore
@@ -65,10 +65,18 @@ def connector_store(tmp_path: Path) -> CredentialStore:
     )
 
 
-def test_launch_catalog_keeps_unverified_direct_mcp_providers_disabled() -> None:
+def test_launch_catalog_enables_direct_mcp_routes_ready_for_live_oauth() -> None:
     by_id = {item.id: item for item in CONNECTOR_CATALOG}
-    assert {"notion", "linear", "todoist", "atlassian"} <= set(by_id)
-    assert not any(item.available for item in CONNECTOR_CATALOG)
+    assert {"notion", "linear", "todoist", "atlassian", "airtable"} <= set(by_id)
+    enabled = {item.id for item in CONNECTOR_CATALOG if item.available}
+    # Only routes that can complete OAuth today (official hosted MCP with
+    # dynamic client registration) are enabled; the rest stay coming_soon.
+    assert enabled == {"notion", "linear", "todoist", "atlassian", "airtable"}
+    for provider_id in enabled:
+        definition = by_id[provider_id]
+        assert definition.driver == ConnectorDriverKind.OFFICIAL_MCP
+        assert definition.release_status == "alpha"
+        assert definition.endpoint
     assert connector_def("NoTiOn") is by_id["notion"]
     assert by_id["notion"].endpoint == "https://mcp.notion.com/mcp"
 
@@ -156,7 +164,37 @@ def test_disabled_connector_cannot_connect_or_rebind_existing_runtime(
     db = CollieDB(tmp_path / "collie.db")
     manager = ConnectorManager(db, credentials=connector_store)
     with pytest.raises(ValueError, match="coming soon"):
-        manager.connect("notion")
+        manager.connect("github")
+    db.upsert_connector_connection(
+        "con_old_github",
+        provider_id="github",
+        driver="bundled_mcp",
+        auth_type="oauth",
+        status="connected",
+        enabled_tools=["search_repositories"],
+    )
+    assert manager.is_connected("github") is False
+    assert manager.mcp_servers_for_config() == {}
+    catalog = {item["id"]: item for item in manager.catalog_view()}
+    assert catalog["github"]["status"] == "coming_soon"
+    assert catalog["github"]["connection_count"] == 0
+    # Historical rows stay removable, but must not be displayed as a healthy
+    # connection when the provider route is unavailable in this build.
+    connection = manager.get_connection("con_old_github")
+    assert connection is not None
+    assert connection["status"] == "attention"
+    assert connection["last_error_code"] == "provider_unavailable"
+    assert connection["last_error_message"] == (
+        "This connection is not available in this build and cannot be used."
+    )
+    db.close()
+
+
+def test_enabled_provider_historical_connected_row_stays_healthy_and_rebinds(
+    tmp_path: Path, connector_store: CredentialStore
+) -> None:
+    db = CollieDB(tmp_path / "collie.db")
+    manager = ConnectorManager(db, credentials=connector_store)
     db.upsert_connector_connection(
         "con_old_notion",
         provider_id="notion",
@@ -165,20 +203,12 @@ def test_disabled_connector_cannot_connect_or_rebind_existing_runtime(
         status="connected",
         enabled_tools=["search_pages"],
     )
-    assert manager.is_connected("notion") is False
-    assert manager.mcp_servers_for_config() == {}
-    catalog = {item["id"]: item for item in manager.catalog_view()}
-    assert catalog["notion"]["status"] == "coming_soon"
-    assert catalog["notion"]["connection_count"] == 0
-    # Historical rows stay removable, but must not be displayed as a healthy
-    # connection when the provider route is unavailable in this build.
+    assert manager.is_connected("notion") is True
+    assert list(manager.mcp_servers_for_config()) != []
     connection = manager.get_connection("con_old_notion")
     assert connection is not None
-    assert connection["status"] == "attention"
-    assert connection["last_error_code"] == "provider_unavailable"
-    assert connection["last_error_message"] == (
-        "This connection is not available in this build and cannot be used."
-    )
+    assert connection["status"] == "connected"
+    assert connection["last_error_code"] is None
     db.close()
 
 

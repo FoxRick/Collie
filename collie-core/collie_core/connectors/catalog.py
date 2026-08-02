@@ -51,6 +51,10 @@ _COMING_SOON = "Coming soon — the official provider route is still being verif
 _PACKAGED_VERIFICATION_REQUIRED = (
     "Coming soon — this connection has not passed Collie's packaged-app verification yet."
 )
+_ALPHA_VERIFICATION = (
+    "Alpha — live against the official provider endpoint; final packaged-app "
+    "sign-in verification is still pending."
+)
 
 CONNECTOR_CATALOG: tuple[ConnectorDefinition, ...] = (
     _mcp(
@@ -62,8 +66,8 @@ CONNECTOR_CATALOG: tuple[ConnectorDefinition, ...] = (
         capabilities=("Read", "Create", "Update"),
         permissions=("read pages", "search", "create and update with approval"),
         featured=True,
-        available=False,
-        note=_PACKAGED_VERIFICATION_REQUIRED,
+        available=True,
+        note=_ALPHA_VERIFICATION,
     ),
     _mcp(
         "linear",
@@ -73,8 +77,8 @@ CONNECTOR_CATALOG: tuple[ConnectorDefinition, ...] = (
         "https://mcp.linear.app/mcp",
         capabilities=("Read", "Create", "Update"),
         permissions=("read issues", "create and update with approval"),
-        available=False,
-        note=_PACKAGED_VERIFICATION_REQUIRED,
+        available=True,
+        note=_ALPHA_VERIFICATION,
         overrides={"delete_issue": "destructive"},
     ),
     _mcp(
@@ -86,8 +90,8 @@ CONNECTOR_CATALOG: tuple[ConnectorDefinition, ...] = (
         capabilities=("Read", "Create", "Update"),
         permissions=("read tasks", "create and complete with approval"),
         featured=True,
-        available=False,
-        note=_PACKAGED_VERIFICATION_REQUIRED,
+        available=True,
+        note=_ALPHA_VERIFICATION,
     ),
     _mcp(
         "atlassian",
@@ -97,8 +101,8 @@ CONNECTOR_CATALOG: tuple[ConnectorDefinition, ...] = (
         "https://mcp.atlassian.com/v1/mcp/authv2",
         capabilities=("Read", "Create", "Update"),
         permissions=("read Jira and Confluence", "create and update with approval"),
-        available=False,
-        note=_PACKAGED_VERIFICATION_REQUIRED,
+        available=True,
+        note=_ALPHA_VERIFICATION,
     ),
     _mcp(
         "gmail",
@@ -206,7 +210,9 @@ CONNECTOR_CATALOG: tuple[ConnectorDefinition, ...] = (
         endpoint="https://mcp.airtable.com/mcp",
         capabilities=("Read", "Create", "Update"),
         permissions=("read records", "create and update with approval"),
-        note=_COMING_SOON,
+        available=True,
+        release_status="alpha",
+        note=_ALPHA_VERIFICATION,
     ),
     ConnectorDefinition(
         id="github",
