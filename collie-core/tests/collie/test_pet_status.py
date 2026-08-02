@@ -73,7 +73,8 @@ def test_completion_stays_until_acknowledged() -> None:
     pet._set_status("Finished. Your result is ready.")
 
     assert label.manager == "pack"
-    assert states == ["happy"]
+    # v2 pet feature (d14110e) renamed the completion state to "completion".
+    assert states == ["completion"]
     assert root.scheduled == []
 
     pet._set_status("dismiss")
@@ -140,6 +141,74 @@ def test_non_windows_work_area_uses_screen_bounds(monkeypatch) -> None:
     monkeypatch.setattr(pet_module.sys, "platform", "linux")
 
     assert pet_module._screen_work_area(_Screen()) == (0, 0, 1920, 1080)
+
+
+class _FakeRoot:
+    """Minimal Tk root double: records wm_attributes calls, optionally
+    rejecting -transparentcolor exactly like Linux/X11 tkinter does."""
+
+    def __init__(self, reject_transparentcolor: bool) -> None:
+        self.reject_transparentcolor = reject_transparentcolor
+        self.attribute_calls: list[str] = []
+        self.bg: str | None = None
+
+    def title(self, _title: str) -> None:
+        pass
+
+    def overrideredirect(self, _value: bool) -> None:
+        pass
+
+    def wm_attributes(self, *args) -> None:
+        self.attribute_calls.append(args[0])
+        if args[0] == "-transparentcolor" and self.reject_transparentcolor:
+            raise pet_module.tk.TclError(
+                'bad attribute "-transparentcolor": must be -alpha, '
+                "-fullscreen, -topmost, -type, or -zoomed"
+            )
+
+    def config(self, **kwargs) -> None:
+        self.bg = kwargs.get("bg")
+
+
+class _FakeLabel:
+    def __init__(self, *_args, **_kwargs) -> None:
+        pass
+
+    def pack(self, *_args, **_kwargs) -> None:
+        pass
+
+    def bind(self, *_args, **_kwargs) -> None:
+        pass
+
+
+def test_build_window_survives_missing_transparentcolor_support(monkeypatch) -> None:
+    """Linux/X11 tkinter rejects -transparentcolor; the pet must still open.
+
+    Regression: the unguarded call crashed the whole pet process on non-Windows
+    (exit 1 -> Electron's respawn cap -> no pet ever appears).
+    """
+    monkeypatch.setattr(pet_module.tk, "Label", _FakeLabel)
+    root = _FakeRoot(reject_transparentcolor=True)
+
+    pet = ColliePet.__new__(ColliePet)
+    pet.root = root
+    pet._build_window()
+
+    assert "-transparentcolor" in root.attribute_calls
+    assert root.bg == "#010203"
+
+
+def test_build_window_applies_transparentcolor_when_supported(monkeypatch) -> None:
+    """Windows accepts the attribute, so the chroma key must still be set."""
+    monkeypatch.setattr(pet_module.tk, "Label", _FakeLabel)
+    root = _FakeRoot(reject_transparentcolor=False)
+
+    pet = ColliePet.__new__(ColliePet)
+    pet.root = root
+    pet._build_window()
+
+    assert "-transparentcolor" in root.attribute_calls
+    assert root.bg == "#010203"
 
 
 def test_saving_position_preserves_enabled_preference(tmp_path, monkeypatch) -> None:
