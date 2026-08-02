@@ -4,8 +4,21 @@ The recorder is deliberately defensive: every write is enqueued onto a
 dedicated writer thread and **never awaited**, so telemetry can neither
 break nor slow down an agent turn. A single FIFO consumer preserves write
 ordering (start before finish), and every write is wrapped so failures
-are logged and swallowed. All redaction/sanitization/truncation happens
-inside the writer thread — the event loop only enqueues.
+are logged and swallowed.
+
+Guarantees / lifecycle:
+- ``for_db`` shares one recorder per database; ``active_for`` looks it up
+  without creating one.
+- ``suspend()`` drops queued + future writes (used by ``clear_all`` so a
+  wipe can never be resurrected by pending telemetry); ``resume()``
+  re-enables recording.
+- ``flush()`` blocks until previously enqueued writes are applied;
+  ``shutdown()`` flushes, stops the writer thread, and unregisters the
+  recorder so closed databases are not retained.
+- The queue is bounded (``MAX_QUEUED_WRITES``); overflow and suspended/
+  stopped writes are dropped with a diagnostic counter.
+- Timestamps and provider/model are captured at enqueue time (event
+  time), so backlog never corrupts chronological evidence.
 """
 
 from __future__ import annotations
@@ -25,6 +38,10 @@ from collie_core.permissions.classifier import redact_parameters
 
 TURN_INPUT_LIMIT = 500
 TOOL_OUTPUT_LIMIT = 1000
+
+# Cap on in-flight telemetry writes. A healthy turn enqueues a handful;
+# under a stuck database the queue drops (never blocks, never grows).
+MAX_QUEUED_WRITES = 500
 
 # Secret-shaped patterns scrubbed from ANY telemetry text (outputs, errors,
 # resources). Keys are already handled by ``redact_parameters``; this layer
@@ -96,8 +113,7 @@ class RunRecorder:
 
     Thread-safe and fire-and-forget: the caller enqueues a write and
     returns immediately; a single daemon writer thread applies writes in
-    FIFO order. Use ``for_db`` to share one recorder per database (loop
-    rebuilds reuse the same writer thread).
+    FIFO order.
     """
 
     _RECORDERS: "weakref.WeakKeyDictionary[CollieDB, RunRecorder]" = (
@@ -106,16 +122,29 @@ class RunRecorder:
 
     @classmethod
     def for_db(cls, db: CollieDB) -> "RunRecorder":
-        """Return the shared recorder for a database (creates on first use)."""
+        """Return the shared live recorder for a database (creates one)."""
         recorder = cls._RECORDERS.get(db)
-        if recorder is None:
+        if recorder is None or recorder._stopped:
             recorder = cls(db)
             cls._RECORDERS[db] = recorder
         return recorder
 
+    @classmethod
+    def active_for(cls, db: CollieDB) -> "RunRecorder | None":
+        """Return the shared live recorder for a database, if any."""
+        recorder = cls._RECORDERS.get(db)
+        if recorder is not None and not recorder._stopped:
+            return recorder
+        return None
+
     def __init__(self, db: CollieDB) -> None:
         self._db = db
-        self._queue: queue.Queue[Callable[[], None] | None] = queue.Queue()
+        self._stopped = False
+        self._suspended = False
+        self.dropped_writes = 0
+        self._queue: queue.Queue[Callable[[], None] | None] = queue.Queue(
+            maxsize=MAX_QUEUED_WRITES
+        )
         self._thread = threading.Thread(
             target=self._writer_loop,
             name="collie-telemetry",
@@ -130,30 +159,73 @@ class RunRecorder:
             item = self._queue.get()
             if item is None:
                 return
+            if self._suspended or self._stopped:
+                self.dropped_writes += 1
+                continue
             try:
                 item()
             except Exception:
                 logger.exception("telemetry write failed (swallowed)")
 
     def _enqueue(self, fn: Callable[[], None]) -> None:
+        if self._stopped or self._suspended:
+            self.dropped_writes += 1
+            return
         try:
             self._queue.put_nowait(fn)
-        except Exception:
-            logger.exception("telemetry enqueue failed (swallowed)")
+        except queue.Full:
+            self.dropped_writes += 1
+            if self.dropped_writes == 1:
+                logger.warning(
+                    "telemetry queue full — dropping writes "
+                    "(bounded at {})",
+                    MAX_QUEUED_WRITES,
+                )
+
+    # -- lifecycle ------------------------------------------------------------
+
+    def suspend(self) -> None:
+        """Drop queued and future writes (used by ``clear_all``)."""
+        self._suspended = True
+
+    def resume(self) -> None:
+        """Re-enable recording after a suspend."""
+        self._suspended = False
+
+    def suspend_and_drain(self) -> None:
+        """Suspend and wait until the queue is empty (drops everything)."""
+        self.suspend()
+        self.flush()
 
     def flush(self, timeout: float = 5.0) -> None:
         """Block until all previously enqueued writes have been applied."""
+        if self._stopped:
+            return
         done = threading.Event()
-        self._enqueue(done.set)
+        try:
+            self._queue.put_nowait(done.set)
+        except queue.Full:
+            return
         done.wait(timeout)
 
     def shutdown(self) -> None:
-        """Stop the writer thread (drains remaining writes first)."""
+        """Flush pending writes, stop the writer, unregister the recorder."""
+        if self._stopped:
+            return
+        self.flush()
+        self._stopped = True
         try:
             self._queue.put(None)
-            self._thread.join(timeout=1.0)
+            self._thread.join(timeout=2.0)
         except Exception:
             logger.exception("telemetry shutdown failed")
+        # Break the registry -> recorder -> database retention cycle so a
+        # closed database can be garbage-collected.
+        try:
+            if self._RECORDERS.get(self._db) is self:
+                del self._RECORDERS[self._db]
+        except Exception:
+            logger.exception("telemetry registry cleanup failed")
 
     # -- turn lifecycle -------------------------------------------------------
 
@@ -166,10 +238,13 @@ class RunRecorder:
         turn_kind: str = "chat",
     ) -> None:
         db = self._db
+        # Event-time snapshot: captured before enqueueing so backlog cannot
+        # shift timestamps or provider/model into the future.
+        started_at = utc_now()
+        provider, model = self.provider_model()
 
         def _write() -> None:
             try:
-                provider, model = self.provider_model()
                 db.record_turn_event(
                     turn_id=turn_id,
                     conversation_id=conversation_id,
@@ -178,7 +253,7 @@ class RunRecorder:
                     provider=provider,
                     model=model,
                     status="running",
-                    started_at=utc_now(),
+                    started_at=started_at,
                 )
             except Exception:
                 logger.exception("telemetry start_turn failed")
@@ -197,6 +272,7 @@ class RunRecorder:
         tool_count: int = 0,
     ) -> None:
         db = self._db
+        finished_at = utc_now()
 
         def _write() -> None:
             try:
@@ -210,7 +286,7 @@ class RunRecorder:
                     tokens_out=tokens_out,
                     latency_ms=latency_ms,
                     tool_count=tool_count,
-                    finished_at=utc_now(),
+                    finished_at=finished_at,
                 )
             except Exception:
                 logger.exception("telemetry finish_turn failed")
@@ -230,6 +306,7 @@ class RunRecorder:
         resource: str | None = None,
     ) -> None:
         db = self._db
+        started_at = utc_now()
 
         def _write() -> None:
             try:
@@ -241,7 +318,7 @@ class RunRecorder:
                     action=action,
                     resource=sanitize_text(resource) if resource else None,
                     status="running",
-                    started_at=utc_now(),
+                    started_at=started_at,
                 )
             except Exception:
                 logger.exception("telemetry start_tool failed")
@@ -260,6 +337,7 @@ class RunRecorder:
         latency_ms: int | None = None,
     ) -> None:
         db = self._db
+        finished_at = utc_now()
 
         def _write() -> None:
             try:
@@ -277,7 +355,7 @@ class RunRecorder:
                         sanitize_text(error_message) if error_message else None
                     ),
                     latency_ms=latency_ms,
-                    finished_at=utc_now(),
+                    finished_at=finished_at,
                 )
             except Exception:
                 logger.exception("telemetry finish_tool failed")
@@ -302,10 +380,10 @@ class RunRecorder:
         row is written complete in a single insert.
         """
         db = self._db
+        now = utc_now()
 
         def _write() -> None:
             try:
-                now = utc_now()
                 db.record_tool_event(
                     tool_id=tool_id,
                     turn_id=turn_id,

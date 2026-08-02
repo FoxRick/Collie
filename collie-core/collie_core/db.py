@@ -3402,6 +3402,13 @@ class CollieDB:
 
     def export_all(self) -> dict[str, Any]:
         """Full data export (for F104 data export)."""
+        # Include telemetry that is still queued in the writer thread, or the
+        # export would silently omit recent-but-not-yet-durable records.
+        from collie_core.telemetry.recorder import RunRecorder
+
+        recorder = RunRecorder.active_for(self)
+        if recorder is not None:
+            recorder.flush()
         return {
             "exported_at": utc_now(),
             "schema_version": self.schema_version,
@@ -3456,21 +3463,34 @@ class CollieDB:
 
     def clear_all(self) -> None:
         """Wipe all user data (for F105 data deletion)."""
-        # Children before parents: run_steps cascades from runs anyway, but
-        # usage (FK -> providers), connector_tool_cache (FK -> connections),
-        # messages (FK -> conversations), and plans/runs must go first so no
-        # foreign-key violation aborts the wipe halfway.
-        tables = [
-            "task_checklist_steps", "task_checklists", "conversation_review_gates",
-            "plan_change_requests", "run_task_state_revisions",
-            "tool_events", "turn_events",
-            "run_steps",
-            "approval_requests", "approval_rules", "runs", "plans",
-            "messages", "conversations", "profile", "people", "important_dates",
-            "reminders", "automations", "shopping_items", "expenses", "budgets",
-            "health_logs", "services", "connector_tool_cache", "connector_connections",
-            "subagents", "usage", "providers", "settings",
-        ]
-        with self._write() as conn:
-            for table in tables:
-                conn.execute(f"DELETE FROM {table}")
+        # Suspend + drain telemetry first: queued recorder writes must not
+        # execute after the wipe and resurrect deleted rows. The recorder
+        # stays suspended until the deletes finish, so hooks enqueueing
+        # mid-wipe are dropped too, then recording resumes for new turns.
+        from collie_core.telemetry.recorder import RunRecorder
+
+        recorder = RunRecorder.active_for(self)
+        if recorder is not None:
+            recorder.suspend_and_drain()
+        try:
+            # Children before parents: run_steps cascades from runs anyway, but
+            # usage (FK -> providers), connector_tool_cache (FK -> connections),
+            # messages (FK -> conversations), and plans/runs must go first so no
+            # foreign-key violation aborts the wipe halfway.
+            tables = [
+                "task_checklist_steps", "task_checklists", "conversation_review_gates",
+                "plan_change_requests", "run_task_state_revisions",
+                "tool_events", "turn_events",
+                "run_steps",
+                "approval_requests", "approval_rules", "runs", "plans",
+                "messages", "conversations", "profile", "people", "important_dates",
+                "reminders", "automations", "shopping_items", "expenses", "budgets",
+                "health_logs", "services", "connector_tool_cache", "connector_connections",
+                "subagents", "usage", "providers", "settings",
+            ]
+            with self._write() as conn:
+                for table in tables:
+                    conn.execute(f"DELETE FROM {table}")
+        finally:
+            if recorder is not None:
+                recorder.resume()

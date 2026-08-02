@@ -72,6 +72,11 @@ async def _wait_for_tool(db: CollieDB) -> dict[str, Any]:
 def db(tmp_path: Path) -> CollieDB:
     d = CollieDB(tmp_path / "collie.db")
     yield d
+    from collie_core.telemetry.recorder import RunRecorder
+
+    recorder = RunRecorder.active_for(d)
+    if recorder is not None:
+        recorder.shutdown()
     d.close()
 
 
@@ -253,6 +258,119 @@ def test_tool_events_cascade_delete_with_turn(db: CollieDB) -> None:
     with db._write() as conn:
         conn.execute("DELETE FROM turn_events WHERE id = 't1'")
     assert len(db.list_tool_events()) == 0
+
+
+def test_clear_all_drops_queued_writes_and_resumes(db: CollieDB) -> None:
+    """Queued telemetry must not resurrect rows after a wipe."""
+    from collie_core.telemetry.recorder import RunRecorder
+
+    rec = RunRecorder.for_db(db)
+    rec.start_turn(turn_id="t1", turn_kind="chat")  # queued, not yet written
+
+    db.clear_all()
+
+    assert db.list_turn_events() == []
+
+    # The recorder is still usable for new turns after the wipe.
+    rec.start_turn(turn_id="t2", turn_kind="chat")
+    rec.flush()
+    assert [t["id"] for t in db.list_turn_events()] == ["t2"]
+
+
+def test_export_all_flushes_recorder_first(db: CollieDB) -> None:
+    """Export must include records still queued in the writer."""
+    from collie_core.telemetry.recorder import RunRecorder
+
+    rec = RunRecorder.for_db(db)
+    rec.start_turn(turn_id="t1", turn_kind="chat")
+
+    data = db.export_all()
+
+    assert any(t["id"] == "t1" for t in data["turn_events"])
+
+
+def test_shutdown_drains_unregisters_and_allows_new_recorder(db: CollieDB) -> None:
+    from collie_core.telemetry.recorder import RunRecorder
+
+    rec = RunRecorder.for_db(db)
+    rec.start_turn(turn_id="t1", turn_kind="chat")
+
+    rec.shutdown()
+
+    # Drained before stopping — recent evidence is not lost.
+    assert any(t["id"] == "t1" for t in db.list_turn_events())
+    # Registry entry removed; a fresh, live recorder is handed out next.
+    fresh = RunRecorder.for_db(db)
+    assert fresh is not rec
+    assert fresh._stopped is False
+
+
+def test_timestamps_captured_at_event_time_not_drain_time(
+    db: CollieDB, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Backlog must not corrupt chronological evidence."""
+    import threading
+    import time as _time
+    from datetime import datetime
+
+    from collie_core.telemetry.recorder import RunRecorder
+
+    blocked = threading.Event()
+    original = CollieDB.record_turn_event
+
+    def slow(self, **kwargs: Any) -> None:
+        blocked.wait(5)
+        original(self, **kwargs)
+
+    monkeypatch.setattr(CollieDB, "record_turn_event", slow)
+
+    rec = RunRecorder(db)
+    try:
+        rec.start_turn(turn_id="t1", turn_kind="chat")
+        _time.sleep(1.0)
+        rec.finish_turn(turn_id="t1", status="ok")
+        blocked.set()
+        rec.flush()
+
+        row = db.list_turn_events()[0]
+        start = datetime.fromisoformat(row["started_at"])
+        end = datetime.fromisoformat(row["finished_at"])
+        # Captured at enqueue time (1s apart), not at drain time (~0 apart).
+        assert (end - start).total_seconds() >= 0.9
+    finally:
+        blocked.set()
+        rec.shutdown()
+
+
+def test_recorder_queue_is_bounded_with_drop_counter(
+    db: CollieDB, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stuck database must not accumulate unbounded raw writes in memory."""
+    import threading
+
+    from collie_core.telemetry.recorder import MAX_QUEUED_WRITES, RunRecorder
+
+    blocked = threading.Event()
+    original = CollieDB.record_turn_event
+
+    def slow(self, **kwargs: Any) -> None:
+        blocked.wait(5)
+        original(self, **kwargs)
+
+    monkeypatch.setattr(CollieDB, "record_turn_event", slow)
+
+    rec = RunRecorder(db)
+    try:
+        for i in range(MAX_QUEUED_WRITES + 100):
+            rec.start_turn(turn_id=f"t{i}", turn_kind="chat")
+
+        assert rec.dropped_writes >= 90  # drops, never blocks, never grows unbounded
+        blocked.set()
+        rec.flush()
+        assert len(db.list_turn_events()) <= MAX_QUEUED_WRITES
+    finally:
+        blocked.set()
+        rec.shutdown()
 
 
 def test_export_all_includes_telemetry_and_clear_all_removes_it(db: CollieDB) -> None:

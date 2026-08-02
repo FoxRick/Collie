@@ -784,6 +784,16 @@ class CollieRuntime:
                 pass
             self._outbound_task = None
         self.loop = None
+        # Active turns are drained above; flush their telemetry so evidence
+        # from cancelled/stopped turns is durable before the loop is gone.
+        self._flush_telemetry()
+
+    def _flush_telemetry(self) -> None:
+        from collie_core.telemetry.recorder import RunRecorder
+
+        recorder = RunRecorder.active_for(self.db)
+        if recorder is not None:
+            recorder.flush()
 
     async def _write_subagent_prompt(self, name: str, description: str) -> str:
         """Have the LLM write a subagent system prompt from a description."""
@@ -1047,6 +1057,14 @@ class CollieRuntime:
                 self._reminder_task = None
             await self._shutdown_loop()
             self.approvals.cancel_all()
+            # Stop telemetry after active turns are drained and before the
+            # database closes, so no queued write is dropped or runs through
+            # a closed connection.
+            from collie_core.telemetry.recorder import RunRecorder
+
+            recorder = RunRecorder.active_for(self.db)
+            if recorder is not None:
+                recorder.shutdown()
             self.db.close()
 
 
