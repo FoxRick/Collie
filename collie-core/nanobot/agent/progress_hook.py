@@ -27,6 +27,7 @@ class AgentProgressHook(AgentHook):
         on_progress: Callable[..., Awaitable[None]] | None = None,
         on_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
+        on_superseded_response: Callable[[str], Awaitable[None]] | None = None,
         *,
         session_key: str | None = None,
         tool_hint_max_length: int = 40,
@@ -36,12 +37,19 @@ class AgentProgressHook(AgentHook):
         self._on_progress = on_progress
         self._on_stream = on_stream
         self._on_stream_end = on_stream_end
+        self._on_superseded_response = on_superseded_response
         self._session_key = session_key
         self._tool_hint_max_length = tool_hint_max_length
         self._on_iteration = on_iteration
         self._stream_buf = ""
         self._think_extractor = IncrementalThinkExtractor()
         self._reasoning_open = False
+
+    async def on_final_response_superseded(
+        self, context: AgentHookContext, content: str
+    ) -> None:
+        if self._on_superseded_response:
+            await self._on_superseded_response(content)
 
     def wants_streaming(self) -> bool:
         return self._on_stream is not None

@@ -25,6 +25,7 @@ class AgentTurnHookSpec:
     on_progress: Callable[..., Awaitable[None]] | None = None
     on_stream: Callable[[str], Awaitable[None]] | None = None
     on_stream_end: Callable[..., Awaitable[None]] | None = None
+    on_superseded_response: Callable[[str], Awaitable[None]] | None = None
     channel: str = "cli"
     chat_id: str = "direct"
     message_id: str | None = None
@@ -47,6 +48,7 @@ def build_agent_turn_hook(spec: AgentTurnHookSpec) -> AgentHook:
         on_progress=spec.on_progress,
         on_stream=spec.on_stream,
         on_stream_end=spec.on_stream_end,
+        on_superseded_response=spec.on_superseded_response,
         session_key=spec.session_key,
         tool_hint_max_length=spec.tool_hint_max_length,
         on_iteration=spec.on_iteration,

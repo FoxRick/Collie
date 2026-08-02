@@ -155,6 +155,7 @@ class TurnContext:
     on_progress: Callable[..., Awaitable[None]] | None = None
     on_stream: Callable[[str], Awaitable[None]] | None = None
     on_stream_end: Callable[..., Awaitable[None]] | None = None
+    on_superseded_response: Callable[[str], Awaitable[None]] | None = None
     on_retry_wait: Callable[[str], Awaitable[None]] | None = None
 
     pending_queue: asyncio.Queue | None = None
@@ -886,6 +887,7 @@ class AgentLoop:
         on_progress: Callable[..., Awaitable[None]] | None = None,
         on_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
+        on_superseded_response: Callable[[str], Awaitable[None]] | None = None,
         on_retry_wait: Callable[[str], Awaitable[None]] | None = None,
         *,
         runtime: LLMRuntime,
@@ -1036,6 +1038,7 @@ class AgentLoop:
                 on_progress=on_progress,
                 on_stream=on_stream,
                 on_stream_end=on_stream_end,
+                on_superseded_response=on_superseded_response,
                 channel=channel,
                 chat_id=chat_id,
                 message_id=message_id,
@@ -1490,6 +1493,7 @@ class AgentLoop:
         on_progress: Callable[..., Awaitable[None]] | None = None,
         on_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
+        on_superseded_response: Callable[[str], Awaitable[None]] | None = None,
         pending_queue: asyncio.Queue | None = None,
         ephemeral: bool = False,
         run_extra_hooks_for_ephemeral: bool = False,
@@ -1535,6 +1539,7 @@ class AgentLoop:
             on_progress=on_progress,
             on_stream=on_stream,
             on_stream_end=on_stream_end,
+            on_superseded_response=on_superseded_response,
             pending_queue=pending_queue,
             ephemeral=ephemeral,
             run_extra_hooks_for_ephemeral=run_extra_hooks_for_ephemeral,
@@ -1735,6 +1740,7 @@ class AgentLoop:
             on_progress=ctx.on_progress,
             on_stream=ctx.on_stream,
             on_stream_end=ctx.on_stream_end,
+            on_superseded_response=ctx.on_superseded_response,
             on_retry_wait=ctx.on_retry_wait,
             session=ctx.session,
             channel=ctx.msg.channel,
@@ -2058,6 +2064,7 @@ class AgentLoop:
         on_progress: Callable[..., Awaitable[None]] | None = None,
         on_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
+        on_superseded_response: Callable[[str], Awaitable[None]] | None = None,
         ephemeral: bool = False,
         _run_extra_hooks_for_ephemeral: bool = False,
         hooks: list[AgentHook] | None = None,
@@ -2103,6 +2110,8 @@ class AgentLoop:
                     )
                     if accepts_extra or "pending_queue" in process_parameters:
                         kwargs["pending_queue"] = pending
+                    if accepts_extra or "on_superseded_response" in process_parameters:
+                        kwargs["on_superseded_response"] = on_superseded_response
                     if _run_extra_hooks_for_ephemeral:
                         kwargs["run_extra_hooks_for_ephemeral"] = True
                     if hooks is not None:

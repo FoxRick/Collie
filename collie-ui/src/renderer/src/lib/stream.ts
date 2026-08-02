@@ -20,6 +20,21 @@ export function mergeStreamDelta(current: string, incoming: string): string {
   return current + delta
 }
 
+/**
+ * Whether a delivered message only covers the tail of the accumulated stream.
+ *
+ * A mid-turn steer supersedes the in-flight answer: the runner streams it,
+ * then delivers a follow-up response whose text is a suffix of everything the
+ * UI accumulated (e.g. "kanban answer + steer answer" vs the steer answer).
+ * The superseded part was already delivered as its own message, so the new
+ * bubble must reveal from scratch instead of rewinding the old text.
+ */
+export function shouldResetStreamDisplay(accumulated: string, delivered: string): boolean {
+  if (!accumulated || !delivered) return false
+  if (accumulated.length <= delivered.length) return false
+  return accumulated.endsWith(delivered)
+}
+
 export function visibleStreamText(content: string): string {
   let visible = content.replace(/\u0000/g, '')
 

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   mergeStreamDelta,
   nextStreamReveal,
+  shouldResetStreamDisplay,
   stableMarkdownStreamText,
   visibleStreamText
 } from './stream'
@@ -21,6 +22,32 @@ describe('mergeStreamDelta', () => {
 
   it('removes null control characters', () => {
     expect(mergeStreamDelta('Hello', '\u0000 there')).toBe('Hello there')
+  })
+})
+
+describe('shouldResetStreamDisplay', () => {
+  it('resets when the delivered message is a proper suffix of the stream', () => {
+    // Mid-turn steer: the superseded answer + follow-up answer were both
+    // streamed; the delivered message only covers the follow-up.
+    expect(
+      shouldResetStreamDisplay(
+        'The long superseded answer. The follow-up answer.',
+        'The follow-up answer.'
+      )
+    ).toBe(true)
+  })
+
+  it('does not reset when the delivered message IS the whole stream', () => {
+    expect(shouldResetStreamDisplay('A normal answer', 'A normal answer')).toBe(false)
+  })
+
+  it('does not reset for an empty accumulated stream', () => {
+    expect(shouldResetStreamDisplay('', 'An answer')).toBe(false)
+    expect(shouldResetStreamDisplay(undefined as unknown as string, 'An answer')).toBe(false)
+  })
+
+  it('does not reset when the message is not a suffix', () => {
+    expect(shouldResetStreamDisplay('Answer one', 'Answer two')).toBe(false)
   })
 })
 

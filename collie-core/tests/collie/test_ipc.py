@@ -620,6 +620,68 @@ async def test_chat_full_flow(server: CollieIPCServer) -> None:
     await ws.close()
 
 
+async def steer_superseding_chat_runner(
+    content: str,
+    *,
+    conversation_id: str,
+    on_stream,
+    on_progress,
+    on_superseded_response,
+    **kwargs,
+):
+    """Simulate a turn where a mid-turn steer supersedes the in-flight answer."""
+    await on_stream("The in-flight answer that was superseded.")
+    await on_superseded_response("The in-flight answer that was superseded.")
+    await on_stream("The follow-up answer.")
+    return FakeOutbound("The follow-up answer.")
+
+
+@pytest.mark.asyncio
+async def test_chat_steer_delivers_superseded_answer_as_own_message(tmp_path: Path) -> None:
+    """A superseded in-flight answer lands in the transcript as its own message.
+
+    Reproduces the reported bug: messaging Collie while it composes causes the
+    composed answer to disappear (only the follow-up answer is persisted).
+    """
+    db = CollieDB(tmp_path / "c.db")
+    srv = CollieIPCServer(
+        db,
+        port=_free_port(),
+        chat_runner=steer_superseding_chat_runner,
+        status_provider=lambda: {"configured": True, "model": "test-model"},
+    )
+    await srv.start()
+    try:
+        ws = await _connect(srv)
+        await _send(ws, type="chat", id="1", content="first question")
+
+        ack = await _recv_until(ws, "ok")
+        conv_id = ack["data"]["conversation_id"]
+
+        assistant_messages: list[dict] = []
+        while len(assistant_messages) < 2:
+            frame = json.loads(await asyncio.wait_for(ws.recv(), 5))
+            if frame["type"] == "message" and frame["message"]["role"] == "assistant":
+                assistant_messages.append(frame["message"])
+
+        # Both answers were broadcast in chronological order.
+        assert [m["content"] for m in assistant_messages] == [
+            "The in-flight answer that was superseded.",
+            "The follow-up answer.",
+        ]
+        # And both were persisted — the superseded answer is no longer lost.
+        db_msgs = db.get_messages(conv_id)
+        assert [m["role"] for m in db_msgs] == ["user", "assistant", "assistant"]
+        assert [m["content"] for m in db_msgs if m["role"] == "assistant"] == [
+            "The in-flight answer that was superseded.",
+            "The follow-up answer.",
+        ]
+        await ws.close()
+    finally:
+        await srv.stop()
+        db.close()
+
+
 @pytest.mark.asyncio
 async def test_chat_without_runner_reports_friendly_error(tmp_path: Path) -> None:
     db = CollieDB(tmp_path / "c.db")

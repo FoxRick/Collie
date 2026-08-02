@@ -596,6 +596,15 @@ class AgentRunner:
             )
             if should_continue:
                 had_injections = True
+                # A complete final response was just superseded by an injected
+                # follow-up: it stays in history (the next iteration sees it)
+                # but will NOT be this turn's outbound. Let observers that
+                # streamed it deliver it as its own message instead of letting
+                # the text the user watched silently disappear.
+                if assistant_message is not None:
+                    superseded_content = assistant_message.get("content") or ""
+                    if not is_blank_text(superseded_content):
+                        await hook.on_final_response_superseded(context, superseded_content)
 
             if hook.wants_streaming():
                 await hook.on_stream_end(context, resuming=should_continue)

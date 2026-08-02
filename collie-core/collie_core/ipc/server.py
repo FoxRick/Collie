@@ -2601,6 +2601,25 @@ class CollieIPCServer:
             await self.broadcast({"type": "delta", "conversation_id": conv_id,
                                   "text": delta})
 
+        async def on_superseded_response(content: str) -> None:
+            """Deliver a complete answer that a mid-turn steer superseded.
+
+            The runner keeps the superseded answer in model history but only
+            emits the follow-up response as the turn's outbound; without this,
+            the streamed text the user already watched never lands in the
+            transcript (it only reappears if the agent re-quotes it later).
+            Persist it as its own assistant message right away so it stays
+            chronologically before the follow-up answer.
+            """
+            if not content:
+                return
+            superseded_msg = self.db.add_message(conv_id, "assistant", content)
+            await self.broadcast({
+                "type": "message",
+                "conversation_id": conv_id,
+                "message": superseded_msg,
+            })
+
         async def finish_material_boundary() -> None:
             if not run_id:
                 return
@@ -2781,6 +2800,7 @@ class CollieIPCServer:
                 "conversation_id": conv_id,
                 "on_stream": on_stream,
                 "on_progress": on_progress,
+                "on_superseded_response": on_superseded_response,
                 "execution_mode": execution_mode,
                 "run_id": run_id,
                 "plan_id": plan_id,

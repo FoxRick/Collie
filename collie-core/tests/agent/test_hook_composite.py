@@ -82,6 +82,11 @@ async def test_composite_fans_out_all_async_methods():
         async def on_stream_end(self, context: AgentHookContext, *, resuming: bool) -> None:
             events.append(f"on_stream_end:{resuming}")
 
+        async def on_final_response_superseded(
+            self, context: AgentHookContext, content: str
+        ) -> None:
+            events.append(f"on_final_response_superseded:{content}")
+
         async def before_execute_tools(self, context: AgentHookContext) -> None:
             events.append("before_execute_tools")
 
@@ -116,6 +121,7 @@ async def test_composite_fans_out_all_async_methods():
     await hook.emit_reasoning_end()
     await hook.on_stream(ctx, "hi")
     await hook.on_stream_end(ctx, resuming=True)
+    await hook.on_final_response_superseded(ctx, "first answer")
     await hook.before_execute_tools(ctx)
     await hook.before_execute_tool(ctx, object(), object(), {})
     await hook.after_execute_tool(ctx, object(), object(), {}, "ok")
@@ -132,6 +138,7 @@ async def test_composite_fans_out_all_async_methods():
         "emit_reasoning_end", "emit_reasoning_end",
         "on_stream:hi", "on_stream:hi",
         "on_stream_end:True", "on_stream_end:True",
+        "on_final_response_superseded:first answer", "on_final_response_superseded:first answer",
         "before_execute_tools", "before_execute_tools",
         "before_execute_tool", "before_execute_tool",
         "after_execute_tool", "after_execute_tool",
@@ -198,6 +205,8 @@ async def test_composite_error_isolation_all_async():
             raise RuntimeError("err")
         async def on_stream_end(self, context, *, resuming):
             raise RuntimeError("err")
+        async def on_final_response_superseded(self, context, content):
+            raise RuntimeError("err")
         async def before_execute_tools(self, context):
             raise RuntimeError("err")
         async def before_execute_tool(self, context, tool_call, tool, params):
@@ -226,6 +235,8 @@ async def test_composite_error_isolation_all_async():
             calls.append("on_stream")
         async def on_stream_end(self, context, *, resuming):
             calls.append("on_stream_end")
+        async def on_final_response_superseded(self, context, content):
+            calls.append("on_final_response_superseded")
         async def before_execute_tools(self, context):
             calls.append("before_execute_tools")
         async def before_execute_tool(self, context, tool_call, tool, params):
@@ -251,6 +262,7 @@ async def test_composite_error_isolation_all_async():
     await hook.emit_reasoning_end()
     await hook.on_stream(ctx, "delta")
     await hook.on_stream_end(ctx, resuming=False)
+    await hook.on_final_response_superseded(ctx, "answer")
     await hook.before_execute_tools(ctx)
     await hook.before_execute_tool(ctx, object(), object(), {})
     await hook.after_execute_tool(ctx, object(), object(), {}, "ok")
@@ -265,6 +277,7 @@ async def test_composite_error_isolation_all_async():
         "emit_reasoning_end",
         "on_stream",
         "on_stream_end",
+        "on_final_response_superseded",
         "before_execute_tools",
         "before_execute_tool",
         "after_execute_tool",
@@ -362,6 +375,7 @@ async def test_composite_empty_hooks_no_ops():
     await hook.before_iteration(ctx)
     await hook.on_stream(ctx, "delta")
     await hook.on_stream_end(ctx, resuming=False)
+    await hook.on_final_response_superseded(ctx, "answer")
     await hook.before_execute_tools(ctx)
     await hook.before_execute_tool(ctx, object(), object(), {})
     await hook.after_execute_tool(ctx, object(), object(), {}, None)
