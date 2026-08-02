@@ -25,7 +25,7 @@ import SkillsScreen from './SkillsScreen'
 import RoutinesScreen from './RoutinesScreen'
 import ConnectorsScreen from './ConnectorsScreen'
 import type { AppView } from '../lib/navigation'
-import { mergeStreamDelta, nextStreamReveal, visibleStreamText } from '../lib/stream'
+import { mergeStreamDelta, nextStreamReveal, shouldResetStreamDisplay, visibleStreamText } from '../lib/stream'
 import ApprovalSheet from '../components/approvals/ApprovalSheet'
 import { isTaskTerminal } from '../components/tasks/TaskProgress'
 import {
@@ -501,6 +501,13 @@ export default function ChatScreen({
           }
           if (msg.role === 'assistant' && isCurrentConversationEvent(msg.conversation_id, current)) {
             pendingAssistantRef.current = msg
+            // A mid-turn steer delivers the superseded answer as its own
+            // message; the follow-up response then covers only the tail of
+            // the accumulated stream. Reveal that bubble from scratch instead
+            // of rewinding the already-delivered text.
+            if (shouldResetStreamDisplay(streamRef.current, msg.content)) {
+              streamDisplayRef.current = ''
+            }
             // Reserve the assistant turn as soon as it is complete. The
             // reveal timer replaces this provisional content in place, rather
             // than appending after newer user turns.

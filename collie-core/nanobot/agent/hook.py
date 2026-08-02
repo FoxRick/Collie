@@ -90,6 +90,20 @@ class AgentHook:
     async def on_stream_end(self, context: AgentHookContext, *, resuming: bool) -> None:
         pass
 
+    async def on_final_response_superseded(
+        self, context: AgentHookContext, content: str
+    ) -> None:
+        """Observe a complete final response that a mid-turn injection replaced.
+
+        Fired when the runner produced a full answer and then an injected
+        follow-up arrived before the turn ended: the superseded answer stays
+        in the model history but is NOT the turn's outbound. Observers that
+        streamed the answer (channels) can deliver it as its own message
+        instead of silently dropping the text the user already watched.
+        Observers only: the default is a no-op.
+        """
+        pass
+
     async def before_execute_tools(self, context: AgentHookContext) -> None:
         pass
 
@@ -210,6 +224,11 @@ class CompositeHook(AgentHook):
 
     async def on_stream_end(self, context: AgentHookContext, *, resuming: bool) -> None:
         await self._for_each_hook_safe("on_stream_end", context, resuming=resuming)
+
+    async def on_final_response_superseded(
+        self, context: AgentHookContext, content: str
+    ) -> None:
+        await self._for_each_hook_safe("on_final_response_superseded", context, content)
 
     async def before_execute_tools(self, context: AgentHookContext) -> None:
         await self._for_each_hook_safe("before_execute_tools", context)

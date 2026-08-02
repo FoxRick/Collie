@@ -352,6 +352,109 @@ async def test_checkpoint2_injects_after_final_response_with_resuming_stream():
 
 
 @pytest.mark.asyncio
+async def test_superseded_final_response_notifies_hook():
+    """A complete answer superseded by an injected follow-up is observed.
+
+    The first final response stays in history but is NOT the turn's outbound;
+    the hook must still learn about it so streaming channels can deliver it
+    as its own message instead of losing the streamed text.
+    """
+    from nanobot.agent.hook import AgentHook, AgentHookContext
+    from nanobot.agent.runner import AgentRunner
+    from nanobot.bus.events import InboundMessage
+
+    provider = MagicMock()
+    call_count = {"n": 0}
+    superseded_calls: list[str] = []
+
+    class TrackingHook(AgentHook):
+        def wants_streaming(self) -> bool:
+            return True
+
+        async def on_final_response_superseded(
+            self, context: AgentHookContext, content: str
+        ) -> None:
+            superseded_calls.append(content)
+
+        def finalize_content(self, context: AgentHookContext, content: str | None) -> str | None:
+            return content
+
+    async def chat_stream_with_retry(*, messages, on_content_delta=None, **kwargs):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return LLMResponse(content="first answer", tool_calls=[], usage={})
+        return LLMResponse(content="second answer", tool_calls=[], usage={})
+
+    provider.chat_stream_with_retry = chat_stream_with_retry
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+
+    injection_queue = asyncio.Queue()
+    inject_cb = _make_injection_callback(injection_queue)
+
+    await injection_queue.put(
+        InboundMessage(channel="cli", sender_id="u", chat_id="c", content="quick follow-up")
+    )
+
+    runner = AgentRunner()
+    result = await runner.run(make_run_spec(provider,
+        initial_messages=[{"role": "user", "content": "hello"}],
+        tools=tools,
+        model="test-model",
+        max_iterations=5,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        hook=TrackingHook(),
+        injection_callback=inject_cb,
+    ))
+
+    # Turn semantics are unchanged: the follow-up response is the outbound.
+    assert result.had_injections is True
+    assert result.final_content == "second answer"
+    assert call_count["n"] == 2
+    # ...but the superseded first answer was observed exactly once.
+    assert superseded_calls == ["first answer"]
+
+
+@pytest.mark.asyncio
+async def test_superseded_hook_not_called_without_injections():
+    """No injection → no superseded-response notification (single answer)."""
+    from nanobot.agent.hook import AgentHook, AgentHookContext
+    from nanobot.agent.runner import AgentRunner
+
+    provider = MagicMock()
+    superseded_calls: list[str] = []
+
+    class TrackingHook(AgentHook):
+        def wants_streaming(self) -> bool:
+            return True
+
+        async def on_final_response_superseded(
+            self, context: AgentHookContext, content: str
+        ) -> None:
+            superseded_calls.append(content)
+
+    async def chat_stream_with_retry(*, messages, on_content_delta=None, **kwargs):
+        return LLMResponse(content="only answer", tool_calls=[], usage={})
+
+    provider.chat_stream_with_retry = chat_stream_with_retry
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+
+    runner = AgentRunner()
+    result = await runner.run(make_run_spec(provider,
+        initial_messages=[{"role": "user", "content": "hello"}],
+        tools=tools,
+        model="test-model",
+        max_iterations=5,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        hook=TrackingHook(),
+    ))
+
+    assert result.final_content == "only answer"
+    assert superseded_calls == []
+
+
+@pytest.mark.asyncio
 async def test_checkpoint2_preserves_final_response_in_history_before_followup():
     """A follow-up injected after a final answer must still see that answer in history."""
     from nanobot.agent.runner import AgentRunner
