@@ -17,6 +17,11 @@ from typing import Any
 
 from collie_core.db import CollieDB, new_id
 from collie_core.permissions.classifier import classify_tool
+from collie_core.telemetry.prompt_hashes import (
+    current_config_hash,
+    current_tool_schema_hash,
+    hash_system_prompt,
+)
 from collie_core.telemetry.recorder import RunRecorder
 from nanobot.agent.hook import (
     AgentHook,
@@ -95,6 +100,8 @@ class TelemetryHook(AgentHook):
         self._turn_started: float = 0.0
         self._finished = False
         self._tool_count = 0
+        self._model_calls = 0
+        self._no_action_turns = 0
         self._tool_ids: dict[str, str] = {}
         self._tool_starts: dict[str, float] = {}
 
@@ -103,11 +110,23 @@ class TelemetryHook(AgentHook):
     async def before_run(self, context: AgentRunHookContext) -> None:
         self._turn_id = new_id()
         self._turn_started = time.monotonic()
+        # Hash what the model actually received: the assembled system-role
+        # messages at run start (the rendered prompt), plus the live loop's
+        # tool schemas and config. Hashes are stable fingerprints — never
+        # secrets — but the rendered prompt they summarize must not be logged.
+        system_prompts = [
+            str(message.get("content") or "")
+            for message in context.messages
+            if message.get("role") == "system"
+        ]
         self._recorder.start_turn(
             turn_id=self._turn_id,
             session_key=self._session_key,
             conversation_id=conversation_id_for_session_key(self._session_key),
             turn_kind=resolve_turn_kind(self._session_key, self._metadata),
+            prompt_hash=hash_system_prompt(system_prompts) if system_prompts else None,
+            tool_schema_hash=current_tool_schema_hash(),
+            config_hash=current_config_hash(),
         )
 
     async def after_run(self, context: AgentRunHookContext) -> None:
@@ -132,6 +151,13 @@ class TelemetryHook(AgentHook):
         self._tool_ids.clear()
 
     # -- tool lifecycle ----------------------------------------------------------
+
+    async def before_iteration(self, context: AgentHookContext) -> None:
+        self._model_calls += 1
+
+    async def after_iteration(self, context: AgentHookContext) -> None:
+        if not context.tool_calls and not context.final_content:
+            self._no_action_turns += 1
 
     async def before_execute_tool(
         self,
@@ -241,6 +267,8 @@ class TelemetryHook(AgentHook):
             tokens_out=int(usage.get("completion_tokens") or 0),
             latency_ms=int((time.monotonic() - self._turn_started) * 1000),
             tool_count=self._tool_count,
+            model_calls=self._model_calls,
+            no_action_turns=self._no_action_turns,
         )
 
     async def _finish_tool(

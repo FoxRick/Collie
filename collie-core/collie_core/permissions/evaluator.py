@@ -62,9 +62,15 @@ class PermissionEvaluator:
         self.set_local_write_preset(local_write_preset)
 
     def set_local_write_preset(self, preset: str) -> None:
-        """Apply a validated local-write preset to future evaluations."""
-        if preset not in {"ask", "allow"}:
-            raise ValueError("local-write preset must be 'ask' or 'allow'")
+        """Apply a validated local-write preset to future evaluations.
+
+        ``deny`` is the engineering/bench posture: local writes are
+        refused outright (no auto-allow, no ask) unless an explicit rule
+        or run-wide approval already granted them. It rides the same
+        setter as the product's ask/allow toggles — never a bypass.
+        """
+        if preset not in {"ask", "allow", "deny"}:
+            raise ValueError("local-write preset must be 'ask', 'allow', or 'deny'")
         self.local_write_preset = preset
 
     def evaluate(
@@ -165,6 +171,13 @@ class PermissionEvaluator:
             and self._approve_for_me_eligible(request)
         ):
             return PermissionDecision(Effect.ALLOW, "The local-write preset allows this action.")
+        # deny is the strict engineering/bench posture: local writes are
+        # refused outright (unless an explicit allow rule or run-wide
+        # approval already granted them above). Reads stay allowed.
+        if request.risk == Risk.LOCAL_WRITE and self.local_write_preset == "deny":
+            return PermissionDecision(
+                Effect.DENY, "The local-write preset denies local changes."
+            )
         if ordinary_safe:
             return PermissionDecision(
                 Effect.ALLOW,

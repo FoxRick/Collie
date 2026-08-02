@@ -40,6 +40,36 @@ npm run typecheck
 npm run build
 ```
 
+## Headless engine mode (internal benchmarking entry)
+
+`python -m collie_core.headless` runs exactly one task through the real
+agent loop against an isolated `COLLIE_HOME`, prints ONE JSON result
+document (answer, token usage, calls, latency, prompt hashes), and exits.
+It exists so the evaluation lab can benchmark Collie from the outside
+without a UI. It is NOT a user-facing CLI: no `[project.scripts]` entry
+point exists (pyproject: "No CLI entry points"); `python -m` is the entry.
+
+```bash
+.venv/bin/python -m collie_core.headless \
+  --task "…" --home /tmp/bench-home --model deepseek/deepseek-chat \
+  --provider deepseek --api-key-env COLLIE_BENCH_KEY
+```
+
+Exit codes: `0` ok, `1` task/engine error, `2` timeout, `3` usage/config
+error. The API key MUST come from the environment (`--api-key-env`,
+default `COLLIE_PROVIDER_API_KEY`) — never argv, never logged.
+
+**Parity rule (non-negotiable):** `collie_core/headless.py` only *calls*
+`CollieRuntime` methods (`_build_loop`, `_configure_provider_candidate`,
+`_chat`, `_conversation_target`). It never re-composes the loop, tools,
+prompts, permissions, or config — so the bench always measures the exact
+product path. `runtime.run()` is never called (no IPC server/scheduler).
+`tests/collie/test_headless.py` includes the parity test asserting the
+headless path and a direct `_build_loop()` register identical tool
+schemas; `tests/collie/test_prompt_hashes.py` covers the hash telemetry
+(schema V12 adds `prompt_hash`/`tool_schema_hash`/`config_hash` to
+`turn_events`, nullable, `None` defaults at the signature).
+
 ## Architecture Notes
 
 - **Chat flow**: Electron renderer → `collie_core/ipc/server.py` (WebSocket
