@@ -67,11 +67,11 @@ def connector_store(tmp_path: Path) -> CredentialStore:
 
 def test_launch_catalog_enables_direct_mcp_routes_ready_for_live_oauth() -> None:
     by_id = {item.id: item for item in CONNECTOR_CATALOG}
-    assert {"notion", "linear", "todoist", "atlassian"} <= set(by_id)
+    assert {"notion", "linear", "todoist", "atlassian", "airtable"} <= set(by_id)
     enabled = {item.id for item in CONNECTOR_CATALOG if item.available}
     # Only routes that can complete OAuth today (official hosted MCP with
     # dynamic client registration) are enabled; the rest stay coming_soon.
-    assert enabled == {"notion", "linear", "todoist", "atlassian"}
+    assert enabled == {"notion", "linear", "todoist", "atlassian", "airtable"}
     for provider_id in enabled:
         definition = by_id[provider_id]
         assert definition.driver == ConnectorDriverKind.OFFICIAL_MCP

@@ -210,7 +210,9 @@ CONNECTOR_CATALOG: tuple[ConnectorDefinition, ...] = (
         endpoint="https://mcp.airtable.com/mcp",
         capabilities=("Read", "Create", "Update"),
         permissions=("read records", "create and update with approval"),
-        note=_COMING_SOON,
+        available=True,
+        release_status="alpha",
+        note=_ALPHA_VERIFICATION,
     ),
     ConnectorDefinition(
         id="github",

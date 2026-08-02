@@ -8,24 +8,27 @@ Audience: product, design, frontend, backend, security, QA
 
 Implementation checkpoint (2026-08-02) — alpha enablement:
 
-- Notion, Linear, Todoist, and Atlassian flipped from `coming_soon` to
-  `available=True` (`release_status="alpha"`); they now run the real
+- Notion, Linear, Todoist, Atlassian, and Airtable flipped from `coming_soon`
+  to `available=True` (`release_status="alpha"`); they now run the real
   OAuth + probe + runtime-bind path (see `feat/connectors-live`);
-- Linear and Todoist verified live: RFC 9728 protected-resource discovery,
-  PKCE S256, and an OAuth authorization-server `registration_endpoint`
-  (dynamic client registration — no Collie-owned OAuth app required).
-  Notion and Atlassian sit behind Cloudflare (datacenter IP blocked from
-  the VM); their entries rely on the same official hosted MCP +
+- Linear, Todoist, and Airtable verified live: RFC 9728 protected-resource
+  discovery, PKCE S256, and an OAuth authorization-server
+  `registration_endpoint` (dynamic client registration — no Collie-owned
+  OAuth app required). Airtable advertises
+  `https://airtable.com/oauth2/v1/register` via
+  `airtable.com/.well-known/oauth-authorization-server`. Notion and
+  Atlassian sit behind Cloudflare (datacenter IP blocked from the VM);
+  their entries rely on the same official hosted MCP +
   dynamic-registration pattern;
 - remaining catalog entries stay `coming_soon`: Google (Developer Preview,
   needs a Collie-owned Cloud project), Microsoft (needs an Entra app
-  registration), Slack (needs an approved Slack app), Airtable (OAuth UX
-  validation pending), and the official-api/bundled-mcp routes whose
-  drivers are not implemented yet;
+  registration), Slack (needs an approved Slack app), and the
+  official-api/bundled-mcp routes (Dropbox, GitHub) whose drivers are not
+  implemented yet;
 - the owner's packaged-app acceptance pass (real accounts on the Windows
   packaged build: OAuth, probe, read, restart, removal, approval) is still
   the gate before any public release claim — it is no longer a code
-  blocker for the four enabled routes.
+  blocker for the five enabled routes.
 
 Implementation checkpoint (2026-07-29):
 

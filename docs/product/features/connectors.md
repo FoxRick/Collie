@@ -1,8 +1,8 @@
 # Collie Connectors Update
 
 **Status:** active product direction — alpha enablement: Notion, Linear,
-Todoist, and Atlassian (official hosted MCP) are live in the Connections
-directory; Google/Microsoft bundles await Collie-owned OAuth app
+Todoist, Atlassian, and Airtable (official hosted MCP) are live in the
+Connections directory; Google/Microsoft bundles await Collie-owned OAuth app
 registrations (see "Required from the owner").
 **Date:** 2026-08-01
 
