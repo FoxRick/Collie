@@ -69,6 +69,16 @@ describe('TaskProgress', () => {
     expect(onStop).toHaveBeenCalledOnce()
   })
 
+  it('joins the live checklist to the composer when requested', () => {
+    const container = render(
+      <TaskProgress task={activeTask} onStop={vi.fn()} attachedToComposer />
+    )
+
+    const progress = container.querySelector('section[aria-label="Task progress"]')
+    expect(progress?.classList.contains('task-progress--composer')).toBe(true)
+    expect((progress as HTMLElement | null)?.style.width).toBe('100%')
+  })
+
   it('shows completion count and a checkmark for each completed step', () => {
     const completed: TaskState = {
       ...activeTask,
