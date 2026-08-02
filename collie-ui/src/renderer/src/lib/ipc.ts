@@ -280,6 +280,40 @@ export interface CollieRun {
   error_message?: string | null
 }
 
+/** One recorded agent turn (PR 1 run records / telemetry). */
+export interface TurnEvent {
+  id: string
+  conversation_id?: string | null
+  session_key?: string | null
+  turn_kind: string
+  provider?: string | null
+  model?: string | null
+  status: string
+  error_message?: string | null
+  tokens_in?: number
+  tokens_out?: number
+  latency_ms?: number | null
+  tool_count?: number
+  started_at: string
+  finished_at?: string | null
+}
+
+/** One recorded tool call within a turn (PR 1 run records / telemetry). */
+export interface ToolEvent {
+  id: string
+  turn_id: string
+  tool_name: string
+  action?: string | null
+  resource?: string | null
+  input_summary?: string | null
+  output_summary?: string | null
+  status: string
+  error_message?: string | null
+  latency_ms?: number | null
+  started_at: string
+  finished_at?: string | null
+}
+
 /** A user-facing progress snapshot. It deliberately excludes tool traffic and model reasoning. */
 export interface TaskStep {
   key: string
@@ -571,6 +605,23 @@ export class CollieClient {
 
   getActiveTask(conversationId: string): Promise<{ task: TaskState | null }> {
     return this.command('get_active_task', { conversation_id: conversationId })
+  }
+
+  getRunRecords(opts?: {
+    conversation_id?: string
+    session_key?: string
+    since?: string
+    limit?: number
+  }): Promise<{ turns: TurnEvent[] }> {
+    return this.command('get_run_records', opts ?? {})
+  }
+
+  getToolEvents(opts?: {
+    turn_id?: string
+    tool_name?: string
+    limit?: number
+  }): Promise<{ tool_events: ToolEvent[] }> {
+    return this.command('get_tool_events', opts ?? {})
   }
 
   stopConversation(

@@ -147,6 +147,7 @@ class CollieRuntime:
 
     def _build_loop(self) -> Any:
         import collie_core.tools as collie_tools
+        from collie_core.telemetry.hook import create_telemetry_hook_factory
         from nanobot.agent.loop import AgentLoop
         from nanobot.agent.tools.context import ToolContext
         from nanobot.agent.tools.loader import ToolLoader
@@ -160,10 +161,12 @@ class CollieRuntime:
             loop = AgentLoop.from_config(
                 config, bus=bus, provider=provider_override,
                 session_manager=self._session_manager,
+                hook_factories=[create_telemetry_hook_factory(self.db)],
             )
         else:
             loop = AgentLoop.from_config(
                 config, bus=bus, session_manager=self._session_manager,
+                hook_factories=[create_telemetry_hook_factory(self.db)],
             )
         loop.context.command_guidance = True
 

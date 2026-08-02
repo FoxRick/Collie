@@ -28,8 +28,8 @@ are not part of this public source tree.
 ### Python core: `collie-core/`
 
 - `collie_core/` owns storage, settings, memory, permissions, plans, tools,
-  connectors, agents, routines, messengers, pet control, IPC, and runtime
-  composition.
+  connectors, agents, routines, messengers, pet control, IPC, telemetry
+  (run records), and runtime composition.
 - `nanobot/` contains the adapted upstream engine. Changes should remain
   surgical and preserve third-party attribution.
 - `tests/` contains Python unit, integration, IPC, safety, and end-to-end
