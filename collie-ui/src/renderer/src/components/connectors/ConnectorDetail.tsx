@@ -29,13 +29,15 @@ export default function ConnectorDetail({
   const statusDescription =
     connection.status === 'connected'
       ? 'Connected'
-      : connection.status === 'testing'
-        ? 'Checking connection'
-        : connection.status === 'authorizing'
-          ? 'Sign-in in progress'
-          : connection.status === 'failed'
-            ? 'Connection failed'
-            : 'Needs attention'
+      : connection.status === 'auth_required'
+        ? 'Sign in again'
+        : connection.status === 'testing'
+          ? 'Checking connection'
+          : connection.status === 'authorizing'
+            ? 'Sign-in in progress'
+            : connection.status === 'failed'
+              ? 'Connection failed'
+              : 'Needs attention'
   return (
     <div className="mx-auto max-w-3xl">
       <button className="mb-4 flex items-center gap-1 text-sm" onClick={onBack}>

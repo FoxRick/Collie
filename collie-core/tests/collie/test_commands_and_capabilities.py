@@ -678,6 +678,176 @@ async def test_model_command_switch_is_denied_in_plan_mode(tmp_path: Path) -> No
 # ---------------------------------------------------------------------------
 
 
+def test_model_command_requires_approval_flag(tmp_path: Path) -> None:
+    # Without an authorizer nothing is approval-gated.
+    _db, _ws, _loader, plain_controller = _controller(tmp_path)
+    try:
+        assert plain_controller.requires_approval("/model gpt-5") is False
+    finally:
+        _db.close()
+
+    async def authorizer(context: ExecutionContext, params: dict) -> None:
+        return None
+
+    async def switcher(name: str) -> dict:
+        return {"switched": True, "model": name, "applied": True}
+
+    ctl = _model_controller(tmp_path, switcher=switcher, authorizer=authorizer)
+    assert ctl.requires_approval("/model gpt-5") is True
+    assert ctl.requires_approval("/model") is False  # status listing is a read
+    assert ctl.requires_approval("/status") is False
+    assert ctl.requires_approval("What model are you using?") is False
+    assert ctl.requires_approval("please /model gpt-5") is False
+
+
+@pytest.mark.asyncio
+async def test_model_approval_resolves_on_same_socket(tmp_path: Path) -> None:
+    """The P1 regression: /model awaits approval, which resolves over the
+    same WebSocket. The frame handler must NOT block on that await or the
+    resolution can never arrive (300s timeout deadlock)."""
+    db = CollieDB(tmp_path / "collie.db")
+    evaluator = PermissionEvaluator(PermissionStore(db), local_write_preset="ask")
+    broker_events: list[dict] = []
+
+    async def broker_broadcast(event: dict) -> None:
+        broker_events.append(event)
+
+    broker = ApprovalBroker(db, evaluator, broker_broadcast)
+    calls: list[str] = []
+
+    async def switcher(name: str) -> dict:
+        calls.append(name)
+        return {"switched": True, "model": name, "previous": "m1", "applied": True}
+
+    async def broker_authorizer(context: ExecutionContext, params: dict) -> None:
+        await broker.authorize(
+            context,
+            SimpleNamespace(name="set_model", id=""),
+            SetModelTool.create(None),
+            params,
+        )
+
+    controller = CommandController(
+        workspace=tmp_path / "ws",
+        subagent_loader=None,
+        loop_provider=lambda: None,
+        status_provider=lambda: {"model": "m1", "active_agents": []},
+        model_switcher=switcher,
+        providers_provider=lambda: [],
+        model_authorizer=broker_authorizer,
+    )
+
+    class Connection:
+        def __init__(self) -> None:
+            self.frames: list[dict] = []
+
+        async def send(self, raw: str) -> None:
+            self.frames.append(json.loads(raw))
+
+    server = CollieIPCServer(
+        db,
+        chat_runner=None,
+        command_runner=controller.execute,
+        command_catalog=controller.catalog,
+        command_requires_approval=controller.requires_approval,
+    )
+    server.approval_broker = broker
+    server_broadcasts: list[dict] = []
+
+    async def server_broadcast(event: dict) -> None:
+        server_broadcasts.append(event)
+
+    server.broadcast = server_broadcast  # type: ignore[method-assign]
+    connection = Connection()
+    try:
+        # Frame 1: the /model switch. The handler must return immediately
+        # (approval pending), leaving the receive loop free.
+        await server._handle_frame(
+            connection,  # type: ignore[arg-type]
+            json.dumps({"type": "chat", "id": "one", "content": "/model gpt-5"}),
+        )
+        approval_event = None
+        for _ in range(100):
+            approval_event = next(
+                (e for e in broker_events if e.get("type") == "approval_requested"),
+                None,
+            )
+            if approval_event is not None:
+                break
+            await asyncio.sleep(0.02)
+        assert approval_event is not None, "approval must be pending"
+        approval_id = str(approval_event["approval"]["id"])
+
+        # Frame 2: resolve on the SAME socket while the command task awaits.
+        await server._handle_frame(
+            connection,  # type: ignore[arg-type]
+            json.dumps({
+                "type": "resolve_approval",
+                "id": "two",
+                "approval_id": approval_id,
+                "resolution": "allow_once",
+            }),
+        )
+
+        # The command task completes and broadcasts the assistant reply.
+        for _ in range(100):
+            if any(
+                e.get("type") == "message"
+                and e.get("message", {}).get("role") == "assistant"
+                for e in server_broadcasts
+            ):
+                break
+            await asyncio.sleep(0.02)
+        assert calls == ["gpt-5"]
+        assert any(
+            e.get("type") == "message"
+            and "switched" in str(e.get("message", {}).get("content", ""))
+            for e in server_broadcasts
+        )
+    finally:
+        db.close()
+
+
+@pytest.mark.asyncio
+async def test_ipc_set_provider_model_routes_through_set_active_model(
+    tmp_path: Path,
+) -> None:
+    db, _ws, _loader, _controller_unused = _controller(tmp_path)
+    db.upsert_provider(
+        "deepseek",
+        name="DeepSeek",
+        auth_type="api_key",
+        model="deepseek-v4-pro",
+        is_default=True,
+    )
+
+    class Connection:
+        def __init__(self) -> None:
+            self.frames: list[dict] = []
+
+        async def send(self, raw: str) -> None:
+            self.frames.append(json.loads(raw))
+
+    server = CollieIPCServer(db)
+    connection = Connection()
+    try:
+        await server._cmd_set_setting(
+            connection,  # type: ignore[arg-type]
+            {"key": "provider.model", "value": "gpt-5.5"},
+        )
+        assert db.get_setting("provider.model") == "gpt-5.5"
+        deepseek = db.get_provider("deepseek")
+        assert deepseek is not None and deepseek["model"] == "gpt-5.5"
+        with pytest.raises(ValueError):
+            await server._cmd_set_setting(
+                connection,  # type: ignore[arg-type]
+                {"key": "provider.model", "value": ""},
+            )
+        assert db.get_setting("provider.model") == "gpt-5.5"
+    finally:
+        db.close()
+
+
 @pytest.mark.asyncio
 async def test_set_model_tool_switches_via_bound_runtime() -> None:
     calls: list[str] = []

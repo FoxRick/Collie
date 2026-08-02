@@ -102,6 +102,18 @@ class CommandController:
         self._providers_provider = providers_provider
         self._model_authorizer = model_authorizer
 
+    def requires_approval(self, content: str) -> bool:
+        """True when executing this command can await user approval.
+
+        Approval-gated commands must not run inside the serial IPC frame
+        handler: their resolution arrives as a frame on the same socket, so
+        callers dispatch them to a background task instead.
+        """
+        if self._model_authorizer is None:
+            return False
+        parsed = parse_command(content)
+        return parsed is not None and parsed[0] == "model" and bool(parsed[1])
+
     def catalog(self) -> dict[str, Any]:
         agents = self.subagents.sync() if self.subagents is not None else []
         loader = SkillsLoader(self.workspace)

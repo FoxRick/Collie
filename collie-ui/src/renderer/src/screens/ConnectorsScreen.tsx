@@ -17,6 +17,8 @@ type Tab = 'connected' | 'explore'
 
 export function connectorConnectNotice(name: string, status: string): string {
   if (status === 'connected') return `Connected to ${name}. Try it in chat!`
+  if (status === 'auth_required')
+    return `${name} needs a fresh sign-in before Collie can use it.`
   if (connectorIsInFlight(status)) return `${name} sign-in is already in progress.`
   return `${name} needs attention before Collie can use it.`
 }

@@ -94,6 +94,7 @@ class CollieRuntime:
         self._outbound_task: asyncio.Task | None = None
         self._reminder_task: asyncio.Task | None = None
         self._configure_lock = asyncio.Lock()
+        self._model_switch_lock = asyncio.Lock()
         self._provider_config_generation = 0
         self._provider_rollbacks: dict[str, dict[str, Any]] = {}
         self._auto_reconfiguring = False
@@ -136,6 +137,7 @@ class CollieRuntime:
             profile_store=self.profile,
             command_runner=self._run_command,
             command_catalog=self.commands.catalog,
+            command_requires_approval=self.commands.requires_approval,
             session_target=self._session_target,
             conversation_deleter=self.delete_conversation_sessions,
             on_set_approval_preset=self.permission_evaluator.set_local_write_preset,
@@ -907,38 +909,42 @@ class CollieRuntime:
         name = str(model).strip()
         if not name:
             return {"switched": False, "error": "A model name is required."}
-        # Sync SQLite calls stay off the event loop (project boundary:
-        # ipc/server.py wraps every db call in asyncio.to_thread).
-        previous = await asyncio.to_thread(self.db.get_setting, "provider.model")
-        if name == previous:
+        # Serialize the complete read/persist/live-apply so two concurrent
+        # switches cannot split persisted and live state (threaded writes
+        # finishing B->C while select_model applies C->B).
+        async with self._model_switch_lock:
+            # Sync SQLite calls stay off the event loop (project boundary:
+            # ipc/server.py wraps every db call in asyncio.to_thread).
+            previous = await asyncio.to_thread(self.db.get_setting, "provider.model")
+            if name == previous:
+                return {
+                    "switched": True,
+                    "model": name,
+                    "previous": previous,
+                    "unchanged": True,
+                    "applied": True,
+                }
+            await asyncio.to_thread(self.db.set_active_model, name)
+            applied = False
+            loop = self.loop
+            if loop is not None:
+                resolver = getattr(loop, "runtime_resolver", None)
+                select = getattr(resolver, "select_model", None)
+                if callable(select):
+                    try:
+                        select(name)
+                        applied = True
+                    except Exception:
+                        logger.exception(
+                            "Live model switch failed; the new model will apply "
+                            "on the next loop rebuild"
+                        )
             return {
                 "switched": True,
                 "model": name,
                 "previous": previous,
-                "unchanged": True,
-                "applied": True,
+                "applied": applied,
             }
-        await asyncio.to_thread(self.db.set_active_model, name)
-        applied = False
-        loop = self.loop
-        if loop is not None:
-            resolver = getattr(loop, "runtime_resolver", None)
-            select = getattr(resolver, "select_model", None)
-            if callable(select):
-                try:
-                    select(name)
-                    applied = True
-                except Exception:
-                    logger.exception(
-                        "Live model switch failed; the new model will apply "
-                        "on the next loop rebuild"
-                    )
-        return {
-            "switched": True,
-            "model": name,
-            "previous": previous,
-            "applied": applied,
-        }
 
     async def _chat(
         self,

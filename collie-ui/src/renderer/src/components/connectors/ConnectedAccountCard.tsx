@@ -13,13 +13,15 @@ export default function ConnectedAccountCard({
   const statusLabel =
     connection.status === 'connected'
       ? 'Connected'
-      : connection.status === 'testing'
-        ? 'Checking connection'
-        : connection.status === 'authorizing'
-          ? 'Sign-in in progress'
-          : connection.status === 'failed'
-            ? 'Connection failed'
-            : 'Needs attention'
+      : connection.status === 'auth_required'
+        ? 'Sign in again'
+        : connection.status === 'testing'
+          ? 'Checking connection'
+          : connection.status === 'authorizing'
+            ? 'Sign-in in progress'
+            : connection.status === 'failed'
+              ? 'Connection failed'
+              : 'Needs attention'
   return (
     <button
       type="button"

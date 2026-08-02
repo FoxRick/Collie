@@ -143,8 +143,12 @@ class ConnectorManager:
         ).catalog_view()
 
     def _has_credentials(self, row: dict[str, Any]) -> bool:
-        """A connection is only genuinely connected when its token exists."""
-        return self.credentials.load(f"connector:{row['id']}") is not None
+        """A connection is only genuinely connected when it holds a usable
+        access token. Empty records, client-info-only entries, and token
+        blobs without an ``access_token`` do not count."""
+        data = self.credentials.load(f"connector:{row['id']}") or {}
+        tokens = data.get("tokens") or {}
+        return bool(tokens.get("access_token"))
 
     def _connection_view(self, row: dict[str, Any]) -> dict[str, Any]:
         definition = connector_def(str(row["provider_id"]))

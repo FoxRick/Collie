@@ -265,6 +265,50 @@ def test_enabled_provider_connected_row_with_credentials_stays_healthy_and_rebin
     db.close()
 
 
+def test_connected_row_requires_usable_access_token(
+    tmp_path: Path, connector_store: CredentialStore
+) -> None:
+    db = CollieDB(tmp_path / "collie.db")
+    manager = ConnectorManager(db, credentials=connector_store)
+    try:
+        # Empty records, client-info-only entries, and token blobs without
+        # an access_token must NOT count as connected.
+        invalid_payloads: list[dict] = [
+            {},
+            {"client_info": {"client_id": "x"}},
+            {"tokens": {}},
+            {"tokens": {"refresh_token": "r"}},
+        ]
+        for index, payload in enumerate(invalid_payloads):
+            connection_id = f"con_bad_{index}"
+            connector_store.save(f"connector:{connection_id}", payload)
+            db.upsert_connector_connection(
+                connection_id,
+                provider_id="notion",
+                driver="official_mcp",
+                auth_type="oauth",
+                status="connected",
+            )
+            view = manager.get_connection(connection_id)
+            assert view is not None and view["status"] == "auth_required", payload
+            assert manager.is_connected("notion") is False
+
+        connector_store.save(
+            "connector:con_ok",
+            {"tokens": {"access_token": "tok", "token_type": "Bearer"}},
+        )
+        db.upsert_connector_connection(
+            "con_ok",
+            provider_id="notion",
+            driver="official_mcp",
+            auth_type="oauth",
+            status="connected",
+        )
+        assert manager.is_connected("notion") is True
+    finally:
+        db.close()
+
+
 def test_recheck_only_exposes_identity_returned_by_the_provider(
     tmp_path: Path,
     connector_store: CredentialStore,

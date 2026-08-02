@@ -60,21 +60,26 @@ _ALPHA_VERIFICATION = (
     "sign-in verification is still pending."
 )
 
-# Least-privilege OAuth scopes per provider (documented scope vocabularies).
-# Requesting no scope makes the MCP SDK omit the parameter, which the
-# authorization servers interpret as "everything advertised" — an explicit,
-# narrow set keeps consent honest. Values still need live confirmation on
-# the owner's packaged-app acceptance pass (each provider's OAuth server is
-# authoritative).
+# Least-privilege OAuth scopes per provider, verified against each
+# provider's live RFC 8414 authorization-server / RFC 9728 resource
+# metadata (2026-08-02). Requesting no scope makes the MCP SDK omit the
+# parameter, which the authorization servers interpret as "everything
+# advertised" — an explicit, narrow set keeps consent honest.
 _SCOPES: dict[str, tuple[str, ...]] = {
-    "notion": ("web:read", "web:update"),
+    # Notion's authorization server supports exactly one scope: "default".
+    "notion": ("default",),
     "linear": ("read", "write"),
     "todoist": ("data:read_write",),
+    # Atlassian MCP (authv2) resource metadata vocabulary — Jira issues,
+    # Confluence pages, search, identity, and offline refresh only.
     "atlassian": (
-        "read:jira:user",
+        "read:me",
         "read:jira-work",
         "write:jira-work",
-        "read:confluence-content.summary",
+        "search:confluence",
+        "read:page:confluence",
+        "write:page:confluence",
+        "offline_access",
     ),
     "airtable": ("data.records:read", "data.records:write", "schema.bases:read"),
 }
