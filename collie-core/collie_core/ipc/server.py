@@ -523,6 +523,34 @@ class CollieIPCServer:
         )
         return {"messages": messages}
 
+    async def _cmd_get_run_records(self, connection: ServerConnection, frame: dict) -> dict:
+        """List turn events (most recent first) — read-only telemetry."""
+        conv_id = str(frame.get("conversation_id") or "") or None
+        session_key = str(frame.get("session_key") or "") or None
+        since = str(frame.get("since") or "") or None
+        limit = frame.get("limit")
+        turns = await asyncio.to_thread(
+            self.db.list_turn_events,
+            conversation_id=conv_id,
+            session_key=session_key,
+            since=since,
+            limit=int(limit) if limit is not None else 200,
+        )
+        return {"turns": turns}
+
+    async def _cmd_get_tool_events(self, connection: ServerConnection, frame: dict) -> dict:
+        """List tool events (most recent first) — read-only telemetry."""
+        turn_id = str(frame.get("turn_id") or "") or None
+        tool_name = str(frame.get("tool_name") or "") or None
+        limit = frame.get("limit")
+        events = await asyncio.to_thread(
+            self.db.list_tool_events,
+            turn_id=turn_id,
+            tool_name=tool_name,
+            limit=int(limit) if limit is not None else 500,
+        )
+        return {"tool_events": events}
+
     async def _cmd_get_active_task(
         self, connection: ServerConnection, frame: dict
     ) -> dict:

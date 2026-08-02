@@ -58,7 +58,7 @@ def test_v9_persists_a_full_initial_task_snapshot(db: CollieDB) -> None:
 
     task = _create_checklist(db, str(conversation["id"]))
 
-    assert db.schema_version == 10
+    assert db.schema_version == 11
     assert task["source"] == "checklist"
     assert task["conversation_id"] == conversation["id"]
     assert task["status"] == "active"

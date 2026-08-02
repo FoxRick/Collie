@@ -122,6 +122,25 @@ class AgentHook:
     ) -> None:
         pass
 
+    async def on_tool_blocked(
+        self,
+        context: AgentHookContext,
+        tool_call: ToolCallRequest,
+        tool: Any,
+        params: Any,
+        status: str,
+        reason: str,
+    ) -> None:
+        """Observe a tool call that never executed.
+
+        Fired for authorization denials, preparation failures, and
+        repeated-lookup blocks — paths that return before
+        ``before_execute_tool``. ``status`` is the effective tool status
+        (``denied`` or ``error``); ``reason`` is the human-readable cause.
+        Observers only: the default is a no-op.
+        """
+        pass
+
     async def emit_reasoning(self, reasoning_content: str | None) -> None:
         pass
 
@@ -236,6 +255,25 @@ class CompositeHook(AgentHook):
             tool,
             params,
             error,
+        )
+
+    async def on_tool_blocked(
+        self,
+        context: AgentHookContext,
+        tool_call: ToolCallRequest,
+        tool: Any,
+        params: Any,
+        status: str,
+        reason: str,
+    ) -> None:
+        await self._for_each_hook_safe(
+            "on_tool_blocked",
+            context,
+            tool_call,
+            tool,
+            params,
+            status,
+            reason,
         )
 
     async def emit_reasoning(self, reasoning_content: str | None) -> None:

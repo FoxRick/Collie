@@ -147,6 +147,7 @@ class CollieRuntime:
 
     def _build_loop(self) -> Any:
         import collie_core.tools as collie_tools
+        from collie_core.telemetry.hook import create_telemetry_hook_factory
         from nanobot.agent.loop import AgentLoop
         from nanobot.agent.tools.context import ToolContext
         from nanobot.agent.tools.loader import ToolLoader
@@ -156,15 +157,22 @@ class CollieRuntime:
         )
         bus = CollieBus(on_inbound=self._on_messenger_inbound)
         provider_override = self._provider_override()
+        telemetry_factories = [create_telemetry_hook_factory(self.db)]
         if provider_override is not None:
             loop = AgentLoop.from_config(
                 config, bus=bus, provider=provider_override,
                 session_manager=self._session_manager,
+                hook_factories=telemetry_factories,
             )
         else:
             loop = AgentLoop.from_config(
                 config, bus=bus, session_manager=self._session_manager,
+                hook_factories=telemetry_factories,
             )
+        # Subagents bypass the loop's turn-hook chain (they run AgentRunner
+        # directly with their own _SubagentHook) — mirror the factories so
+        # subagent turns are telemetry-recorded too.
+        loop.subagents.hook_factories = list(telemetry_factories)
         loop.context.command_guidance = True
 
         from nanobot.runtime_context import RuntimeContextBlock
@@ -776,6 +784,16 @@ class CollieRuntime:
                 pass
             self._outbound_task = None
         self.loop = None
+        # Active turns are drained above; flush their telemetry so evidence
+        # from cancelled/stopped turns is durable before the loop is gone.
+        self._flush_telemetry()
+
+    def _flush_telemetry(self) -> None:
+        from collie_core.telemetry.recorder import RunRecorder
+
+        recorder = RunRecorder.active_for(self.db)
+        if recorder is not None:
+            recorder.flush()
 
     async def _write_subagent_prompt(self, name: str, description: str) -> str:
         """Have the LLM write a subagent system prompt from a description."""
@@ -1039,6 +1057,14 @@ class CollieRuntime:
                 self._reminder_task = None
             await self._shutdown_loop()
             self.approvals.cancel_all()
+            # Stop telemetry after active turns are drained and before the
+            # database closes, so no queued write is dropped or runs through
+            # a closed connection.
+            from collie_core.telemetry.recorder import RunRecorder
+
+            recorder = RunRecorder.active_for(self.db)
+            if recorder is not None:
+                recorder.shutdown()
             self.db.close()
 
 

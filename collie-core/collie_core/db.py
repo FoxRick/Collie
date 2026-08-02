@@ -481,6 +481,39 @@ _SCHEMA_V10 = """
 ALTER TABLE plan_change_requests ADD COLUMN terminal_message_id TEXT;
 """
 
+_SCHEMA_V11 = """
+CREATE TABLE IF NOT EXISTS turn_events (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT,
+  session_key TEXT,
+  turn_kind TEXT NOT NULL,          -- chat|plan|routine|cron|subagent|automation
+  provider TEXT, model TEXT,
+  status TEXT NOT NULL,             -- running|ok|error|stopped|cancelled
+  error_message TEXT,
+  tokens_in INTEGER, tokens_out INTEGER,
+  latency_ms INTEGER,
+  tool_count INTEGER DEFAULT 0,
+  started_at TEXT NOT NULL, finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_turn_events_conv ON turn_events(conversation_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_turn_events_status ON turn_events(status, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS tool_events (
+  id TEXT PRIMARY KEY,
+  turn_id TEXT NOT NULL,
+  tool_name TEXT NOT NULL,
+  action TEXT, resource TEXT,       -- from permission classifier (join to approval_requests)
+  input_summary TEXT,               -- redacted + truncated (<=500 chars)
+  output_summary TEXT,              -- redacted + truncated (<=1000 chars)
+  status TEXT NOT NULL,             -- running|ok|error|denied|timeout
+  error_message TEXT,
+  latency_ms INTEGER,
+  started_at TEXT NOT NULL, finished_at TEXT,
+  FOREIGN KEY (turn_id) REFERENCES turn_events(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_tool_events_tool ON tool_events(tool_name, status, started_at DESC);
+"""
+
 # Ordered migrations: index 0 == schema version 1, etc.
 _MIGRATIONS: list[str] = [
     _SCHEMA_V1,
@@ -493,6 +526,7 @@ _MIGRATIONS: list[str] = [
     _SCHEMA_V8,
     _SCHEMA_V9,
     _SCHEMA_V10,
+    _SCHEMA_V11,
 ]
 
 
@@ -3166,10 +3200,215 @@ class CollieDB:
         row = rows[0] if rows else {"messages": 0, "tokens": 0}
         return {"messages": int(row["messages"]), "tokens": int(row["tokens"])}
 
+    # -- run records (telemetry) ----------------------------------------------------------------
+
+    def record_turn_event(
+        self,
+        *,
+        turn_id: str,
+        conversation_id: str | None = None,
+        session_key: str | None = None,
+        turn_kind: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        status: str | None = None,
+        error_message: str | None = None,
+        tokens_in: int = 0,
+        tokens_out: int = 0,
+        latency_ms: int | None = None,
+        tool_count: int = 0,
+        started_at: str | None = None,
+        finished_at: str | None = None,
+    ) -> None:
+        """Insert or update one turn event row (upsert keyed by id).
+
+        The recorder writes a ``running`` row when a turn starts and an
+        upsert with the final status when it finishes; COALESCE keeps the
+        start-time fields (and the ``turn_kind`` captured at start) intact
+        across the two writes. Defaults are applied on INSERT only so a
+        finishing write can never clobber values it does not carry.
+        """
+        with self._write() as conn:
+            updated = conn.execute(
+                """
+                UPDATE turn_events SET
+                    conversation_id = COALESCE(?, conversation_id),
+                    session_key = COALESCE(?, session_key),
+                    turn_kind = COALESCE(?, turn_kind),
+                    provider = COALESCE(?, provider),
+                    model = COALESCE(?, model),
+                    status = COALESCE(?, status),
+                    error_message = COALESCE(?, error_message),
+                    tokens_in = COALESCE(?, tokens_in),
+                    tokens_out = COALESCE(?, tokens_out),
+                    latency_ms = COALESCE(?, latency_ms),
+                    tool_count = COALESCE(?, tool_count),
+                    started_at = COALESCE(?, started_at),
+                    finished_at = COALESCE(?, finished_at)
+                WHERE id = ?
+                """,
+                (
+                    conversation_id, session_key, turn_kind, provider, model,
+                    status, error_message, tokens_in, tokens_out, latency_ms,
+                    tool_count, started_at, finished_at, turn_id,
+                ),
+            )
+            if updated.rowcount == 0:
+                conn.execute(
+                    """
+                    INSERT INTO turn_events (
+                        id, conversation_id, session_key, turn_kind, provider, model,
+                        status, error_message, tokens_in, tokens_out, latency_ms,
+                        tool_count, started_at, finished_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        turn_id, conversation_id, session_key, turn_kind or "chat",
+                        provider, model, status or "running", error_message,
+                        tokens_in, tokens_out, latency_ms, tool_count,
+                        started_at or utc_now(), finished_at,
+                    ),
+                )
+
+    def record_tool_event(
+        self,
+        *,
+        tool_id: str,
+        turn_id: str,
+        tool_name: str,
+        action: str | None = None,
+        resource: str | None = None,
+        input_summary: str | None = None,
+        output_summary: str | None = None,
+        status: str = "running",
+        error_message: str | None = None,
+        latency_ms: int | None = None,
+        started_at: str | None = None,
+        finished_at: str | None = None,
+    ) -> None:
+        """Insert or update one tool event row (upsert keyed by id).
+
+        ``started_at`` defaults to now on INSERT only, so the finishing
+        write preserves the original start time.
+        """
+        with self._write() as conn:
+            updated = conn.execute(
+                """
+                UPDATE tool_events SET
+                    action = COALESCE(?, action),
+                    resource = COALESCE(?, resource),
+                    input_summary = COALESCE(?, input_summary),
+                    output_summary = COALESCE(?, output_summary),
+                    status = COALESCE(?, status),
+                    error_message = COALESCE(?, error_message),
+                    latency_ms = COALESCE(?, latency_ms),
+                    started_at = COALESCE(?, started_at),
+                    finished_at = COALESCE(?, finished_at)
+                WHERE id = ?
+                """,
+                (
+                    action, resource, input_summary, output_summary, status,
+                    error_message, latency_ms, started_at, finished_at, tool_id,
+                ),
+            )
+            if updated.rowcount == 0:
+                conn.execute(
+                    """
+                    INSERT INTO tool_events (
+                        id, turn_id, tool_name, action, resource, input_summary,
+                        output_summary, status, error_message, latency_ms,
+                        started_at, finished_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        tool_id, turn_id, tool_name, action, resource, input_summary,
+                        output_summary, status, error_message, latency_ms,
+                        started_at or utc_now(), finished_at,
+                    ),
+                )
+
+    def list_turn_events(
+        self,
+        conversation_id: str | None = None,
+        session_key: str | None = None,
+        since: str | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        """List turn events, most recent first, with optional filters."""
+        clauses: list[str] = []
+        params: list[Any] = []
+        if conversation_id:
+            clauses.append("conversation_id = ?")
+            params.append(conversation_id)
+        if session_key:
+            clauses.append("session_key = ?")
+            params.append(session_key)
+        if since:
+            clauses.append("started_at >= ?")
+            params.append(since)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(limit)
+        return self._rows(
+            f"SELECT * FROM turn_events {where} ORDER BY started_at DESC LIMIT ?",
+            tuple(params),
+        )
+
+    def list_tool_events(
+        self,
+        turn_id: str | None = None,
+        tool_name: str | None = None,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        """List tool events, most recent first, with optional filters."""
+        clauses: list[str] = []
+        params: list[Any] = []
+        if turn_id:
+            clauses.append("turn_id = ?")
+            params.append(turn_id)
+        if tool_name:
+            clauses.append("tool_name = ?")
+            params.append(tool_name)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(limit)
+        return self._rows(
+            f"SELECT * FROM tool_events {where} ORDER BY started_at DESC LIMIT ?",
+            tuple(params),
+        )
+
+    def turn_event_stats(self, since: str | None = None) -> list[dict[str, Any]]:
+        """Per-tool status counts (feeds Gardener evidence queries)."""
+        if since:
+            rows = self._rows(
+                """
+                SELECT tool_name, status, COUNT(*) AS count FROM tool_events
+                WHERE started_at >= ? GROUP BY tool_name, status
+                ORDER BY tool_name, status
+                """,
+                (since,),
+            )
+        else:
+            rows = self._rows(
+                """
+                SELECT tool_name, status, COUNT(*) AS count FROM tool_events
+                GROUP BY tool_name, status ORDER BY tool_name, status
+                """
+            )
+        return [
+            {"tool_name": row["tool_name"], "status": row["status"], "count": int(row["count"])}
+            for row in rows
+        ]
+
     # -- data management ----------------------------------------------------------------------------
 
     def export_all(self) -> dict[str, Any]:
         """Full data export (for F104 data export)."""
+        # Include telemetry that is still queued in the writer thread, or the
+        # export would silently omit recent-but-not-yet-durable records.
+        from collie_core.telemetry.recorder import RunRecorder
+
+        recorder = RunRecorder.active_for(self)
+        if recorder is not None:
+            recorder.flush()
         return {
             "exported_at": utc_now(),
             "schema_version": self.schema_version,
@@ -3198,6 +3437,12 @@ class CollieDB:
             "conversation_review_gates": self._rows(
                 "SELECT * FROM conversation_review_gates ORDER BY declared_at"
             ),
+            "turn_events": self._rows(
+                "SELECT * FROM turn_events ORDER BY started_at"
+            ),
+            "tool_events": self._rows(
+                "SELECT * FROM tool_events ORDER BY started_at"
+            ),
             "approval_rules": self.list_approval_rules(),
             "approval_requests": self._rows(
                 "SELECT * FROM approval_requests ORDER BY requested_at"
@@ -3218,20 +3463,34 @@ class CollieDB:
 
     def clear_all(self) -> None:
         """Wipe all user data (for F105 data deletion)."""
-        # Children before parents: run_steps cascades from runs anyway, but
-        # usage (FK -> providers), connector_tool_cache (FK -> connections),
-        # messages (FK -> conversations), and plans/runs must go first so no
-        # foreign-key violation aborts the wipe halfway.
-        tables = [
-            "task_checklist_steps", "task_checklists", "conversation_review_gates",
-            "plan_change_requests", "run_task_state_revisions",
-            "run_steps",
-            "approval_requests", "approval_rules", "runs", "plans",
-            "messages", "conversations", "profile", "people", "important_dates",
-            "reminders", "automations", "shopping_items", "expenses", "budgets",
-            "health_logs", "services", "connector_tool_cache", "connector_connections",
-            "subagents", "usage", "providers", "settings",
-        ]
-        with self._write() as conn:
-            for table in tables:
-                conn.execute(f"DELETE FROM {table}")
+        # Suspend + drain telemetry first: queued recorder writes must not
+        # execute after the wipe and resurrect deleted rows. The recorder
+        # stays suspended until the deletes finish, so hooks enqueueing
+        # mid-wipe are dropped too, then recording resumes for new turns.
+        from collie_core.telemetry.recorder import RunRecorder
+
+        recorder = RunRecorder.active_for(self)
+        if recorder is not None:
+            recorder.suspend_and_drain()
+        try:
+            # Children before parents: run_steps cascades from runs anyway, but
+            # usage (FK -> providers), connector_tool_cache (FK -> connections),
+            # messages (FK -> conversations), and plans/runs must go first so no
+            # foreign-key violation aborts the wipe halfway.
+            tables = [
+                "task_checklist_steps", "task_checklists", "conversation_review_gates",
+                "plan_change_requests", "run_task_state_revisions",
+                "tool_events", "turn_events",
+                "run_steps",
+                "approval_requests", "approval_rules", "runs", "plans",
+                "messages", "conversations", "profile", "people", "important_dates",
+                "reminders", "automations", "shopping_items", "expenses", "budgets",
+                "health_logs", "services", "connector_tool_cache", "connector_connections",
+                "subagents", "usage", "providers", "settings",
+            ]
+            with self._write() as conn:
+                for table in tables:
+                    conn.execute(f"DELETE FROM {table}")
+        finally:
+            if recorder is not None:
+                recorder.resume()
