@@ -15,7 +15,7 @@ def db(tmp_path: Path) -> CollieDB:
 
 
 def test_schema_created(db: CollieDB) -> None:
-    assert db.schema_version == 11
+    assert db.schema_version == 12
 
 
 def test_migration_idempotent(tmp_path: Path) -> None:
@@ -25,7 +25,7 @@ def test_migration_idempotent(tmp_path: Path) -> None:
     d1.close()
     d2 = CollieDB(path)
     assert d2.get_setting("provider.name") == "openai"
-    assert d2.schema_version == 11
+    assert d2.schema_version == 12
     d2.close()
 
 
@@ -35,7 +35,7 @@ def test_incremental_migrations_v1_through_v11(tmp_path: Path) -> None:
 
     import collie_core.db as db_mod
 
-    for target in range(1, 12):
+    for target in range(1, 13):
         path = tmp_path / f"v{target}.db"
         conn = sqlite3.connect(path)
         conn.executescript(db_mod._SCHEMA_V1)
@@ -51,7 +51,7 @@ def test_incremental_migrations_v1_through_v11(tmp_path: Path) -> None:
         conn.close()
 
         upgraded = CollieDB(path)
-        assert upgraded.schema_version == 11, f"v{target} did not reach v11"
+        assert upgraded.schema_version == 12, f"v{target} did not reach v12"
         assert upgraded.get_conversation("c1")["title"] == "Keep me"
         upgraded.close()
 
@@ -76,7 +76,7 @@ def test_migration_failure_rolls_back_atomically(
     with pytest.raises(sqlite3.OperationalError):
         CollieDB(path)
 
-    # The failed migration rolled everything back: version still 10 and the
+    # The failed migration rolled everything back: version still 12 and the
     # partial table is gone, so a normal boot migrates cleanly again.
     conn = sqlite3.connect(path)
     try:
@@ -86,11 +86,11 @@ def test_migration_failure_rolls_back_atomically(
         ).fetchone()
     finally:
         conn.close()
-    assert version == 11
+    assert version == 12
     assert half is None
     monkeypatch.undo()
     fresh = CollieDB(path)
-    assert fresh.schema_version == 11
+    assert fresh.schema_version == 12
     fresh.close()
 
 
@@ -131,7 +131,7 @@ def test_v8_removes_only_legacy_system_subagent_allow(tmp_path: Path) -> None:
         row["name"] for row in migrated._rows("PRAGMA table_info(messages)")
     }
     assert "task_state" in columns
-    assert migrated.schema_version == 11
+    assert migrated.schema_version == 12
     migrated.close()
 
 
@@ -179,7 +179,7 @@ def test_v9_upgrade_adds_plan_change_terminal_message_id(tmp_path: Path) -> None
             row["name"]
             for row in upgraded._rows("PRAGMA table_info(plan_change_requests)")
         }
-        assert upgraded.schema_version == 11
+        assert upgraded.schema_version == 12
         assert "terminal_message_id" in columns
         assert request is not None
         assert request["reason"] == "Change it"
@@ -345,7 +345,7 @@ def test_export_and_clear(db: CollieDB) -> None:
     db.set_profile("dietary", "vegan")
     db.add_person("Sam")
     data = db.export_all()
-    assert data["schema_version"] == 11
+    assert data["schema_version"] == 12
     assert len(data["conversations"]) == 1
     assert data["profile"] == {"dietary": "vegan"}
 

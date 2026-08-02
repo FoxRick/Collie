@@ -29,7 +29,9 @@ are not part of this public source tree.
 
 - `collie_core/` owns storage, settings, memory, permissions, plans, tools,
   connectors, agents, routines, messengers, pet control, IPC, telemetry
-  (run records), and runtime composition.
+  (run records), runtime composition, and the internal headless engine
+  mode (`collie_core/headless.py` — one task, one JSON result document,
+  exit; an engineering-only benchmark entry, not a user-facing CLI).
 - `nanobot/` contains the adapted upstream engine. Changes should remain
   surgical and preserve third-party attribution.
 - `tests/` contains Python unit, integration, IPC, safety, and end-to-end

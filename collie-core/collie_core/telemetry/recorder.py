@@ -142,6 +142,7 @@ class RunRecorder:
         self._stopped = False
         self._suspended = False
         self.dropped_writes = 0
+        self.last_turn_stats: dict[str, int] = {}
         self._queue: queue.Queue[Callable[[], None] | None] = queue.Queue(
             maxsize=MAX_QUEUED_WRITES
         )
@@ -236,6 +237,9 @@ class RunRecorder:
         session_key: str | None = None,
         conversation_id: str | None = None,
         turn_kind: str = "chat",
+        prompt_hash: str | None = None,
+        tool_schema_hash: str | None = None,
+        config_hash: str | None = None,
     ) -> None:
         db = self._db
         # Event-time snapshot: captured before enqueueing so backlog cannot
@@ -254,6 +258,9 @@ class RunRecorder:
                     model=model,
                     status="running",
                     started_at=started_at,
+                    prompt_hash=prompt_hash,
+                    tool_schema_hash=tool_schema_hash,
+                    config_hash=config_hash,
                 )
             except Exception:
                 logger.exception("telemetry start_turn failed")
@@ -270,9 +277,21 @@ class RunRecorder:
         tokens_out: int = 0,
         latency_ms: int | None = None,
         tool_count: int = 0,
+        model_calls: int = 0,
+        retries: int = 0,
+        no_action_turns: int = 0,
     ) -> None:
         db = self._db
         finished_at = utc_now()
+        # Event-time snapshot for the headless result document (never
+        # persisted — the run record stores tool_count; the call counters
+        # are engineering evidence for the bench harness).
+        self.last_turn_stats = {
+            "model_calls": model_calls,
+            "tool_calls": tool_count,
+            "retries": retries,
+            "no_action_turns": no_action_turns,
+        }
 
         def _write() -> None:
             try:

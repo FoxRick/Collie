@@ -37,6 +37,52 @@ def test_plan_mode_hard_denies_mutation(tmp_path: Path) -> None:
     db.close()
 
 
+def test_deny_preset_denies_local_writes_but_keeps_reads(tmp_path: Path) -> None:
+    """The bench 'deny' posture refuses local writes; reads stay allowed."""
+    db = CollieDB(tmp_path / "db.sqlite")
+    evaluator = PermissionEvaluator(PermissionStore(db), local_write_preset="deny")
+
+    denied = evaluator.evaluate(
+        ExecutionContext(execution_mode="execute"),
+        _request(risk=Risk.LOCAL_WRITE),
+    )
+    assert denied.effect == Effect.DENY
+
+    # Even an otherwise ordinary-safe local write is denied under deny.
+    safe_write = PermissionRequest(
+        action="file.write",
+        resource="C:/work/notes.txt",
+        risk=Risk.LOCAL_WRITE,
+        summary="Write a note",
+        reversible=True,
+        approval_free=True,
+        approve_for_me=True,
+    )
+    assert evaluator.evaluate(
+        ExecutionContext(execution_mode="execute"), safe_write
+    ).effect == Effect.DENY
+
+    # Reads are unaffected by the deny preset.
+    read = evaluator.evaluate(
+        ExecutionContext(execution_mode="execute"),
+        _request(risk=Risk.READ),
+    )
+    assert read.effect == Effect.ALLOW
+
+    # An explicit allow rule still wins over the deny preset.
+    db.add_approval_rule(
+        action="file.write",
+        resource_pattern="C:/work/notes.txt",
+        effect="allow",
+        scope_type="global",
+    )
+    allowed = evaluator.evaluate(
+        ExecutionContext(execution_mode="execute"), safe_write
+    )
+    assert allowed.effect == Effect.ALLOW
+    db.close()
+
+
 def test_read_only_specialist_hard_denies_mutation(tmp_path: Path) -> None:
     db = CollieDB(tmp_path / "db.sqlite")
     evaluator = PermissionEvaluator(PermissionStore(db), local_write_preset="allow")

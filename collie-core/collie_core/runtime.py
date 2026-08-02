@@ -214,6 +214,28 @@ class CollieRuntime:
         loop.authorizer = self.approvals
         loop.subagents.authorizer = self.approvals
         logger.info("Registered Collie tools: {}", registered)
+        # Fingerprint this exact loop for run telemetry: the tool schemas the
+        # model will see and the config values (model/provider/generation/
+        # limits) it ran under. The telemetry hook reads these per turn.
+        from collie_core.telemetry.prompt_hashes import bind_prompt_hash_sources
+
+        defaults = config.agents.defaults
+        bind_prompt_hash_sources(
+            tool_schemas=loop.tools.get_definitions(),
+            model=str(defaults.model),
+            provider=str(defaults.provider),
+            generation={
+                "temperature": defaults.temperature,
+                "max_tokens": defaults.max_tokens,
+                "reasoning_effort": defaults.reasoning_effort,
+            },
+            limits={
+                "max_tool_iterations": defaults.max_tool_iterations,
+                "max_tool_result_chars": defaults.max_tool_result_chars,
+                "context_window_tokens": defaults.context_window_tokens,
+                "max_concurrent_subagents": defaults.max_concurrent_subagents,
+            },
+        )
         return loop
 
     async def _run_command(
