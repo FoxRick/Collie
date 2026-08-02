@@ -240,6 +240,17 @@ def test_read_risk_opens_are_allowed_by_default_evaluator() -> None:
     assert decision.effect.value == "allow"
 
 
+def test_description_claims_are_truthful() -> None:
+    """Browser-rendered types (html/svg) can trigger network activity in the
+    default app, so the description must promise provider-silence, not
+    blanket network silence."""
+
+    description = OpenFileTool().description
+
+    assert "never sent to Collie or your model provider" in description
+    assert "Nothing is sent anywhere" not in description
+
+
 def test_open_file_tool_is_discoverable() -> None:
     import collie_core.tools as collie_tools
 

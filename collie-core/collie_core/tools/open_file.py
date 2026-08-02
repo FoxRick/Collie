@@ -2,8 +2,9 @@
 
 Deliberately bounded like ``local_files``: only existing, allowlisted
 artifact types inside the folders allowed for the current turn, opened by
-the OS default handler.  Nothing is written, nothing leaves the device,
-and no executable, script, or shortcut type can be launched.
+the OS default handler.  Nothing is written, and the file's contents are
+never sent to Collie or a model provider — the local default app renders
+it. No executable, script, or shortcut type can be launched.
 """
 
 from __future__ import annotations
@@ -126,8 +127,8 @@ class OpenFileTool(Tool):
             "for example a Markdown, PDF, Office, image, audio, or video file in its viewer, "
             "or a folder in the file explorer. Only harmless, allowlisted file types inside "
             "the folders allowed for this task can be opened; executables, scripts, and "
-            "shortcuts are refused, as are files outside the allowed folders. Nothing is sent "
-            "anywhere — the file opens locally on this device. Use this when the user asks "
+            "shortcuts are refused, as are files outside the allowed folders. The file's contents are "
+            "never sent to Collie or your model provider — it opens locally in your default app. Use this when the user asks "
             "you to open, show, or launch a file they created or that lives in an allowed folder."
         )
 
