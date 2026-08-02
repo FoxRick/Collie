@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from nanobot.agent.skills import SkillsLoader
 
@@ -36,6 +36,12 @@ CORE_COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("new", "Start a fresh conversation", "/new", "Session"),
     CommandSpec("compact", "Summarize older context and keep recent turns", "/compact", "Session"),
     CommandSpec("status", "Show model, context, and active helpers", "/status", "Session"),
+    CommandSpec(
+        "model",
+        "Show or switch the active AI model",
+        "/model [model-id]",
+        "Settings",
+    ),
     CommandSpec("stop", "Stop the current response and its helpers", "/stop", "Session"),
     CommandSpec(
         "goal",
@@ -80,11 +86,15 @@ class CommandController:
         subagent_loader: Any,
         loop_provider: Callable[[], Any],
         status_provider: Callable[[], dict[str, Any]],
+        model_switcher: Callable[[str], Awaitable[dict[str, Any]]] | None = None,
+        providers_provider: Callable[[], list[dict[str, Any]]] | None = None,
     ) -> None:
         self.workspace = workspace
         self.subagents = subagent_loader
         self._loop_provider = loop_provider
         self._status_provider = status_provider
+        self._model_switcher = model_switcher
+        self._providers_provider = providers_provider
 
     def catalog(self) -> dict[str, Any]:
         agents = self.subagents.sync() if self.subagents is not None else []
@@ -240,6 +250,9 @@ class CommandController:
                 },
             }
 
+        if command == "model":
+            return await self._handle_model(arguments)
+
         if command == "stop":
             stopped = await loop.cancel_session(session_key) if loop is not None else 0
             return {
@@ -359,3 +372,72 @@ class CommandController:
             }
 
         return None
+
+    async def _handle_model(self, arguments: str) -> dict[str, Any]:
+        """Implement ``/model [model-id]`` — show or switch the active model."""
+        if arguments:
+            if self._model_switcher is None:
+                return {
+                    "handled": True,
+                    "content": "Model switching isn't available in this session.",
+                }
+            result = await self._model_switcher(arguments)
+            if not result.get("switched"):
+                return {
+                    "handled": True,
+                    "content": (
+                        "I couldn't switch models: "
+                        f"{result.get('error') or 'unknown error'}"
+                    ),
+                }
+            model = str(result.get("model") or arguments)
+            if result.get("unchanged"):
+                content = f"Collie is already on **{model}**."
+            elif result.get("applied") is False:
+                content = f"Saved — I'll use **{model}** once a provider is connected."
+            else:
+                previous = str(result.get("previous") or "").strip()
+                if previous and previous != model:
+                    content = (
+                        f"Done — switched from **{previous}** to **{model}**. "
+                        "The next messages will use it."
+                    )
+                else:
+                    content = f"Done — the active model is now **{model}**."
+            return {
+                "handled": True,
+                "content": content,
+                "card_type": "status",
+                "card_data": {"model": model},
+            }
+
+        status = self._status_provider()
+        model = str(status.get("model") or "").strip()
+        providers = (
+            self._providers_provider()
+            if self._providers_provider is not None
+            else []
+        )
+        lines = [f"**Current model:** {model or 'not connected'}"]
+        if providers:
+            lines.append("")
+            lines.append("Configured providers:")
+            for provider in providers:
+                marker = " (active)" if provider.get("is_default") else ""
+                provider_model = provider.get("model") or "default"
+                provider_name = (
+                    provider.get("runtime_name") or provider.get("name") or "?"
+                )
+                lines.append(f"- **{provider_name}**: {provider_model}{marker}")
+            lines.append("")
+            lines.append(
+                "Switch with `/model <model-id>` — e.g. `/model deepseek-v4-flash`."
+            )
+        else:
+            lines.append("No providers configured yet. Add one in Settings first.")
+        return {
+            "handled": True,
+            "content": "\n".join(lines),
+            "card_type": "status",
+            "card_data": {"model": model},
+        }
