@@ -33,6 +33,36 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+async def _wait_for(predicate, timeout: float = 5.0) -> None:
+    """Poll until ``predicate()`` is truthy (telemetry writes are async)."""
+    import time as _time
+
+    deadline = _time.monotonic() + timeout
+    while _time.monotonic() < deadline:
+        if predicate():
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("condition not met within timeout")
+
+
+async def _wait_for_turn(db: CollieDB) -> dict[str, Any]:
+    """Wait for a finished turn row and return it (most recent first)."""
+    await _wait_for(
+        lambda: bool(db.list_turn_events())
+        and db.list_turn_events()[0]["finished_at"] is not None
+    )
+    return db.list_turn_events()[0]
+
+
+async def _wait_for_tool(db: CollieDB) -> dict[str, Any]:
+    """Wait for a finished tool row and return it (most recent first)."""
+    await _wait_for(
+        lambda: bool(db.list_tool_events())
+        and db.list_tool_events()[0]["finished_at"] is not None
+    )
+    return db.list_tool_events()[0]
+
+
 # ---------------------------------------------------------------------------
 # Task 1.1 — schema migration V11 + DB methods
 # ---------------------------------------------------------------------------
@@ -304,25 +334,44 @@ def test_summarize_redacts_secrets_in_strings_and_nested_values() -> None:
     )
 
 
+def test_summarize_redacts_modern_provider_secrets() -> None:
+    from collie_core.telemetry.recorder import summarize
+
+    probes = [
+        "sk-proj-abcdefghijklmnopqrstuvwxyz123456",          # OpenAI project key
+        "sk-ant-api03-abcdefghijklmnopqrstuvwxyz123456789",  # Anthropic key
+        "AIzaSyA1234567890abcdefghijklmnopqrstuvwxyz",       # Google API key
+        "ya29.a0AfH6SMCabcdefghijklmnopqrstuvwxyz123456",    # Google OAuth token
+    ]
+    for probe in probes:
+        out = summarize(probe, 500) or ""
+        assert probe not in out, f"leaked: {probe}"
+        assert "[redacted]" in out, f"not redacted: {probe}"
+
+
 def test_error_messages_are_sanitized(db: CollieDB) -> None:
     from collie_core.telemetry.recorder import RunRecorder
 
     rec = RunRecorder(db)
-    rec.start_turn(turn_id="t1", turn_kind="chat")
-    rec.finish_turn(
-        turn_id="t1", status="error",
-        error_message="Authorization: Bearer sk-leaky-secret-12345",
-    )
-    rec.start_tool(tool_id="te1", turn_id="t1", tool_name="web_search")
-    rec.finish_tool(
-        tool_id="te1", turn_id="t1", tool_name="web_search", status="error",
-        error_message="token: ghp_ABCDEFGHIJKLMNOPQRST",
-    )
+    try:
+        rec.start_turn(turn_id="t1", turn_kind="chat")
+        rec.finish_turn(
+            turn_id="t1", status="error",
+            error_message="Authorization: Bearer sk-leaky-secret-12345",
+        )
+        rec.start_tool(tool_id="te1", turn_id="t1", tool_name="web_search")
+        rec.finish_tool(
+            tool_id="te1", turn_id="t1", tool_name="web_search", status="error",
+            error_message="token: ghp_ABCDEFGHIJKLMNOPQRST",
+        )
+        rec.flush()
 
-    turn = db.list_turn_events()[0]
-    tool = db.list_tool_events()[0]
-    assert "sk-leaky-secret" not in (turn["error_message"] or "")
-    assert "ghp_" not in (tool["error_message"] or "")
+        turn = db.list_turn_events()[0]
+        tool = db.list_tool_events()[0]
+        assert "sk-leaky-secret" not in (turn["error_message"] or "")
+        assert "ghp_" not in (tool["error_message"] or "")
+    finally:
+        rec.shutdown()
 
 
 def _make_loop(tmp_path: Path, *, hook_factories: list[Any] | None = None) -> AgentLoop:
@@ -379,6 +428,7 @@ async def test_process_direct_records_turn_and_tools_with_redaction(
 
     assert result is not None
     assert result.content == "Done"
+    await _wait_for_turn(db)
 
     turns = db.list_turn_events()
     assert len(turns) == 1
@@ -392,6 +442,7 @@ async def test_process_direct_records_turn_and_tools_with_redaction(
     assert turn["tokens_out"] > 0
     assert turn["finished_at"] is not None
 
+    await _wait_for_tool(db)
     tools = db.list_tool_events(turn_id=turn["id"])
     assert len(tools) == 1
     tool = tools[0]
@@ -413,8 +464,10 @@ async def test_process_direct_records_tool_error(tmp_path: Path, db: CollieDB) -
     )
 
     assert result is not None
+    await _wait_for_turn(db)
     turn = db.list_turn_events()[0]
     assert turn["status"] == "ok"  # tool failure does not fail the turn
+    await _wait_for_tool(db)
     tool = db.list_tool_events(turn_id=turn["id"])[0]
     assert tool["status"] == "error"
     assert "tool boom" in (tool["error_message"] or "")
@@ -435,6 +488,7 @@ async def test_process_direct_records_error_turn(tmp_path: Path, db: CollieDB) -
             "hello", session_key="collie:conv1", channel="collie", chat_id="conv1"
         )
 
+    await _wait_for_turn(db)
     turns = db.list_turn_events()
     assert len(turns) == 1
     assert turns[0]["status"] == "error"
@@ -481,6 +535,7 @@ async def test_process_direct_records_denied_tool_with_action_and_resource(
     )
 
     assert result is not None
+    await _wait_for_tool(db)
     tools = db.list_tool_events()
     assert len(tools) == 1
     assert tools[0]["tool_name"] == "web_search"
@@ -489,6 +544,7 @@ async def test_process_direct_records_denied_tool_with_action_and_resource(
     assert tools[0]["action"] == "web.read"
     assert tools[0]["resource"] == "web_search"
 
+    await _wait_for_turn(db)
     turn = db.list_turn_events()[0]
     assert turn["status"] == "ok"  # denial is soft; turn continues
     assert turn["tool_count"] == 1
@@ -511,8 +567,50 @@ async def test_process_direct_marks_routine_turn_kind_from_metadata(
     )
 
     assert result is not None
+    await _wait_for_turn(db)
     turn = db.list_turn_events()[0]
     assert turn["turn_kind"] == "routine"
+
+
+async def test_process_direct_marks_plan_turn_kind_from_execution_mode(
+    tmp_path: Path, db: CollieDB
+) -> None:
+    from collie_core.telemetry.hook import create_telemetry_hook_factory
+
+    loop = _make_loop(tmp_path, hook_factories=[create_telemetry_hook_factory(db)])
+    _fake_tool_turn(loop)
+
+    result = await loop.process_direct(
+        "hello",
+        session_key="collie:conv1",
+        channel="collie",
+        chat_id="conv1",
+        permission_context={"execution_mode": "plan"},
+    )
+
+    assert result is not None
+    await _wait_for_turn(db)
+    turn = db.list_turn_events()[0]
+    assert turn["turn_kind"] == "plan"
+
+
+async def test_max_iterations_turn_marked_stopped(tmp_path: Path, db: CollieDB) -> None:
+    from collie_core.telemetry.hook import TelemetryHook
+    from collie_core.telemetry.recorder import RunRecorder
+    from nanobot.agent.hook import AgentRunHookContext
+
+    rec = RunRecorder(db)
+    hook = TelemetryHook(rec, session_key="collie:conv1")
+    try:
+        await hook.before_run(AgentRunHookContext(messages=[]))
+        await hook.after_run(AgentRunHookContext(
+            messages=[], stop_reason="max_iterations"
+        ))
+        rec.flush()
+        row = db.list_turn_events()[0]
+        assert row["status"] == "stopped"
+    finally:
+        rec.shutdown()
 
 
 async def test_subagent_run_composes_telemetry_hook(tmp_path: Path, db: CollieDB) -> None:
@@ -610,10 +708,39 @@ async def test_telemetry_writes_off_event_loop(
     await loop.process_direct(
         "hello", session_key="collie:conv1", channel="collie", chat_id="conv1"
     )
+    await _wait_for(lambda: bool(write_idents))
 
     loop_thread = threading.get_ident()
-    assert write_idents, "expected at least one telemetry write"
     assert all(ident != loop_thread for ident in write_idents)
+
+
+async def test_telemetry_write_stall_does_not_delay_turn(
+    tmp_path: Path, db: CollieDB, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A slow/locked database must never delay a turn (fire-and-forget)."""
+    import time as _time
+
+    from collie_core.telemetry.hook import create_telemetry_hook_factory
+
+    original = CollieDB.record_turn_event
+
+    def slow(self, **kwargs: Any) -> None:
+        _time.sleep(0.5)  # simulate a database under lock contention
+        original(self, **kwargs)
+
+    monkeypatch.setattr(CollieDB, "record_turn_event", slow)
+
+    loop = _make_loop(tmp_path, hook_factories=[create_telemetry_hook_factory(db)])
+    _fake_tool_turn(loop)
+
+    started = _time.monotonic()
+    result = await loop.process_direct(
+        "hello", session_key="collie:conv1", channel="collie", chat_id="conv1"
+    )
+    elapsed = _time.monotonic() - started
+
+    assert result is not None
+    assert elapsed < 0.4, f"turn waited {elapsed:.2f}s on a telemetry write"
 
 
 async def test_runtime_records_chat_turn_via_build_loop(
@@ -707,6 +834,7 @@ async def test_runtime_records_chat_turn_via_build_loop(
                     pytest.fail(f"IPC error: {frame}")
             assert assistant is not None
 
+            await _wait_for_turn(db)
             turns = db.list_turn_events()
             assert len(turns) == 1
             assert turns[0]["turn_kind"] == "chat"

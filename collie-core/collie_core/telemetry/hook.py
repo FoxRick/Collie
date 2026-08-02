@@ -5,25 +5,19 @@ as ``create_file_edit_activity_hook``) so every turn kind — chat, plan,
 routine, cron, automation, subagent — is recorded with zero edits to the
 nanobot orchestration core.
 
-All recorder calls run through ``asyncio.to_thread``: SQLite writes never
-block the event loop, and every write is wrapped so a telemetry failure
-can never break a turn.
+All recorder calls are fire-and-forget: they enqueue onto a dedicated
+writer thread and return immediately, so SQLite writes (and their
+redaction work) never run on — or stall — the event loop.
 """
 
 from __future__ import annotations
 
-import asyncio
 import time
 from typing import Any
 
 from collie_core.db import CollieDB, new_id
 from collie_core.permissions.classifier import classify_tool
-from collie_core.telemetry.recorder import (
-    TOOL_OUTPUT_LIMIT,
-    TURN_INPUT_LIMIT,
-    RunRecorder,
-    summarize,
-)
+from collie_core.telemetry.recorder import RunRecorder
 from nanobot.agent.hook import (
     AgentHook,
     AgentHookContext,
@@ -78,6 +72,8 @@ def resolve_turn_kind(
         "routine_id"
     ):
         return "routine"
+    if permission_context.get("execution_mode") == "plan":
+        return "plan"
     return turn_kind_for_session_key(session_key)
 
 
@@ -107,8 +103,7 @@ class TelemetryHook(AgentHook):
     async def before_run(self, context: AgentRunHookContext) -> None:
         self._turn_id = new_id()
         self._turn_started = time.monotonic()
-        await asyncio.to_thread(
-            self._recorder.start_turn,
+        self._recorder.start_turn(
             turn_id=self._turn_id,
             session_key=self._session_key,
             conversation_id=conversation_id_for_session_key(self._session_key),
@@ -127,8 +122,7 @@ class TelemetryHook(AgentHook):
             await self._finish_turn(context, forced_status=status)
         # Turns that died mid-tool leave running rows behind — mark them.
         for tool_id in list(self._tool_ids.values()):
-            await asyncio.to_thread(
-                self._recorder.finish_tool,
+            self._recorder.finish_tool(
                 tool_id=tool_id,
                 turn_id=self._turn_id or "",
                 tool_name="unknown",
@@ -153,12 +147,11 @@ class TelemetryHook(AgentHook):
         self._tool_starts[tool_call.id] = time.monotonic()
         self._tool_count += 1
         action, resource = self._classify(tool, tool_call, params)
-        await asyncio.to_thread(
-            self._recorder.start_tool,
+        self._recorder.start_tool(
             tool_id=tool_id,
             turn_id=self._turn_id,
             tool_name=getattr(tool_call, "name", "") or "",
-            input_summary=summarize(params, TURN_INPUT_LIMIT),
+            params=params,
             action=action,
             resource=resource,
         )
@@ -171,11 +164,7 @@ class TelemetryHook(AgentHook):
         params: Any,
         result: Any,
     ) -> None:
-        await self._finish_tool(
-            tool_call,
-            status="ok",
-            output_summary=summarize(result, TOOL_OUTPUT_LIMIT),
-        )
+        await self._finish_tool(tool_call, status="ok", result=result)
 
     async def on_execute_tool_error(
         self,
@@ -201,14 +190,13 @@ class TelemetryHook(AgentHook):
             return
         self._tool_count += 1
         action, resource = self._classify(tool, tool_call, params)
-        await asyncio.to_thread(
-            self._recorder.blocked_tool,
+        self._recorder.blocked_tool(
             tool_id=new_id(),
             turn_id=self._turn_id,
             tool_name=getattr(tool_call, "name", "") or "",
             status=status,
             reason=reason,
-            input_summary=summarize(params, TURN_INPUT_LIMIT),
+            params=params,
             action=action,
             resource=resource,
         )
@@ -238,11 +226,14 @@ class TelemetryHook(AgentHook):
             status = "error"
         elif context.stop_reason == "cancelled":
             status = "cancelled"
-        else:
+        elif context.stop_reason in (None, "completed"):
             status = "ok"
+        else:
+            # Incomplete terminal reasons: max_iterations, tool_error,
+            # empty_final_response, ...
+            status = "stopped"
         usage = context.usage or {}
-        await asyncio.to_thread(
-            self._recorder.finish_turn,
+        self._recorder.finish_turn(
             turn_id=self._turn_id,
             status=status,
             error_message=context.error,
@@ -257,20 +248,19 @@ class TelemetryHook(AgentHook):
         tool_call: ToolCallRequest,
         *,
         status: str,
-        output_summary: str | None = None,
+        result: Any = None,
         error_message: str | None = None,
     ) -> None:
         tool_id = self._tool_ids.pop(tool_call.id, None)
         if tool_id is None:
             return
         started = self._tool_starts.pop(tool_call.id, time.monotonic())
-        await asyncio.to_thread(
-            self._recorder.finish_tool,
+        self._recorder.finish_tool(
             tool_id=tool_id,
             turn_id=self._turn_id or "",
             tool_name=getattr(tool_call, "name", "") or "",
             status=status,
-            output_summary=output_summary,
+            result=result,
             error_message=error_message,
             latency_ms=int((time.monotonic() - started) * 1000),
         )
@@ -279,7 +269,7 @@ class TelemetryHook(AgentHook):
 def create_telemetry_hook_factory(db: CollieDB) -> AgentTurnHookFactory:
     """Build a per-turn TelemetryHook factory bound to one shared recorder."""
 
-    recorder = RunRecorder(db)
+    recorder = RunRecorder.for_db(db)
 
     def factory(context: AgentTurnHookContext) -> AgentHook | None:
         return TelemetryHook(
