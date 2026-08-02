@@ -29,7 +29,9 @@ are not part of this public source tree.
 
 - `collie_core/` owns storage, settings, memory, permissions, plans, tools,
   connectors, agents, routines, messengers, pet control, IPC, telemetry
-  (run records), and runtime composition.
+  (run records), runtime composition, and the internal headless engine
+  mode (`collie_core/headless.py` — one task, one JSON result document,
+  exit; an engineering-only benchmark entry, not a user-facing CLI).
 - `nanobot/` contains the adapted upstream engine. Changes should remain
   surgical and preserve third-party attribution.
 - `tests/` contains Python unit, integration, IPC, safety, and end-to-end
@@ -67,7 +69,9 @@ evaluation. The renderer must not receive decrypted long-lived secrets.
 The chat's `file_access_scope` travels through the renderer bridge and Electron
 main process into the core runtime for that turn. Core canonicalizes and
 validates the allowed roots, and the `local_files` tool revalidates them while
-executing. Subagents inherit the same immutable scope and cannot broaden it.
+executing; the `open_file` tool (default-app open of harmless file types and
+folders) shares that same canonical resolution. Subagents inherit the same
+immutable scope and cannot broaden it.
 Full local-file access remains session-only and does not grant connector,
 network, or external-write authority.
 

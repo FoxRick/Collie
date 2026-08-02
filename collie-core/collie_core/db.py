@@ -514,6 +514,12 @@ CREATE TABLE IF NOT EXISTS tool_events (
 CREATE INDEX IF NOT EXISTS idx_tool_events_tool ON tool_events(tool_name, status, started_at DESC);
 """
 
+_SCHEMA_V12 = """
+ALTER TABLE turn_events ADD COLUMN prompt_hash TEXT;
+ALTER TABLE turn_events ADD COLUMN tool_schema_hash TEXT;
+ALTER TABLE turn_events ADD COLUMN config_hash TEXT;
+"""
+
 # Ordered migrations: index 0 == schema version 1, etc.
 _MIGRATIONS: list[str] = [
     _SCHEMA_V1,
@@ -527,6 +533,7 @@ _MIGRATIONS: list[str] = [
     _SCHEMA_V9,
     _SCHEMA_V10,
     _SCHEMA_V11,
+    _SCHEMA_V12,
 ]
 
 
@@ -3231,6 +3238,9 @@ class CollieDB:
         tokens_out: int = 0,
         latency_ms: int | None = None,
         tool_count: int = 0,
+        prompt_hash: str | None = None,
+        tool_schema_hash: str | None = None,
+        config_hash: str | None = None,
         started_at: str | None = None,
         finished_at: str | None = None,
     ) -> None:
@@ -3257,6 +3267,9 @@ class CollieDB:
                     tokens_out = COALESCE(?, tokens_out),
                     latency_ms = COALESCE(?, latency_ms),
                     tool_count = COALESCE(?, tool_count),
+                    prompt_hash = COALESCE(?, prompt_hash),
+                    tool_schema_hash = COALESCE(?, tool_schema_hash),
+                    config_hash = COALESCE(?, config_hash),
                     started_at = COALESCE(?, started_at),
                     finished_at = COALESCE(?, finished_at)
                 WHERE id = ?
@@ -3264,7 +3277,8 @@ class CollieDB:
                 (
                     conversation_id, session_key, turn_kind, provider, model,
                     status, error_message, tokens_in, tokens_out, latency_ms,
-                    tool_count, started_at, finished_at, turn_id,
+                    tool_count, prompt_hash, tool_schema_hash, config_hash,
+                    started_at, finished_at, turn_id,
                 ),
             )
             if updated.rowcount == 0:
@@ -3273,13 +3287,15 @@ class CollieDB:
                     INSERT INTO turn_events (
                         id, conversation_id, session_key, turn_kind, provider, model,
                         status, error_message, tokens_in, tokens_out, latency_ms,
-                        tool_count, started_at, finished_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        tool_count, prompt_hash, tool_schema_hash, config_hash,
+                        started_at, finished_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         turn_id, conversation_id, session_key, turn_kind or "chat",
                         provider, model, status or "running", error_message,
                         tokens_in, tokens_out, latency_ms, tool_count,
+                        prompt_hash, tool_schema_hash, config_hash,
                         started_at or utc_now(), finished_at,
                     ),
                 )
