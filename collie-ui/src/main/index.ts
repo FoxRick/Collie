@@ -7,6 +7,7 @@ import { readFile as readFileAsync, realpath as realpathAsync, stat as statAsync
 import { assertLocalWindowsFileAccessFolder } from './local-file-access'
 import { spawnCore, stopCore, coreState } from './python'
 import { petEnabled, petRunning, setPetEnabled, spawnPet, stopPet } from './pet'
+import { isAllowedPetCommand } from './petCommands'
 import {
   deleteSecret,
   finalizeSecretChange,
@@ -365,15 +366,7 @@ function registerIpc(): void {
   })
   handle('collie:pet-command', (command: string): boolean => {
     // The pet process polls ~/.collie/pet_command.json (F078)
-    const allowed =
-      [
-        'idle', 'working', 'walk', 'sleep', 'happy', 'concerned', 'wave',
-        'hide', 'show', 'roam', 'stay', 'quit'
-      ].includes(
-        command
-      ) || /^size:\d+(\.\d+)?$/.test(command) ||
-      (command.startsWith('status:') && command.length <= 152)
-    if (!allowed) return false
+    if (!isAllowedPetCommand(command)) return false
     // "show" also revives the pet if its process isn't running
     if (command === 'show' && !petRunning()) {
       spawnPet(isDev)

@@ -50,6 +50,14 @@ _TOOL_STATES: dict[str, str] = {
     "reminders": "planning",
 }
 
+PET_V2_STATE_BY_THINKING_STATE = {
+    "searching": "review", "planning": "working", "fetching": "review",
+    "generating": "working", "processing": "working", "summarizing": "working",
+    "remembering": "working", "recovering": "working", "done": "completion",
+    "error": "error", "idle": "idle", "startup": "working", "pantry": "review",
+    "mapping": "review", "calendar": "working", "mail": "working", "buddy": "review",
+}
+
 
 def thinking_state_for_tool(tool_name: str) -> str:
     """Map a tool name to a thinking state key."""
@@ -64,4 +72,8 @@ def thinking_state_for_tool(tool_name: str) -> str:
 def phrase_for_state(state: str) -> dict[str, str]:
     """Return the ThinkingBar payload for a state key."""
     phrase, animation = PHRASES.get(state, PHRASES["processing"])
-    return {"state": state, "phrase": phrase, "pet_animation": animation}
+    return {
+        "state": state,
+        "phrase": phrase,
+        "pet_animation": PET_V2_STATE_BY_THINKING_STATE.get(state, animation),
+    }

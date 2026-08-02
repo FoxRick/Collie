@@ -110,6 +110,7 @@ include = [
     "nanobot/**/*.py",
     "collie_core/**/*.py",
     "collie_core/**/*.png",
+    "collie_core/**/*.webp",
     "nanobot/templates/**/*.md",
     "nanobot/skills/**/*.md",
     "nanobot/skills/**/*.sh",

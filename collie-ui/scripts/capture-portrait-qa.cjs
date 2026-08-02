@@ -73,8 +73,8 @@ app.whenReady().then(async () => {
   window.setSize(1180, 780)
   await window.webContents.executeJavaScript(`(() => {
     document.documentElement.classList.remove('dark')
-    document.querySelector('.collie-portrait-stage').dispatchEvent(
-      new PointerEvent('pointerover', { bubbles: true })
+    document.querySelector('.collie-portrait-ring').dispatchEvent(
+      new MouseEvent('click', { bubbles: true })
     )
   })()`)
   await new Promise((resolve) => setTimeout(resolve, 320))
@@ -96,6 +96,7 @@ app.whenReady().then(async () => {
   const attentive = await window.webContents.executeJavaScript(`(async () => {
     const stage = document.querySelector('.collie-portrait-stage')
     stage.dispatchEvent(new PointerEvent('pointerout', { bubbles: true }))
+    await new Promise((resolve) => setTimeout(resolve, 900))
     const textarea = document.querySelector('textarea')
     textarea.focus()
     const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set
