@@ -68,6 +68,29 @@ grant external authority. The selected scope is carried with the current turn,
 validated again in the core, and inherited by subagents; a child cannot broaden
 it.
 
+## Opening files with the default app
+
+`open_file` opens an existing local file or folder with the operating system's
+default handler (a document/image/audio/video viewer, the browser, or the file
+explorer). It exists so Collie can "show" the user the artifacts it creates,
+without shell access or arbitrary app launching.
+
+- It shares `local_files`' exact scope and path-safety boundary: the same
+  canonical resolution (workspace/project roots, symlink/junction refusal,
+  UNC/device refusal) is reused, so the two tools can never disagree about what
+  a safe local target is.
+- Only an allowlisted set of harmless types can be opened — documents and data
+  (`.md .txt .pdf .docx .xlsx .pptx .csv .rtf .html .json .xml .yaml .log …`),
+  images, audio, and video. A separate denylist (`.exe .bat .cmd .ps1 .vbs
+  .msi .lnk .url .reg .scr .jar …`) is defense in depth so a future allowlist
+  edit can never hand an executable or shortcut to a default handler.
+- It is classified `Risk.READ` with no `data_leaving_device`: the file opens in
+  a local app and nothing is sent to any provider. It is reversible (close the
+  window), never writes, and can only target files that already exist. Within
+  the approved folders, a read-only open is allowed without an approval card;
+  anything outside the allowed folders is refused outright by the tool, and the
+  launch is revalidated at execution time, not just at card time.
+
 ## Interface and ownership map
 
 | Responsibility | Primary implementation |
@@ -76,6 +99,7 @@ it.
 | Classification and evaluation | [`permissions/classifier.py`](../../../collie-core/collie_core/permissions/classifier.py), [`permissions/evaluator.py`](../../../collie-core/collie_core/permissions/evaluator.py) |
 | Approval cards and task-wide rule validation | [`permissions/broker.py`](../../../collie-core/collie_core/permissions/broker.py), [`ApprovalSheet.tsx`](../../../collie-ui/src/renderer/src/components/approvals/ApprovalSheet.tsx) |
 | Local text-file tool | [`tools/local_files.py`](../../../collie-core/collie_core/tools/local_files.py) |
+| Default-app opener tool | [`tools/open_file.py`](../../../collie-core/collie_core/tools/open_file.py) |
 | File-access scope validation and inheritance | [`nanobot/security/workspace_access.py`](../../../collie-core/nanobot/security/workspace_access.py) |
 | Chat transport and composer controls | [`ipc/server.py`](../../../collie-core/collie_core/ipc/server.py), [`ChatScreen.tsx`](../../../collie-ui/src/renderer/src/screens/ChatScreen.tsx), [`ChatInput.tsx`](../../../collie-ui/src/renderer/src/components/ChatInput.tsx) |
 
