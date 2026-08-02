@@ -268,9 +268,15 @@ class ColliePet:
 
         # Transparency via color key. A near-black key prevents the bright
         # magenta fringe Windows otherwise shows around alpha-smoothed sprites.
+        # Color-key transparency is Windows-only; other platforms (X11, macOS)
+        # reject the attribute, so the pet must still open there — it just
+        # shows an opaque window instead of a transparent one.
         self._chroma_key = "#010203"
         self.root.config(bg=self._chroma_key)
-        self.root.wm_attributes("-transparentcolor", self._chroma_key)
+        try:
+            self.root.wm_attributes("-transparentcolor", self._chroma_key)
+        except tk.TclError:
+            pass
 
         # Try to keep off the taskbar (Windows)
         try:
