@@ -1,4 +1,4 @@
-"""Reminders tool: in-app reminder engine backed by SQLite.
+"""Reminders tool: in-app reminder engine backed by SQLite (F024).
 
 Create, list, complete, snooze, and delete reminders. Data lives in the
 ``reminders`` table of collie.db.
@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from collie_core.db import CollieDB
+from collie_core.permissions.models import PermissionRequest, Risk
 from nanobot.agent.tools.base import Tool, tool_parameters
 
 __all__ = ["RemindersTool", "bind_reminders_db"]
@@ -83,6 +84,28 @@ class RemindersTool(Tool):
     @property
     def name(self) -> str:
         return "reminders"
+
+    def permission_request(self, params: dict[str, Any]) -> PermissionRequest:
+        action = str(params.get("action") or "").strip().lower()
+        if action == "delete":
+            return PermissionRequest(
+                action="delete.destructive",
+                resource=str(params.get("reminder_id") or "reminder"),
+                risk=Risk.DESTRUCTIVE,
+                summary="Delete this reminder",
+                reversible=False,
+                hard_approval=True,
+            )
+        recurring = action == "create" and bool(str(params.get("recurrence") or "").strip())
+        return PermissionRequest(
+            action=f"reminder.{action or 'manage'}",
+            resource=str(params.get("reminder_id") or "local-reminders"),
+            risk=Risk.LOCAL_WRITE,
+            summary="Manage your reminders",
+            reversible=True,
+            approval_free=not recurring,
+            approve_for_me=not recurring,
+        )
 
     @property
     def description(self) -> str:

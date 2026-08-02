@@ -1,4 +1,4 @@
-"""Documents tool: documents and files via MCP.
+"""Documents tool: docs and files via MCP (F034, Step 39).
 
 Points the model at the connected files service's MCP tools (Google Drive /
 Dropbox); otherwise nudges the user toward Settings → Services.
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from collie_core.permissions.models import PermissionRequest, Risk
 from collie_core.tools.services_bridge import connected_service_id, mcp_tools_hint
 from nanobot.agent.tools.base import Tool, tool_parameters
 
@@ -37,6 +38,16 @@ class DocumentsTool(Tool):
     @property
     def name(self) -> str:
         return "documents"
+
+    def permission_request(self, params: dict[str, Any]) -> PermissionRequest:
+        action = str(params.get("action") or "").strip().lower()
+        return PermissionRequest(
+            action=f"documents.{action or 'read'}",
+            resource=str(params.get("query") or "documents"),
+            risk=Risk.READ,
+            summary="Read your documents",
+            reversible=True,
+        )
 
     @property
     def description(self) -> str:

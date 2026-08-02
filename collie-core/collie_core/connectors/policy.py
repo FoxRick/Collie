@@ -69,3 +69,4 @@ def cached_tool(tool: Any, *, trusted: bool, overrides: dict[str, str]) -> dict[
             str(tool.name), annotations, trusted=trusted, overrides=overrides
         ),
     }
+

@@ -289,13 +289,16 @@ def _claim_plan_run(db: CollieDB, conversation_id: str) -> dict:
     return db.claim_plan_execution(plan["id"], plan["version"], plan["plan_hash"])["run"]
 
 
-def _permission_request(action: str, risk: Risk) -> PermissionRequest:
+def _permission_request(
+    action: str, risk: Risk, *, approve_for_me: bool = True
+) -> PermissionRequest:
     return PermissionRequest(
         action=action,
         resource=f"internal:{action}",
         risk=risk,
         summary=action,
         reversible=True,
+        approve_for_me=approve_for_me and risk == Risk.LOCAL_WRITE,
     )
 
 
@@ -595,7 +598,10 @@ def test_review_gate_survives_reopen_and_blocks_non_read_actions_after_allows(
             scope_type="global",
         )
 
-        assert evaluator.evaluate(context, _permission_request("file.write", Risk.LOCAL_WRITE)).effect == Effect.DENY
+        assert evaluator.evaluate(
+            context,
+            _permission_request("file.write", Risk.LOCAL_WRITE, approve_for_me=False),
+        ).effect == Effect.DENY
         assert evaluator.evaluate(context, _permission_request("external.send", Risk.EXTERNAL_WRITE)).effect == Effect.DENY
         assert evaluator.evaluate(context, _permission_request("file.read", Risk.READ)).effect == Effect.ALLOW
         assert evaluator.evaluate(context, _permission_request("plan.present", Risk.LOCAL_WRITE)).effect == Effect.ALLOW

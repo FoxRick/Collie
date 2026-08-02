@@ -286,7 +286,7 @@ export default function WelcomeScreen({ onDone, onCancel }: Props): React.JSX.El
         </div>
 
         <button
-          onClick={() => void window.collie?.openExternal('https://heycollie.com')}
+          onClick={() => void window.collie?.openExternal('https://collie.ai/get-started')}
           className="rounded-xl border border-dashed p-4 text-left transition hover:shadow-md"
           style={{ borderColor: 'var(--collie-border)' }}
         >

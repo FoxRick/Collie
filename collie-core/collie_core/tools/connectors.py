@@ -135,3 +135,4 @@ class DisconnectConnectorTool(Tool):
             _manager().remove, connection_id, origin="chat"
         )
         return json.dumps(result, ensure_ascii=False)
+

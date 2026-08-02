@@ -1,4 +1,4 @@
-"""Call a named subagent from chat.
+"""Call a named subagent from chat (Step 38, F046).
 
 "Ask my Trip Planner to plan Barcelona" → the model calls this tool, Collie
 spawns the engine's background subagent with the specialist's system prompt,
@@ -64,6 +64,8 @@ class CallSubagentTool(Tool):
             reversible=True,
             suggested_scope=Scope.RUN,
             redacted_parameters={"name": str(params.get("name") or "")},
+            approval_free=True,
+            approve_for_me=True,
         )
 
     @classmethod

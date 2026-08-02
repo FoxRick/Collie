@@ -56,6 +56,12 @@ class PermissionRequest:
     suggested_scope: Scope = Scope.ONCE
     redacted_parameters: dict[str, Any] = field(default_factory=dict)
     hard_approval: bool = False
+    # These are deliberate per-operation product decisions, never a shortcut
+    # inferred from ``Risk.LOCAL_WRITE``. The evaluator constrains automatic
+    # approval to reversible local work and task-wide approval to explicitly
+    # designated local work.
+    approval_free: bool = False
+    approve_for_me: bool = False
 
 
 @dataclass(frozen=True, slots=True)

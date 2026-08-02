@@ -36,7 +36,7 @@ class TestIsLocalEndpoint:
         assert _is_local_endpoint(None, "http://127.0.0.1:11434/v1") is True
 
     def test_private_192_168(self):
-        assert _is_local_endpoint(None, "http://192.168.1.10:1234/v1") is True
+        assert _is_local_endpoint(None, "http://192.168.8.188:1234/v1") is True
 
     def test_private_10(self):
         assert _is_local_endpoint(None, "http://10.0.0.5:8000/v1") is True
@@ -102,7 +102,7 @@ class TestLocalKeepaliveConfig:
         spec.env_key = ""
         spec.default_api_base = None
         provider = OpenAICompatProvider(
-            api_key="test", api_base="http://192.168.1.10:1234/v1", spec=spec,
+            api_key="test", api_base="http://192.168.8.188:1234/v1", spec=spec,
         )
         await provider._ensure_client()
         pool = provider._client._client._transport._pool

@@ -1,9 +1,10 @@
-import { app, BrowserWindow, Menu, Tray, desktopCapturer, dialog, ipcMain, screen, shell, nativeImage, session } from 'electron'
-import { basename, extname, join } from 'path'
+import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell, nativeImage, session } from 'electron'
+import { basename, extname, isAbsolute, join } from 'path'
 import { homedir } from 'os'
 import { pathToFileURL } from 'url'
 import { existsSync, mkdirSync, writeFileSync } from 'fs'
-import { readFile as readFileAsync, stat as statAsync } from 'fs/promises'
+import { readFile as readFileAsync, realpath as realpathAsync, stat as statAsync } from 'fs/promises'
+import { assertLocalWindowsFileAccessFolder } from './local-file-access'
 import { spawnCore, stopCore, coreState } from './python'
 import { petEnabled, petRunning, setPetEnabled, spawnPet, stopPet } from './pet'
 import {
@@ -307,22 +308,6 @@ function registerIpc(): void {
     }
     return attachments
   })
-  handle('collie:capture-screenshot', async (): Promise<SelectedAttachment | null> => {
-    const sources = await desktopCapturer.getSources({
-      types: ['screen'],
-      thumbnailSize: screen.getPrimaryDisplay().workAreaSize
-    })
-    const primarySource = sources[0]
-    if (!primarySource) return null
-    const pngBuffer = primarySource.thumbnail.toPNG()
-    const dataUrl = `data:image/png;base64,${pngBuffer.toString('base64')}`
-    return {
-      name: `screenshot-${Date.now()}.png`,
-      mime: 'image/png',
-      size: pngBuffer.length,
-      data_url: dataUrl
-    }
-  })
   handle('collie:pick-project-folder', async (): Promise<string | null> => {
     const options = {
       title: 'Choose a project folder',
@@ -333,6 +318,41 @@ function registerIpc(): void {
       ? await dialog.showOpenDialog(mainWindow, options)
       : await dialog.showOpenDialog(options)
     return result.canceled ? null : result.filePaths[0] || null
+  })
+  handle('collie:pick-file-access-folders', async (): Promise<string[]> => {
+    const options = {
+      title: 'Choose folders Collie can use',
+      buttonLabel: 'Allow these folders',
+      properties: ['openDirectory', 'multiSelections', 'createDirectory'] as Array<
+        'openDirectory' | 'multiSelections' | 'createDirectory'
+      >
+    }
+    const result = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, options)
+      : await dialog.showOpenDialog(options)
+    if (result.canceled) return []
+    if (result.filePaths.length > 16) throw new Error('Choose up to 16 folders at a time.')
+
+    const folders: string[] = []
+    const seen = new Set<string>()
+    for (const selectedPath of result.filePaths) {
+      if (!isAbsolute(selectedPath) || selectedPath.startsWith('\\\\')) {
+        throw new Error('Choose a folder stored on this computer.')
+      }
+      const canonicalPath = await realpathAsync(selectedPath)
+      if (canonicalPath.startsWith('\\\\')) {
+        throw new Error('Choose a folder stored on this computer.')
+      }
+      await assertLocalWindowsFileAccessFolder(canonicalPath)
+      const stats = await statAsync(canonicalPath)
+      if (!stats.isDirectory()) throw new Error(`${basename(selectedPath)} is not a folder.`)
+      const key = canonicalPath.toLowerCase()
+      if (!seen.has(key)) {
+        seen.add(key)
+        folders.push(canonicalPath)
+      }
+    }
+    return folders
   })
   handle('collie:open-external', (url: string) => {
     if (url.startsWith('https://')) shell.openExternal(url)

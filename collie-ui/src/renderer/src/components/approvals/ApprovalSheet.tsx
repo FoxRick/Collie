@@ -18,6 +18,52 @@ interface Props {
   activeModal?: boolean
 }
 
+const FRIENDLY_ACTION_LABELS: Record<string, string> = {
+  web_fetch: 'Visit a website',
+  web_search: 'Search the web',
+  browser_navigate: 'Open a website',
+  file_read: 'Read a file',
+  file_write: 'Edit a file',
+  file_delete: 'Delete a file',
+  shell_execute: 'Run a command',
+  email_send: 'Send an email',
+  message_send: 'Send a message'
+}
+
+function actionKey(value: string): string {
+  return value
+    .trim()
+    .replace(/^use\s+/i, '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+}
+
+function isTechnicalActionLabel(value: string): boolean {
+  return /^use\s+[A-Za-z0-9._:-]+$/i.test(value.trim()) || /^[A-Za-z0-9._:-]+$/.test(value.trim())
+}
+
+export function friendlyApprovalLabel(summary: unknown, action: string): string {
+  const requestedLabel = typeof summary === 'string' ? summary.trim() : ''
+  const requestedKey = actionKey(requestedLabel)
+  const actionLabel = action.trim()
+  const actionKeyValue = actionKey(actionLabel)
+
+  if (FRIENDLY_ACTION_LABELS[requestedKey]) return FRIENDLY_ACTION_LABELS[requestedKey]
+  if (requestedLabel && !isTechnicalActionLabel(requestedLabel)) return requestedLabel
+  if (FRIENDLY_ACTION_LABELS[actionKeyValue]) return FRIENDLY_ACTION_LABELS[actionKeyValue]
+
+  const fallback = requestedLabel || actionLabel || 'Continue this action'
+  return fallback
+    .replace(/^use\s+/i, '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[._:-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\b[a-z]/g, (letter) => letter.toUpperCase())
+    .trim()
+}
+
 export default function ApprovalSheet({
   approval,
   onResolved,
@@ -28,6 +74,7 @@ export default function ApprovalSheet({
   const [error, setError] = useState('')
   const titleId = useId()
   const detailsId = useId()
+  const destinationId = useId()
   const sheetRef = useRef<HTMLElement>(null)
   const display = useMemo(() => {
     try {
@@ -36,6 +83,9 @@ export default function ApprovalSheet({
       return {}
     }
   }, [approval.display_json])
+  const actionLabel = friendlyApprovalLabel(display.summary, approval.action)
+  const destination = approval.resource || 'The current task'
+  const canGrantRun = Boolean(approval.run_id) && display.approve_for_me_eligible === true
 
   const resolve = async (
     resolution: 'allow_once' | 'allow_run' | 'allow_scope' | 'reject'
@@ -128,7 +178,7 @@ export default function ApprovalSheet({
       aria-modal={isFloatingModal ? true : undefined}
       aria-hidden={isQueuedFloating ? true : undefined}
       aria-labelledby={titleId}
-      aria-describedby={detailsId}
+      aria-describedby={destinationId}
       tabIndex={isFloatingModal ? -1 : undefined}
       hidden={isQueuedFloating}
       onKeyDown={handleKeyDown}
@@ -137,25 +187,12 @@ export default function ApprovalSheet({
         <span><ShieldCheck size={19} /></span>
         <div>
           <div className="detail-label">ACTION APPROVAL</div>
-          <h2 id={titleId}>{String(display.summary || approval.action)}</h2>
+          <h2 id={titleId}>{actionLabel}</h2>
         </div>
       </div>
-      <dl id={detailsId}>
-        <div><dt>App, service, or folder</dt><dd>{approval.resource}</dd></div>
-        <div>
-          <dt>Data leaving this computer</dt>
-          <dd>
-            {Array.isArray(display.data_leaving_device) && display.data_leaving_device.length
-              ? display.data_leaving_device.join(', ')
-              : 'None'}
-          </dd>
-        </div>
-        <div>
-          <dt>Reversible</dt>
-          <dd>{display.reversible ? 'Yes' : 'No — review carefully'}</dd>
-        </div>
-        <div><dt>Why</dt><dd>{String(display.reason || 'Needed for the current step')}</dd></div>
-      </dl>
+      <p id={destinationId} className="approval-destination">
+        <span>For</span> {destination}
+      </p>
       {approval.risk === 'sensitive' || approval.risk === 'destructive' ? (
         <p className="approval-warning"><AlertTriangle size={15} /> This always needs fresh approval.</p>
       ) : null}
@@ -164,7 +201,7 @@ export default function ApprovalSheet({
         <button disabled={busy} className="secondary-button" onClick={() => void resolve('reject')}>
           <X size={14} /> Reject
         </button>
-        {approval.run_id ? (
+        {canGrantRun ? (
           <button disabled={busy} className="secondary-button" onClick={() => void resolve('allow_run')}>
             Allow for this run
           </button>
@@ -173,7 +210,25 @@ export default function ApprovalSheet({
           <Check size={14} /> Allow once
         </button>
       </div>
-      {approval.run_id && approval.risk !== 'sensitive' && approval.risk !== 'destructive' ? (
+      <details className="approval-details" id={detailsId}>
+        <summary>Review details</summary>
+        <dl>
+          <div>
+            <dt>Data leaving this computer</dt>
+            <dd>
+              {Array.isArray(display.data_leaving_device) && display.data_leaving_device.length
+                ? display.data_leaving_device.join(', ')
+                : 'None'}
+            </dd>
+          </div>
+          <div>
+            <dt>Reversible</dt>
+            <dd>{display.reversible ? 'Yes' : 'No — review carefully'}</dd>
+          </div>
+          <div><dt>Why</dt><dd>{String(display.reason || 'Needed for the current step')}</dd></div>
+        </dl>
+      </details>
+      {canGrantRun ? (
         <button className="approval-run-all" disabled={busy} onClick={() => void approveRun()}>
           Approve all ordinary requests for this run
         </button>

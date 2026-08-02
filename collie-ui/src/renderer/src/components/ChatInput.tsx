@@ -1,18 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ArrowUp,
-  Camera,
   Check,
   ChevronDown,
   FileText,
   Folder,
   FolderPlus,
-  Image,
+  Image as ImageIcon,
   Lightbulb,
   LoaderCircle,
   Mic,
   Paperclip,
   Plus,
+  ShieldCheck,
   Square,
   X
 } from 'lucide-react'
@@ -20,7 +20,9 @@ import { useT } from '../lib/i18n'
 import type {
   AttachmentDraft,
   CommandCatalog,
+  ApprovalPreset,
   ExecutionMode,
+  FileAccessScope,
   ProviderInfo
 } from '../lib/ipc'
 import {
@@ -43,6 +45,199 @@ const ROTATING_PROMPTS = [
   'Help me pack for a four-day city trip'
 ]
 
+const PASTE_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+const PREVIEW_MAX_EDGE = 1280
+const PREVIEW_MAX_BYTES = 248 * 1024
+const PREVIEW_MIN_EDGE = 64
+const PREVIEW_SOURCE_MAX_EDGE = 8192
+const PREVIEW_SOURCE_MAX_PIXELS = 20_000_000
+
+function isSafeRasterDataUrl(value: string): boolean {
+  return /^data:image\/(?:png|jpeg|webp|gif);base64,/i.test(value)
+}
+
+export function fitWithinMaxEdge(
+  width: number,
+  height: number,
+  maxEdge = PREVIEW_MAX_EDGE
+): { width: number; height: number } {
+  const safeWidth = Math.max(1, width)
+  const safeHeight = Math.max(1, height)
+  const scale = Math.min(1, maxEdge / Math.max(safeWidth, safeHeight))
+  return {
+    width: Math.max(1, Math.round(safeWidth * scale)),
+    height: Math.max(1, Math.round(safeHeight * scale))
+  }
+}
+
+export function dataUrlDecodedBytes(value: string): number {
+  const separator = value.indexOf(',')
+  if (separator < 0) return Number.POSITIVE_INFINITY
+  const payload = value.slice(separator + 1)
+  const padding = payload.endsWith('==') ? 2 : payload.endsWith('=') ? 1 : 0
+  return Math.max(0, Math.floor((payload.length * 3) / 4) - padding)
+}
+
+function bytesFromDataUrl(value: string): Uint8Array | null {
+  const separator = value.indexOf(',')
+  if (separator < 0) return null
+  try {
+    const binary = atob(value.slice(separator + 1))
+    const bytes = new Uint8Array(binary.length)
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+    return bytes
+  } catch {
+    return null
+  }
+}
+
+function readJpegDimensions(bytes: Uint8Array): { width: number; height: number } | null {
+  for (let index = 2; index + 8 < bytes.length;) {
+    if (bytes[index] !== 0xff) {
+      index += 1
+      continue
+    }
+    while (bytes[index] === 0xff) index += 1
+    const marker = bytes[index]
+    index += 1
+    if (marker === 0xd8 || marker === 0xd9 || (marker >= 0xd0 && marker <= 0xd7)) continue
+    const length = (bytes[index] << 8) | bytes[index + 1]
+    if (length < 2 || index + length > bytes.length) return null
+    if ((marker >= 0xc0 && marker <= 0xc3) || (marker >= 0xc5 && marker <= 0xc7) || (marker >= 0xc9 && marker <= 0xcb) || (marker >= 0xcd && marker <= 0xcf)) {
+      return {
+        height: (bytes[index + 3] << 8) | bytes[index + 4],
+        width: (bytes[index + 5] << 8) | bytes[index + 6]
+      }
+    }
+    index += length
+  }
+  return null
+}
+
+function readWebpDimensions(bytes: Uint8Array): { width: number; height: number } | null {
+  const text = (start: number, end: number): string => String.fromCharCode(...bytes.slice(start, end))
+  if (bytes.length < 30 || text(0, 4) !== 'RIFF' || text(8, 12) !== 'WEBP') return null
+  const kind = text(12, 16)
+  if (kind === 'VP8X') {
+    return {
+      width: 1 + bytes[24] + (bytes[25] << 8) + (bytes[26] << 16),
+      height: 1 + bytes[27] + (bytes[28] << 8) + (bytes[29] << 16)
+    }
+  }
+  if (kind === 'VP8 ' && bytes.length >= 30 && bytes[23] === 0x9d && bytes[24] === 0x01 && bytes[25] === 0x2a) {
+    return {
+      width: (bytes[26] | (bytes[27] << 8)) & 0x3fff,
+      height: (bytes[28] | (bytes[29] << 8)) & 0x3fff
+    }
+  }
+  if (kind === 'VP8L' && bytes.length >= 25 && bytes[20] === 0x2f) {
+    return {
+      width: 1 + bytes[21] + ((bytes[22] & 0x3f) << 8),
+      height: 1 + (bytes[22] >> 6) + (bytes[23] << 2) + ((bytes[24] & 0x0f) << 10)
+    }
+  }
+  return null
+}
+
+/** Read raster dimensions before asking Chromium to allocate an image surface. */
+export function rasterDimensionsFromDataUrl(
+  value: string,
+  mime: string
+): { width: number; height: number } | null {
+  const bytes = bytesFromDataUrl(value)
+  if (!bytes) return null
+  if (
+    mime === 'image/png' &&
+    bytes.length >= 24 &&
+    bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
+  ) {
+    return {
+      width: (bytes[16] << 24) | (bytes[17] << 16) | (bytes[18] << 8) | bytes[19],
+      height: (bytes[20] << 24) | (bytes[21] << 16) | (bytes[22] << 8) | bytes[23]
+    }
+  }
+  if (mime === 'image/gif' && bytes.length >= 10) {
+    return { width: bytes[6] | (bytes[7] << 8), height: bytes[8] | (bytes[9] << 8) }
+  }
+  if (mime === 'image/jpeg' && bytes[0] === 0xff && bytes[1] === 0xd8) return readJpegDimensions(bytes)
+  if (mime === 'image/webp') return readWebpDimensions(bytes)
+  return null
+}
+
+export async function withImagePreview(attachment: AttachmentDraft): Promise<AttachmentDraft> {
+  if (!PASTE_IMAGE_TYPES.includes(attachment.mime) || !isSafeRasterDataUrl(attachment.data_url)) {
+    return attachment
+  }
+  try {
+    const sourceDimensions = rasterDimensionsFromDataUrl(attachment.data_url, attachment.mime)
+    if (
+      !sourceDimensions ||
+      sourceDimensions.width < 1 ||
+      sourceDimensions.height < 1 ||
+      sourceDimensions.width > PREVIEW_SOURCE_MAX_EDGE ||
+      sourceDimensions.height > PREVIEW_SOURCE_MAX_EDGE ||
+      sourceDimensions.width * sourceDimensions.height > PREVIEW_SOURCE_MAX_PIXELS
+    ) {
+      return attachment
+    }
+    const image = new window.Image()
+    image.decoding = 'async'
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve()
+      image.onerror = () => reject(new Error('Could not preview image.'))
+      image.src = attachment.data_url
+    })
+    let dimensions = fitWithinMaxEdge(image.naturalWidth, image.naturalHeight)
+    const canvas = document.createElement('canvas')
+    const context = canvas.getContext('2d')
+    if (!context) return attachment
+    // PNG preserves transparency. JPEG/WebP keep their compact native encoding;
+    // GIF previews become a safe, static PNG frame.
+    const outputMime = attachment.mime === 'image/jpeg' || attachment.mime === 'image/webp'
+      ? attachment.mime
+      : 'image/png'
+    let quality = 0.88
+    for (let attempt = 0; attempt < 16; attempt += 1) {
+      canvas.width = dimensions.width
+      canvas.height = dimensions.height
+      context.clearRect(0, 0, canvas.width, canvas.height)
+      context.drawImage(image, 0, 0, canvas.width, canvas.height)
+      const preview = canvas.toDataURL(outputMime, quality)
+      if (isSafeRasterDataUrl(preview) && dataUrlDecodedBytes(preview) <= PREVIEW_MAX_BYTES) {
+        return { ...attachment, preview_data_url: preview }
+      }
+      if (outputMime !== 'image/png' && quality > 0.52) {
+        quality -= 0.12
+      } else {
+        const longestEdge = Math.max(dimensions.width, dimensions.height)
+        if (longestEdge <= PREVIEW_MIN_EDGE) break
+        dimensions = fitWithinMaxEdge(
+          dimensions.width,
+          dimensions.height,
+          Math.max(PREVIEW_MIN_EDGE, Math.floor(longestEdge * 0.8))
+        )
+        quality = 0.82
+      }
+    }
+  } catch {
+    // Preview generation is cosmetic; the original validated attachment can still be sent.
+  }
+  return attachment
+}
+
+export async function buildImagePreviews(
+  attachments: AttachmentDraft[],
+  preview: (attachment: AttachmentDraft) => Promise<AttachmentDraft> = withImagePreview
+): Promise<AttachmentDraft[]> {
+  const previews: AttachmentDraft[] = []
+  for (const attachment of attachments) {
+    // Decode one source at a time so four legitimate photos do not compete
+    // for large renderer image surfaces.
+    previews.push(await preview(attachment))
+  }
+  return previews
+}
+
 interface Props {
   onSend: (text: string, attachments: AttachmentDraft[]) => void
   onStop: () => void
@@ -58,6 +253,11 @@ interface Props {
   onProjectChange: (path: string) => void
   onAddProject: () => void
   onAddModel: () => void
+  approvalPreset: ApprovalPreset
+  onApprovalPresetChange: (preset: ApprovalPreset) => void
+  fileAccessScope: FileAccessScope
+  onFileAccessScopeChange: (scope: FileAccessScope) => void
+  onChooseFileAccessFolders: () => void
   onTypingChange?: (isTyping: boolean) => void
   onTranscribe: (audio: string) => Promise<string>
   commandCatalog?: CommandCatalog
@@ -78,6 +278,11 @@ export default function ChatInput({
   onProjectChange,
   onAddProject,
   onAddModel,
+  approvalPreset,
+  onApprovalPresetChange,
+  fileAccessScope,
+  onFileAccessScopeChange,
+  onChooseFileAccessFolders,
   onTypingChange,
   onTranscribe,
   commandCatalog
@@ -85,7 +290,7 @@ export default function ChatInput({
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState<AttachmentDraft[]>([])
   const [attachmentError, setAttachmentError] = useState('')
-  const [openMenu, setOpenMenu] = useState<'model' | 'project' | null>(null)
+  const [openMenu, setOpenMenu] = useState<'model' | 'files' | 'approvals' | null>(null)
   const [voiceState, setVoiceState] = useState<'idle' | 'recording' | 'transcribing'>('idle')
   const [voiceError, setVoiceError] = useState('')
   const [commandIndex, setCommandIndex] = useState(0)
@@ -100,6 +305,11 @@ export default function ChatInput({
   const t = useT()
   const activeProvider = providers.find((item) => item.is_default === 1)
   const folderName = workspace?.split(/[\\/]/).filter(Boolean).at(-1)
+  const filesLabel = fileAccessScope.mode === 'full_file_access'
+    ? 'All local files'
+    : fileAccessScope.mode === 'chosen_folders'
+      ? `${fileAccessScope.roots?.length || 0} folder${fileAccessScope.roots?.length === 1 ? '' : 's'}`
+      : folderName || 'Files'
   const animatedPlaceholder = `e.g. ${ROTATING_PROMPTS[promptIndex].slice(0, promptLength)}`
   const commandSuggestions = (() => {
     if (!text.startsWith('/') || text.includes('\n')) return []
@@ -226,9 +436,10 @@ export default function ChatInput({
     try {
       const picked = await window.collie.pickAttachments()
       if (picked.length === 0) return
+      const withPreviews = await buildImagePreviews(picked)
       setAttachments((current) => {
         const remaining = Math.max(0, 4 - current.length)
-        return [...current, ...picked.slice(0, remaining)]
+        return [...current, ...withPreviews.slice(0, remaining)]
       })
     } catch (error) {
       setAttachmentError(error instanceof Error ? error.message : 'I could not attach that file.')
@@ -277,7 +488,12 @@ export default function ChatInput({
       ? `${(size / (1024 * 1024)).toFixed(1)} MB`
       : `${Math.max(1, Math.round(size / 1024))} KB`
 
-  const PASTE_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+  const imagePreview = (attachment: AttachmentDraft): string | null => {
+    const source = attachment.preview_data_url || attachment.data_url
+    return PASTE_IMAGE_TYPES.includes(attachment.mime) && isSafeRasterDataUrl(source)
+      ? source
+      : null
+  }
 
   const addPastedAttachment = useCallback(
     (draft: AttachmentDraft): boolean => {
@@ -334,7 +550,7 @@ export default function ChatInput({
           const file = item.getAsFile()
           if (!file) continue
           try {
-            const draft = await readClipboardBlob(file)
+            const draft = await withImagePreview(await readClipboardBlob(file))
             addPastedAttachment(draft)
           } catch (error) {
             setAttachmentError(
@@ -346,19 +562,6 @@ export default function ChatInput({
     },
     [attachments.length, addPastedAttachment]
   )
-
-  const captureScreenshot = async (): Promise<void> => {
-    setAttachmentError('')
-    try {
-      const screenshot = await window.collie.captureScreenshot()
-      if (!screenshot) return
-      addPastedAttachment(screenshot)
-    } catch (error) {
-      setAttachmentError(
-        error instanceof Error ? error.message : 'Could not take a screenshot.'
-      )
-    }
-  }
 
   return (
     <div className="composer-wrap mx-auto w-full max-w-3xl px-4 pb-5 pt-2" onPaste={handlePaste}>
@@ -383,21 +586,30 @@ export default function ChatInput({
       </div>
       {attachments.length > 0 && (
         <div className="attachment-tray" aria-label="Files ready to send">
-          {attachments.map((attachment, index) => (
-            <div key={`${attachment.name}-${index}`} className="attachment-chip">
-              {attachment.mime.startsWith('image/') ? <Image size={15} /> : <FileText size={15} />}
-              <span><b>{attachment.name}</b><small>{formatSize(attachment.size)}</small></span>
-              <button
-                type="button"
-                onClick={() =>
-                  setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))
-                }
-                aria-label={`Remove ${attachment.name}`}
-              >
-                <X size={13} />
-              </button>
-            </div>
-          ))}
+          {attachments.map((attachment, index) => {
+            const preview = imagePreview(attachment)
+            return (
+              <div key={`${attachment.name}-${index}`} className="attachment-chip">
+                {preview ? (
+                  <img className="attachment-thumbnail" src={preview} alt="" />
+                ) : attachment.mime.startsWith('image/') ? (
+                  <ImageIcon size={15} />
+                ) : (
+                  <FileText size={15} />
+                )}
+                <span><b>{attachment.name}</b><small>{formatSize(attachment.size)}</small></span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index))
+                  }
+                  aria-label={`Remove ${attachment.name}`}
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            )
+          })}
         </div>
       )}
       {commandSuggestions.length > 0 && (
@@ -430,16 +642,6 @@ export default function ChatInput({
           onClick={() => void pickAttachments()}
         >
           <Paperclip size={17} />
-        </button>
-        <button
-          type="button"
-          className="composer-tool"
-          title="Take screenshot"
-          aria-label="Take screenshot"
-          disabled={busy || attachments.length >= 4}
-          onClick={() => void captureScreenshot()}
-        >
-          <Camera size={17} />
         </button>
         <textarea
           ref={textareaRef}
@@ -531,7 +733,7 @@ export default function ChatInput({
               type="button"
               className="context-button"
               aria-expanded={openMenu === 'model'}
-              aria-haspopup="menu"
+              aria-controls="model-context-popover"
               disabled={busy}
               onClick={() => setOpenMenu(openMenu === 'model' ? null : 'model')}
             >
@@ -540,13 +742,12 @@ export default function ChatInput({
               <ChevronDown size={11} aria-hidden="true" />
             </button>
             {openMenu === 'model' && (
-              <div className="context-popover context-popover--model" role="menu">
+              <div id="model-context-popover" className="context-popover context-popover--model" role="group" aria-label="Intelligence options">
                 <div className="context-popover-heading">Intelligence</div>
                 {providers.map((item) => (
                   <button
                     type="button"
-                    role="menuitemradio"
-                    aria-checked={item.id === activeProvider?.id}
+                    aria-pressed={item.id === activeProvider?.id}
                     key={item.id}
                     onClick={() => {
                       setOpenMenu(null)
@@ -563,7 +764,6 @@ export default function ChatInput({
                 ))}
                 <button
                   type="button"
-                  role="menuitem"
                   className="context-add"
                   onClick={() => {
                     setOpenMenu(null)
@@ -582,21 +782,22 @@ export default function ChatInput({
             <button
               type="button"
               className="context-button"
-              aria-expanded={openMenu === 'project'}
-              aria-haspopup="menu"
-              onClick={() => setOpenMenu(openMenu === 'project' ? null : 'project')}
+              aria-label="Files"
+              aria-expanded={openMenu === 'files'}
+              aria-controls="files-context-popover"
+              disabled={busy}
+              onClick={() => setOpenMenu(openMenu === 'files' ? null : 'files')}
             >
               <Folder size={13} />
-              <span>{folderName || 'General Chat'}</span>
+              <span>{filesLabel}</span>
               <ChevronDown size={11} aria-hidden="true" />
             </button>
-            {openMenu === 'project' && (
-              <div className="context-popover context-popover--project" role="menu">
+            {openMenu === 'files' && (
+              <div id="files-context-popover" className="context-popover context-popover--files" role="group" aria-label="File and folder options">
                 <div className="context-popover-heading">Project folder</div>
                 <button
                   type="button"
-                  role="menuitemradio"
-                  aria-checked={!workspace}
+                  aria-pressed={!workspace}
                   onClick={() => {
                     setOpenMenu(null)
                     onProjectChange('')
@@ -611,8 +812,7 @@ export default function ChatInput({
                 {projects.map((path) => (
                   <button
                     type="button"
-                    role="menuitemradio"
-                    aria-checked={path === workspace}
+                    aria-pressed={path === workspace}
                     key={path}
                     onClick={() => {
                       setOpenMenu(null)
@@ -636,6 +836,104 @@ export default function ChatInput({
                   }}
                 >
                   <FolderPlus size={14} /> New project
+                </button>
+                <div className="context-popover-heading context-popover-heading--section">
+                  Access for this chat
+                </div>
+                <button
+                  type="button"
+                  aria-pressed={fileAccessScope.mode === 'selected_folder'}
+                  onClick={() => {
+                    setOpenMenu(null)
+                    onFileAccessScopeChange({ mode: 'selected_folder' })
+                  }}
+                >
+                  <span>
+                    <b>Project folder only</b>
+                    <small>{workspace || 'No folder selected — using Collie workspace.'}</small>
+                  </span>
+                  {fileAccessScope.mode === 'selected_folder' && <Check size={14} />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpenMenu(null)
+                    onChooseFileAccessFolders()
+                  }}
+                >
+                  <span>
+                    <b>Choose other folders…</b>
+                    <small>Pick one or more local folders Collie may use.</small>
+                  </span>
+                </button>
+                {fileAccessScope.mode === 'chosen_folders' && fileAccessScope.roots?.length ? (
+                  <ul className="file-access-roots" aria-label="Folders Collie can use">
+                    {fileAccessScope.roots.map((root) => <li key={root}>{root}</li>)}
+                  </ul>
+                ) : null}
+                <button
+                  type="button"
+                  aria-pressed={fileAccessScope.mode === 'full_file_access'}
+                  onClick={() => {
+                    setOpenMenu(null)
+                    onFileAccessScopeChange({ mode: 'full_file_access' })
+                  }}
+                >
+                  <span>
+                    <b>Full file access</b>
+                    <small>Local files only. Sends, payments, destructive actions, accounts, publishing, and routines stay protected.</small>
+                  </span>
+                  {fileAccessScope.mode === 'full_file_access' && <Check size={14} />}
+                </button>
+              </div>
+            )}
+          </div>
+
+          <span className="context-divider" aria-hidden="true" />
+
+          <div className="context-menu-wrap">
+            <button
+              type="button"
+              className="context-button"
+              aria-expanded={openMenu === 'approvals'}
+              aria-controls="approval-context-popover"
+              disabled={busy}
+              onClick={() => setOpenMenu(openMenu === 'approvals' ? null : 'approvals')}
+            >
+              <ShieldCheck size={13} />
+              <span>{approvalPreset === 'allow' ? 'Approve for me' : 'Ask me'}</span>
+              <ChevronDown size={11} aria-hidden="true" />
+            </button>
+            {openMenu === 'approvals' && (
+              <div id="approval-context-popover" className="context-popover context-popover--safety" role="group" aria-label="Approval options">
+                <div className="context-popover-heading">Approvals</div>
+                <button
+                  type="button"
+                  aria-pressed={approvalPreset === 'ask'}
+                  onClick={() => {
+                    setOpenMenu(null)
+                    onApprovalPresetChange('ask')
+                  }}
+                >
+                  <span>
+                    <b>Ask me</b>
+                    <small>Collie asks before bounded file edits and other eligible local changes that still need approval.</small>
+                  </span>
+                  {approvalPreset === 'ask' && <Check size={14} />}
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={approvalPreset === 'allow'}
+                  onClick={() => {
+                    setOpenMenu(null)
+                    onApprovalPresetChange('allow')
+                  }}
+                >
+                  <span>
+                    <b>Approve for me</b>
+                    <small>Eligible ordinary local actions can continue. Consequential actions still ask.</small>
+                  </span>
+                  {approvalPreset === 'allow' && <Check size={14} />}
                 </button>
               </div>
             )}

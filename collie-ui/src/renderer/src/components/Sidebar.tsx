@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Bot,
   Folder,
   FolderPlus,
   MessageCircle,
   MessageSquarePlus,
+  Pin,
+  PinOff,
   Plug,
   Repeat2,
   Search,
@@ -14,7 +16,12 @@ import {
 } from 'lucide-react'
 import { collieClient, type Conversation } from '../lib/ipc'
 import { useT } from '../lib/i18n'
-import type { AppView } from '../lib/navigation'
+import {
+  PINNED_CONVERSATIONS_STORAGE_KEY,
+  readPinnedConversationIds,
+  reconcilePinnedConversationIds,
+  type AppView
+} from '../lib/navigation'
 import CollieFace from './CollieFace'
 
 interface Props {
@@ -47,10 +54,38 @@ export default function Sidebar({
   onAddProject
 }: Props): React.JSX.Element {
   const [query, setQuery] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [pinnedIds, setPinnedIds] = useState<string[]>(() =>
+    typeof localStorage === 'undefined' ? [] : readPinnedConversationIds(localStorage)
+  )
   const [contentMatches, setContentMatches] = useState<Set<string> | null>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const searchToggleRef = useRef<HTMLButtonElement>(null)
+  const searchGenerationRef = useRef(0)
   const t = useT()
 
+  const persistPinnedIds = (ids: string[]): void => {
+    setPinnedIds(ids)
+    localStorage.setItem(PINNED_CONVERSATIONS_STORAGE_KEY, JSON.stringify(ids))
+  }
+
   useEffect(() => {
+    // Conversation data starts empty while the local store loads. Explicit deletes
+    // are cleaned up below; wait for a populated snapshot before pruning old ids.
+    if (conversations.length === 0) return
+    const reconciled = reconcilePinnedConversationIds(
+      pinnedIds,
+      conversations.map((conversation) => conversation.id)
+    )
+    if (reconciled.length !== pinnedIds.length) persistPinnedIds(reconciled)
+  }, [conversations, pinnedIds])
+
+  useEffect(() => {
+    if (searchOpen) searchInputRef.current?.focus()
+  }, [searchOpen])
+
+  useEffect(() => {
+    const generation = ++searchGenerationRef.current
     const trimmed = query.trim()
     if (!trimmed) {
       setContentMatches(null)
@@ -59,12 +94,19 @@ export default function Sidebar({
     const timer = setTimeout(() => {
       void collieClient
         .searchMessages(trimmed)
-        .then((data) =>
-          setContentMatches(new Set(data.results.map((m) => m.conversation_id)))
-        )
-        .catch(() => setContentMatches(new Set()))
+        .then((data) => {
+          if (searchGenerationRef.current === generation) {
+            setContentMatches(new Set(data.results.map((m) => m.conversation_id)))
+          }
+        })
+        .catch(() => {
+          if (searchGenerationRef.current === generation) setContentMatches(new Set())
+        })
     }, 250)
-    return () => clearTimeout(timer)
+    return () => {
+      clearTimeout(timer)
+      if (searchGenerationRef.current === generation) searchGenerationRef.current += 1
+    }
   }, [query])
 
   const trimmed = query.trim().toLowerCase()
@@ -75,6 +117,8 @@ export default function Sidebar({
           (contentMatches?.has(c.id) ?? false)
       )
     : conversations
+  const pinnedIdSet = new Set(pinnedIds)
+  const pinnedConversations = visible.filter((conversation) => pinnedIdSet.has(conversation.id))
 
   const primaryItems = [
     { key: 'agents' as const, label: t('sidebar.agents'), icon: Bot },
@@ -83,10 +127,26 @@ export default function Sidebar({
     { key: 'connectors' as const, label: t('sidebar.connectors'), icon: Plug }
   ]
   const generalConversations = visible
-    .filter((conversation) => !conversation.project_path)
+    .filter((conversation) => !conversation.project_path && !pinnedIdSet.has(conversation.id))
     .slice(0, 8)
   const projectConversations = (path: string): Conversation[] =>
-    visible.filter((conversation) => conversation.project_path === path).slice(0, 5)
+    visible
+      .filter(
+        (conversation) =>
+          conversation.project_path === path && !pinnedIdSet.has(conversation.id)
+      )
+      .slice(0, 5)
+
+  const togglePinned = (id: string): void => {
+    persistPinnedIds(
+      pinnedIdSet.has(id) ? pinnedIds.filter((pinnedId) => pinnedId !== id) : [...pinnedIds, id]
+    )
+  }
+
+  const deleteConversation = (id: string): void => {
+    if (pinnedIdSet.has(id)) persistPinnedIds(pinnedIds.filter((pinnedId) => pinnedId !== id))
+    onDelete(id)
+  }
 
   const conversationRows = (items: Conversation[]): React.JSX.Element[] =>
     items.map((conv) => (
@@ -112,8 +172,19 @@ export default function Sidebar({
           <span className="truncate">{conv.title || 'New chat'}</span>
         </button>
         <button
-          onClick={() => onDelete(conv.id)}
-          className="mr-1 rounded p-1 opacity-0 focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100"
+          type="button"
+          onClick={() => togglePinned(conv.id)}
+          className={`conversation-action rounded p-1 ${pinnedIdSet.has(conv.id) ? 'is-pinned' : ''}`}
+          title={`${pinnedIdSet.has(conv.id) ? 'Unpin' : 'Pin'} chat: ${conv.title || 'New chat'}`}
+          aria-label={`${pinnedIdSet.has(conv.id) ? 'Unpin' : 'Pin'} chat: ${conv.title || 'New chat'}`}
+          aria-pressed={pinnedIdSet.has(conv.id)}
+        >
+          {pinnedIdSet.has(conv.id) ? <PinOff size={14} /> : <Pin size={14} />}
+        </button>
+        <button
+          type="button"
+          onClick={() => deleteConversation(conv.id)}
+          className="conversation-action mr-1 rounded p-1"
           title={t('sidebar.delete', { title: conv.title || 'New chat' })}
           aria-label={t('sidebar.delete', { title: conv.title || 'New chat' })}
           style={{ color: 'var(--collie-text-sidebar-muted)' }}
@@ -128,6 +199,56 @@ export default function Sidebar({
       <div className="brand-lockup">
         <div className="brand-mark"><CollieFace size={25} /></div>
         <div className="brand-name">Collie</div>
+        <button
+          ref={searchToggleRef}
+          type="button"
+          className={`sidebar-search-toggle ${searchOpen ? 'is-active' : ''}`}
+          onClick={() =>
+            setSearchOpen((open) => {
+              if (open) setQuery('')
+              return !open
+            })
+          }
+          title={t('sidebar.searchLabel')}
+          aria-label={t('sidebar.searchLabel')}
+          aria-expanded={searchOpen}
+          aria-controls="sidebar-search"
+        >
+          <Search size={17} />
+        </button>
+      </div>
+
+      <button
+        type="button"
+        onClick={onNewChat}
+        className="new-chat-button mx-4 mb-3 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-semibold transition"
+      >
+        <MessageSquarePlus size={16} />
+        {t('sidebar.newChat')}
+      </button>
+
+      <div
+        id="sidebar-search"
+        className="sidebar-search mx-4 mb-3 flex items-center gap-2 px-3 py-2"
+        hidden={!searchOpen}
+      >
+          <Search size={13} aria-hidden="true" />
+          <input
+            ref={searchInputRef}
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                setQuery('')
+                setSearchOpen(false)
+                requestAnimationFrame(() => searchToggleRef.current?.focus())
+              }
+            }}
+            placeholder={t('sidebar.searchPlaceholder')}
+            aria-label={t('sidebar.searchLabel')}
+            className="w-full bg-transparent text-xs outline-none"
+          />
       </div>
 
       <nav className="sidebar-primary px-3" aria-label="Primary navigation">
@@ -145,24 +266,20 @@ export default function Sidebar({
         ))}
       </nav>
 
-      <div className="sidebar-search mx-4 mb-3 mt-4 flex items-center gap-2 px-3 py-2">
-        <Search size={13} style={{ color: 'var(--collie-text-sidebar-muted)' }} />
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={t('sidebar.searchPlaceholder')}
-          aria-label={t('sidebar.searchLabel')}
-          className="w-full bg-transparent text-xs outline-none"
-        />
-      </div>
-
       <nav className="sidebar-conversation-nav flex-1 overflow-y-auto px-3" aria-label="Conversations">
         {conversations.length > 0 && visible.length === 0 && (
           <p className="px-2 py-6 text-center text-xs" style={{ color: 'var(--collie-text-sidebar-muted)' }}>
             {t('sidebar.noMatches')}
           </p>
         )}
+        {pinnedConversations.length > 0 ? (
+          <section className="sidebar-chat-group" aria-labelledby="sidebar-pinned-label">
+            <div id="sidebar-pinned-label" className="sidebar-nested-label">Pinned</div>
+            <div className="sidebar-nested-conversations">
+              {conversationRows(pinnedConversations)}
+            </div>
+          </section>
+        ) : null}
         <section className="sidebar-chat-group">
           <button
             type="button"
@@ -218,13 +335,6 @@ export default function Sidebar({
         </section>
       </nav>
 
-      <button
-        onClick={onNewChat}
-        className="new-chat-button mx-4 mb-2 mt-3 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-semibold transition"
-      >
-        <MessageSquarePlus size={16} />
-        {t('sidebar.newChat')}
-      </button>
       <button
         onClick={() => onNavigate('settings')}
         className={`sidebar-settings mx-4 mb-4 flex items-center gap-2 px-3 py-2.5 text-sm transition ${activeView === 'settings' ? 'is-active' : ''}`}

@@ -1,4 +1,4 @@
-"""Presentations tool: slides via MCP.
+"""Presentations tool: slides via MCP (F035, Step 39).
 
 Points the model at the connected files service's MCP tools; presentation
 creation composes an outline the user can drop into any slides app.
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from collie_core.permissions.models import PermissionRequest, Risk
 from collie_core.tools.services_bridge import connected_service_id, mcp_tools_hint
 from nanobot.agent.tools.base import Tool, tool_parameters
 
@@ -47,6 +48,16 @@ class PresentationsTool(Tool):
     @property
     def name(self) -> str:
         return "presentations"
+
+    def permission_request(self, params: dict[str, Any]) -> PermissionRequest:
+        action = str(params.get("action") or "").strip().lower()
+        return PermissionRequest(
+            action=f"presentations.{action or 'outline'}",
+            resource=str(params.get("topic") or "presentation"),
+            risk=Risk.READ if action == "outline" else Risk.LOCAL_WRITE,
+            summary="Draft a presentation outline" if action == "outline" else "Create a presentation",
+            reversible=True,
+        )
 
     @property
     def description(self) -> str:

@@ -1,4 +1,4 @@
-"""Dog-themed thinking states.
+"""Dog-themed thinking states (spec §3.10, F082-F092).
 
 Maps engine activity (tool calls, streaming, errors) to the collie phrases
 shown in the ThinkingBar and mirrored by the desktop pet.

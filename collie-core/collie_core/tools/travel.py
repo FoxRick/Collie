@@ -1,4 +1,4 @@
-"""Travel tool: itineraries and packing lists.
+"""Travel tool: itineraries and packing lists (F030, Step 35).
 
 Builds a structured day-by-day TravelCard from the plan the model assembles
 (using web search and weather alongside), plus a sensible packing list.
@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from collie_core.permissions.models import PermissionRequest, Risk
 from nanobot.agent.tools.base import Tool, tool_parameters
 
 __all__ = ["TravelTool"]
@@ -91,6 +92,16 @@ class TravelTool(Tool):
     @property
     def name(self) -> str:
         return "travel"
+
+    def permission_request(self, params: dict[str, Any]) -> PermissionRequest:
+        action = str(params.get("action") or "").strip().lower()
+        return PermissionRequest(
+            action=f"travel.{action or 'plan'}",
+            resource=str(params.get("destination") or "trip"),
+            risk=Risk.READ,
+            summary="Plan your trip",
+            reversible=True,
+        )
 
     @property
     def description(self) -> str:

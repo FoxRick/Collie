@@ -52,7 +52,7 @@ def test_provider_api_type_is_openai_only() -> None:
     with pytest.raises(ValueError, match="only supported"):
         Config.model_validate({
             "providers": {
-                "custom-api": {
+                "my-company-api": {
                     "apiBase": "https://example.test/v1",
                     "apiType": "responses",
                 }
@@ -80,7 +80,7 @@ def test_custom_provider_fallback_uses_model_extra_without_pydantic_warnings() -
             }
         },
         "providers": {
-            "custom-api": {
+            "my-company-api": {
                 "apiBase": "https://example.test/v1",
             }
         },
@@ -88,7 +88,7 @@ def test_custom_provider_fallback_uses_model_extra_without_pydantic_warnings() -
 
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        assert config.get_provider_name() == "custom-api"
+        assert config.get_provider_name() == "my-company-api"
 
 
 def test_dynamic_custom_provider_prefix_matches_camel_case_key() -> None:
@@ -96,21 +96,21 @@ def test_dynamic_custom_provider_prefix_matches_camel_case_key() -> None:
         "agents": {
             "defaults": {
                 "provider": "auto",
-                "model": "customProxy/gpt-4o-mini",
+                "model": "companyProxy/gpt-4o-mini",
             }
         },
         "providers": {
             "otherProxy": {
                 "apiBase": "https://other.example.test/v1",
             },
-            "customProxy": {
-                "apiBase": "https://gateway.example.test/v1",
+            "companyProxy": {
+                "apiBase": "https://company.example.test/v1",
             },
         },
     })
 
-    assert config.get_provider_name() == "customProxy"
-    assert config.get_api_base() == "https://gateway.example.test/v1"
+    assert config.get_provider_name() == "companyProxy"
+    assert config.get_api_base() == "https://company.example.test/v1"
 
 
 def test_dynamic_custom_provider_prefix_does_not_fall_through_when_base_missing() -> None:
@@ -118,20 +118,20 @@ def test_dynamic_custom_provider_prefix_does_not_fall_through_when_base_missing(
         "agents": {
             "defaults": {
                 "provider": "auto",
-                "model": "customProxy/gpt-4o-mini",
+                "model": "companyProxy/gpt-4o-mini",
             }
         },
         "providers": {
             "otherProxy": {
                 "apiBase": "https://other.example.test/v1",
             },
-            "customProxy": {
-                "apiKey": "test-key",
+            "companyProxy": {
+                "apiKey": "sk-company",
             },
         },
     })
 
-    assert config.get_provider_name() == "customProxy"
+    assert config.get_provider_name() == "companyProxy"
     assert config.get_api_base() is None
 
 

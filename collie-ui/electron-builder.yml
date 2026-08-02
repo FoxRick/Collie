@@ -3,6 +3,7 @@ productName: Collie
 directories:
   output: dist
   buildResources: build
+beforePack: ./scripts/electron-builder-before-pack.cjs
 files:
   - out/**
 extraResources:
@@ -12,6 +13,8 @@ extraResources:
     to: mcp-runtime
   - from: build/icon.png
     to: icon.png
+  - from: .electron-bundle/build-provenance.json
+    to: collie-build-provenance.json
 win:
   icon: build/icon.ico
   target:

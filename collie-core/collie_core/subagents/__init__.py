@@ -1,4 +1,4 @@
-"""Collie subagents.
+"""Collie subagents (spec §3.5, F043-F049).
 
 Specialized assistants stored as plain ``.md`` files in
 ``~/.collie/workspace/subagents/`` — editable in Settings or any text editor —

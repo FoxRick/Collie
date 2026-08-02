@@ -50,10 +50,10 @@ class TestToolHintKnownTools:
 
     def test_exec_abbreviates_paths_in_command(self):
         """Windows paths in exec commands should be folded, not blindly truncated."""
-        cmd = "cd D:\\Projects\\example\\nested\\source && git diff main...feature --name-only 2>&1"
+        cmd = "cd D:\\Documents\\GitHub\\nanobot\\.worktree\\tomain\\nanobot && git diff origin/main...pr-2706 --name-only 2>&1"
         result = _hint([_tc("exec", {"command": cmd})])
         assert "\u2026/" in result  # path should be folded with …/
-        assert "Projects" not in result  # leading segments should be collapsed
+        assert "worktree" not in result  # middle segments should be collapsed
 
     def test_exec_abbreviates_linux_paths(self):
         """Unix absolute paths in exec commands should be folded."""

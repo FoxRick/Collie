@@ -1,4 +1,4 @@
-"""Budget tool: in-app expense tracking.
+"""Budget tool: in-app expense tracking (F031, Step 35).
 
 Log expenses, set category budgets, and get a monthly breakdown rendered as
 a BudgetCard.
@@ -11,6 +11,7 @@ import math
 from datetime import datetime, timezone
 from typing import Any
 
+from collie_core.permissions.models import PermissionRequest, Risk
 from collie_core.tools.life_db import life_db
 from nanobot.agent.tools.base import Tool, tool_parameters
 
@@ -80,6 +81,16 @@ class BudgetTool(Tool):
     @property
     def name(self) -> str:
         return "budget"
+
+    def permission_request(self, params: dict[str, Any]) -> PermissionRequest:
+        action = str(params.get("action") or "").strip().lower()
+        return PermissionRequest(
+            action=f"budget.{action or 'manage'}",
+            resource=str(params.get("month") or "budget"),
+            risk=Risk.READ if action == "summary" else Risk.LOCAL_WRITE,
+            summary="Review your budget" if action == "summary" else "Update your budget",
+            reversible=True,
+        )
 
     @property
     def description(self) -> str:

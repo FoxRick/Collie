@@ -1,4 +1,4 @@
-"""Contacts tool: the user's people.
+"""Contacts tool: the user's people (F029, Step 35).
 
 Backed by the same ``people`` table as memory — find someone, remember
 details about them, and suggest gifts from stored preferences.
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from collie_core.permissions.models import PermissionRequest, Risk
 from collie_core.tools.life_db import life_db
 from nanobot.agent.tools.base import Tool, tool_parameters
 
@@ -54,6 +55,39 @@ class ContactsTool(Tool):
     @property
     def name(self) -> str:
         return "contacts"
+
+    def permission_request(self, params: dict[str, Any]) -> PermissionRequest:
+        action = str(params.get("action") or "").strip().lower()
+        name = str(params.get("name") or "contacts")
+        if action in {"find", "list", "gift_ideas"}:
+            return PermissionRequest(
+                action=f"contacts.{action or 'read'}",
+                resource=name,
+                risk=Risk.READ,
+                summary="Look up your contacts",
+                reversible=True,
+            )
+        if str(params.get("allergies") or "").strip():
+            return PermissionRequest(
+                action="contacts.upsert_sensitive",
+                resource=name,
+                risk=Risk.SENSITIVE,
+                summary="Store sensitive contact health information",
+                reversible=True,
+                redacted_parameters={"field": "allergies"},
+                # Health details must never ride on a local-write preset or
+                # an approval-for-this-task rule.
+                hard_approval=True,
+            )
+        return PermissionRequest(
+            action="contacts.upsert",
+            resource=name,
+            risk=Risk.LOCAL_WRITE,
+            summary="Update a contact",
+            reversible=True,
+            approval_free=True,
+            approve_for_me=True,
+        )
 
     @property
     def description(self) -> str:

@@ -3,7 +3,7 @@ import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { ApprovalRequest } from '../../lib/ipc'
-import ApprovalSheet from './ApprovalSheet'
+import ApprovalSheet, { friendlyApprovalLabel } from './ApprovalSheet'
 
 const { resolveApproval, approveAllForRun } = vi.hoisted(() => ({
   resolveApproval: vi.fn().mockResolvedValue({}),
@@ -50,6 +50,39 @@ afterEach(() => {
 })
 
 describe('ApprovalSheet accessibility', () => {
+  it('offers run-wide approval only when the backend marks the request eligible', () => {
+    const request = {
+      ...approval('eligible', 'Update this local file'),
+      display_json: JSON.stringify({
+        summary: 'Update this local file',
+        approve_for_me_eligible: true
+      }),
+      run_id: 'run-1'
+    }
+    const container = render(
+      <ApprovalSheet approval={request} inline onResolved={() => undefined} />
+    )
+    expect(container.textContent).toContain('Allow for this run')
+    expect(container.textContent).toContain('Approve all ordinary requests for this run')
+  })
+
+  it.each([
+    ['absent', { summary: 'Update this local file' }],
+    ['false', { summary: 'Update this local file', approve_for_me_eligible: false }]
+  ])('does not infer run-wide eligibility from local-write risk when the flag is %s', (_case, display) => {
+    const request = {
+      ...approval('ineligible', 'Update this local file'),
+      display_json: JSON.stringify(display),
+      run_id: 'run-1'
+    }
+    const container = render(
+      <ApprovalSheet approval={request} inline onResolved={() => undefined} />
+    )
+    expect(container.textContent).not.toContain('Allow for this run')
+    expect(container.textContent).not.toContain('Approve all ordinary requests for this run')
+    expect(container.textContent).toContain('Allow once')
+  })
+
   it('renders simultaneous inline approvals as uniquely labelled regions', () => {
     const container = render(
       <>
@@ -72,6 +105,28 @@ describe('ApprovalSheet accessibility', () => {
         index === 0 ? 'First action' : 'Second action'
       )
     }
+  })
+
+  it('uses a plain-language label for technical action identifiers', () => {
+    expect(friendlyApprovalLabel('Use web_fetch', 'web_fetch')).toBe('Visit a website')
+    expect(friendlyApprovalLabel(undefined, 'custom__task-run')).toBe('Custom Task Run')
+
+    const container = render(
+      <ApprovalSheet approval={approval('friendly', 'Use web_fetch')} inline onResolved={() => undefined} />
+    )
+    expect(container.querySelector('h2')?.textContent).toBe('Visit a website')
+    expect(container.textContent).not.toContain('web_fetch')
+  })
+
+  it('keeps technical approval details in a collapsed disclosure', () => {
+    const container = render(
+      <ApprovalSheet approval={approval('details', 'A clear action')} inline onResolved={() => undefined} />
+    )
+    const details = container.querySelector<HTMLDetailsElement>('details.approval-details')
+    expect(details?.open).toBe(false)
+    expect(details?.querySelector('summary')?.textContent).toBe('Review details')
+    expect(details?.textContent).toContain('Data leaving this computer')
+    expect(details?.textContent).toContain('Reversible')
   })
 
   it('moves focus into a floating dialog and traps forward and reverse Tab', () => {

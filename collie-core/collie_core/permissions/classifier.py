@@ -52,8 +52,13 @@ def classify_tool(tool: Any, name: str, params: Mapping[str, Any]) -> Permission
             return request
 
     lowered = name.lower()
+    operation = str(params.get("action") or "").lower()
     read_only = bool(getattr(tool, "read_only", False))
-    if read_only or lowered.startswith(_READ_PREFIXES):
+    if any(word in operation for word in _DELETE_WORDS):
+        # Multi-action wrappers must not make delete-like operations look like
+        # harmless reads just because their tool name is innocuous.
+        action, risk = "delete.destructive", Risk.DESTRUCTIVE
+    elif read_only or lowered.startswith(_READ_PREFIXES):
         action, risk = _read_action(lowered), Risk.READ
     elif lowered == "message":
         # Cross-channel/proactive message delivery (including attachments):

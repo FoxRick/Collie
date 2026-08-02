@@ -6,6 +6,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
+from collie_core.permissions.models import PermissionRequest, Risk
 from nanobot.agent.goal_permission import goal_mutation_allowed
 from nanobot.agent.tools.base import Tool, ToolResult, tool_parameters
 from nanobot.agent.tools.context import (
@@ -134,6 +135,17 @@ class CreateGoalTool(_GoalTool):
             "explicitly started with /goal; ordinary requests must not create goals."
         )
 
+    def permission_request(self, params: dict[str, Any]) -> PermissionRequest:
+        return PermissionRequest(
+            action="goal.create",
+            resource="current-conversation",
+            risk=Risk.LOCAL_WRITE,
+            summary="Set this one-time goal",
+            reversible=True,
+            approval_free=True,
+            approve_for_me=True,
+        )
+
     def validate_params(self, params: dict[str, Any]) -> list[str]:
         errors = super().validate_params(params)
         if not str(params.get("objective") or "").strip():
@@ -256,6 +268,18 @@ class UpdateGoalTool(_GoalTool):
         return (
             "Transition an already-active goal: complete, cancel, block, or replace. "
             "Replacement additionally requires a trusted explicit /goal turn."
+        )
+
+    def permission_request(self, params: dict[str, Any]) -> PermissionRequest:
+        action = str(params.get("action") or "update")
+        return PermissionRequest(
+            action=f"goal.{action}",
+            resource="current-conversation",
+            risk=Risk.LOCAL_WRITE,
+            summary="Update this one-time goal",
+            reversible=True,
+            approval_free=True,
+            approve_for_me=True,
         )
 
     def validate_params(self, params: dict[str, Any]) -> list[str]:

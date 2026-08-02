@@ -1,4 +1,4 @@
-"""Health tool: in-app logging for steps, sleep, water, and weight.
+"""Health tool: in-app logging for steps, sleep, water, weight (F032, Step 35).
 
 One value per metric per day; a week view renders as a HealthCard.
 """
@@ -10,6 +10,7 @@ import math
 from datetime import date, timedelta
 from typing import Any
 
+from collie_core.permissions.models import PermissionRequest, Risk
 from collie_core.tools.life_db import life_db
 from nanobot.agent.tools.base import Tool, tool_parameters
 
@@ -99,6 +100,16 @@ class HealthTool(Tool):
     @property
     def name(self) -> str:
         return "health"
+
+    def permission_request(self, params: dict[str, Any]) -> PermissionRequest:
+        action = str(params.get("action") or "").strip().lower()
+        return PermissionRequest(
+            action=f"health.{action or 'manage'}",
+            resource="health-log",
+            risk=Risk.READ if action == "summary" else Risk.LOCAL_WRITE,
+            summary="Review your health log" if action == "summary" else "Update your health log",
+            reversible=True,
+        )
 
     @property
     def description(self) -> str:

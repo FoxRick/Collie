@@ -1,4 +1,4 @@
-"""Smart Home tool: Philips Hue, HomeKit, or Google Home via MCP.
+"""Smart Home tool: Philips Hue / HomeKit / Google Home via MCP (F033, Step 35).
 
 Points the model at the connected home service's MCP tools; otherwise nudges
 the user toward Settings → Services.

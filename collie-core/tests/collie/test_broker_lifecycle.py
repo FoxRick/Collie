@@ -11,18 +11,28 @@ import pytest
 from collie_core.db import CollieDB
 from collie_core.permissions.broker import ApprovalBroker, PermissionDeniedError
 from collie_core.permissions.evaluator import PermissionEvaluator
-from collie_core.permissions.models import Effect, ExecutionContext
+from collie_core.permissions.models import Effect, ExecutionContext, PermissionRequest, Risk
 from collie_core.permissions.store import PermissionStore
 
 
 class FakeTool:
-    """A tool the classifier will classify as a local write."""
+    """An explicitly approved ordinary local action."""
 
     read_only = False
 
     @property
     def name(self) -> str:
         return "write_note"
+
+    def permission_request(self, params: dict) -> PermissionRequest:
+        return PermissionRequest(
+            action="notes.write",
+            resource="notes",
+            risk=Risk.LOCAL_WRITE,
+            summary="Write a note",
+            reversible=True,
+            approve_for_me=True,
+        )
 
 
 class FakeReadTool:

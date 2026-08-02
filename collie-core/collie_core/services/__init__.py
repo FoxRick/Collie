@@ -1,4 +1,4 @@
-"""Collie service connections.
+"""Collie service connections (spec §3.4, F037-F042).
 
 The GUI service catalog: users click Connect, approve in the browser (OAuth)
 or paste one token, and Collie wires up the matching MCP server. No JSON.

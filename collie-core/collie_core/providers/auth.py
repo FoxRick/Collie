@@ -1,4 +1,4 @@
-"""Sign-in flows for Collie's three authentication paths.
+"""Sign-in flows for Collie's three auth paths (spec §2, F012-F014).
 
 - ChatGPT OAuth  -> ``oauth_cli_kit`` Codex flow (browser + localhost callback)
 - Claude OAuth   -> same flow with the Claude Code public client

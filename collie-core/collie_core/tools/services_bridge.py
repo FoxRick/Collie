@@ -1,4 +1,4 @@
-"""Bridge between Collie life tools and connected MCP services.
+"""Bridge between Collie life tools and connected MCP services (Phase 3).
 
 When a service is connected, its MCP tools are registered directly in the
 agent's tool registry (named ``mcp_<service>_<tool>``). The life-tool stubs

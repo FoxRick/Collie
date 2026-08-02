@@ -372,3 +372,5 @@ class TestEphemeralHooks:
 
         await loop.process_direct("test", session_key="cli:normal")
         spy.before_iteration.assert_called()
+
+

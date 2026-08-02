@@ -59,6 +59,18 @@ function currentLabel(task: TaskState): string {
   return task.title
 }
 
+function currentStep(task: TaskState): TaskStep | undefined {
+  return task.steps.find((step) => step.key === task.current_step_key)
+    ?? task.steps.find((step) => step.status === 'in_progress')
+    ?? task.steps.find((step) => step.status === 'blocked' || step.status === 'failed')
+}
+
+function progressLabel(task: TaskState, current: TaskStep | undefined): string {
+  if (task.status === 'completed') return `Completed ${task.total_count} of ${task.total_count}`
+  const stepNumber = current ? task.steps.findIndex((step) => step.key === current.key) + 1 : 0
+  return stepNumber > 0 ? `Step ${stepNumber} of ${task.total_count}` : `${task.completed_count} of ${task.total_count} complete`
+}
+
 interface Props {
   task: TaskState
   onStop?: () => void
@@ -71,14 +83,10 @@ export default function TaskProgress({ task, onStop, readOnly = false }: Props):
   const [expanded, setExpanded] = useState(false)
   const detailsId = useId()
   const terminal = isTaskTerminal(task)
-  const current = task.steps.find((step) => step.key === task.current_step_key)
-    ?? task.steps.find((step) => step.status === 'in_progress')
+  const current = currentStep(task)
+  const progress = progressLabel(task, current)
 
-  useEffect(() => {
-    if (terminal) setExpanded(false)
-  }, [task.id, task.revision, terminal])
-
-  const statusText = `${currentLabel(task)}. ${task.completed_count} of ${task.total_count} steps complete.`
+  const statusText = `${progress}. ${currentLabel(task)}.`
   return (
     <section
       className="mx-auto mb-2 rounded-xl border bg-[var(--collie-surface)] shadow-sm"
@@ -89,7 +97,7 @@ export default function TaskProgress({ task, onStop, readOnly = false }: Props):
         <div className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm" style={{ color: 'var(--collie-text)' }}>
           <CircleDot size={16} aria-hidden="true" style={{ color: 'var(--collie-grass)' }} />
           <span className="min-w-0 flex-1 truncate font-medium">{currentLabel(task)}</span>
-          <span className="shrink-0 text-xs" style={{ color: 'var(--collie-text-muted)' }}>{task.completed_count}/{task.total_count}</span>
+          <span className="shrink-0 text-xs" style={{ color: 'var(--collie-text-muted)' }}>{progress}</span>
         </div>
       ) : (
       <button
@@ -102,9 +110,7 @@ export default function TaskProgress({ task, onStop, readOnly = false }: Props):
       >
         <CircleDot size={16} aria-hidden="true" style={{ color: 'var(--collie-grass)' }} />
         <span className="min-w-0 flex-1 truncate font-medium">{currentLabel(task)}</span>
-        <span className="shrink-0 text-xs" style={{ color: 'var(--collie-text-muted)' }}>
-          {task.completed_count}/{task.total_count}
-        </span>
+        <span className="shrink-0 text-xs" style={{ color: 'var(--collie-text-muted)' }}>{progress}</span>
         <ChevronDown size={16} aria-hidden="true" className={expanded ? 'rotate-180' : ''} />
       </button>
       )}
@@ -115,7 +121,7 @@ export default function TaskProgress({ task, onStop, readOnly = false }: Props):
             <div>
               <p className="m-0 text-sm font-semibold">{task.title}</p>
               <p className="m-0 text-xs" style={{ color: 'var(--collie-text-muted)' }}>
-                {terminal ? currentLabel(task) : 'In progress'} <ElapsedTime task={task} />
+                {progress} - {currentLabel(task)} <ElapsedTime task={task} />
               </p>
             </div>
             {!terminal && onStop ? (
@@ -126,10 +132,17 @@ export default function TaskProgress({ task, onStop, readOnly = false }: Props):
           </div>
           <ol className="m-0 grid list-none gap-2 p-0">
             {task.steps.map((step) => (
-              <li key={step.key} className="flex items-start gap-2 text-sm">
+              <li
+                key={step.key}
+                className={`flex items-start gap-2 rounded-lg px-2 py-1.5 text-sm ${step.key === current?.key ? 'bg-[var(--collie-bone)]' : ''}`}
+                aria-current={step.key === current?.key ? 'step' : undefined}
+              >
                 <span className="mt-0.5 shrink-0" aria-hidden="true"><StatusIcon status={step.status} /></span>
                 <div className="min-w-0">
-                  <div className="flex gap-2"><span>{step.title}</span><span className="sr-only">{statusLabel(step.status)}</span></div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={step.key === current?.key ? 'font-semibold' : undefined}>{step.title}</span>
+                    <span className="text-xs capitalize" style={{ color: 'var(--collie-text-muted)' }}>{statusLabel(step.status)}</span>
+                  </div>
                   {(step.summary || step.error_message) ? (
                     <p className="m-0 text-xs" style={{ color: 'var(--collie-text-muted)' }}>
                       {step.error_message || step.summary}

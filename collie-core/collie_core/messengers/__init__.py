@@ -1,7 +1,7 @@
 """Collie messengers — phone access via Telegram, WhatsApp, Slack, Discord.
 
-The user reaches Collie from their pocket through the messengers they already
-have. The channel
+Phase 4 replaces the planned phone companion app: the user reaches Collie
+from their pocket through the messengers they already have. The channel
 implementations are vendored nanobot code (``nanobot/channels/``); this
 package owns the Collie-side lifecycle, settings, pairing surface, and
 delivery of automations to the phone.

@@ -1,4 +1,4 @@
-"""Shopping list tool: in-app SQLite engine.
+"""Shopping list tool: in-app SQLite engine (F027, Step 39).
 
 Categorized items with checkboxes, rendered as a ShoppingListCard.
 """
@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from collie_core.permissions.models import PermissionRequest, Risk
 from collie_core.tools.life_db import life_db
 from nanobot.agent.tools.base import Tool, tool_parameters
 
@@ -75,6 +76,28 @@ class ShoppingTool(Tool):
     @property
     def name(self) -> str:
         return "shopping_list"
+
+    def permission_request(self, params: dict[str, Any]) -> PermissionRequest:
+        action = str(params.get("action") or "").strip().lower()
+        list_name = str(params.get("list_name") or "Groceries")
+        if action in {"remove", "clear_checked"}:
+            return PermissionRequest(
+                action="delete.destructive",
+                resource=list_name,
+                risk=Risk.DESTRUCTIVE,
+                summary="Remove shopping-list items",
+                reversible=False,
+                hard_approval=True,
+            )
+        return PermissionRequest(
+            action=f"shopping.{action or 'manage'}",
+            resource=list_name,
+            risk=Risk.LOCAL_WRITE,
+            summary="Update your shopping list",
+            reversible=True,
+            approval_free=True,
+            approve_for_me=True,
+        )
 
     @property
     def description(self) -> str:

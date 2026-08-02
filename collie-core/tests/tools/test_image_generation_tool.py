@@ -6,6 +6,10 @@ from typing import Any
 
 import pytest
 
+from collie_core.db import CollieDB
+from collie_core.permissions.evaluator import PermissionEvaluator
+from collie_core.permissions.models import Effect, ExecutionContext, Risk
+from collie_core.permissions.store import PermissionStore
 from nanobot.agent.tools.image_generation import ImageGenerationTool
 from nanobot.config.loader import set_config_path
 from nanobot.config.schema import ImageGenerationToolConfig, ProviderConfig
@@ -34,6 +38,34 @@ class FakeImageClient:
     async def generate(self, **kwargs: Any) -> GeneratedImageResponse:
         self.calls.append(kwargs)
         return GeneratedImageResponse(images=[PNG_DATA_URL], content="", raw={})
+
+
+def test_image_generation_requires_fresh_provider_egress_approval(tmp_path: Path) -> None:
+    tool = ImageGenerationTool(
+        workspace=tmp_path,
+        config=ImageGenerationToolConfig(enabled=True, provider="aihubmix"),
+    )
+    request = tool.permission_request(
+        {"prompt": "edit", "reference_images": ["reference.png"]}
+    )
+    db = CollieDB(tmp_path / "collie.db")
+    db.add_approval_rule(
+        action="*", resource_pattern="*", effect="allow", scope_type="run", scope_value="run-1"
+    )
+
+    assert request.risk == Risk.EXTERNAL_WRITE
+    assert request.hard_approval is True
+    assert request.approval_free is False
+    assert request.approve_for_me is False
+    assert request.data_leaving_device == ("aihubmix",)
+    assert request.redacted_parameters == {
+        "provider": "aihubmix",
+        "reference_images": ["reference.png"],
+    }
+    assert PermissionEvaluator(PermissionStore(db)).evaluate(
+        ExecutionContext(run_id="run-1"), request
+    ).effect == Effect.ASK
+    db.close()
 
 
 @pytest.mark.asyncio

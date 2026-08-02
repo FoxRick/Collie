@@ -527,3 +527,6 @@ async def test_next_turn_after_llm_error_keeps_turn_boundary(tmp_path):
     assert _PERSISTED_MODEL_ERROR_PLACEHOLDER in non_system[1]["content"]
     assert non_system[2]["role"] == "user"
     assert "second question" in non_system[2]["content"]
+
+
+

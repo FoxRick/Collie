@@ -38,3 +38,59 @@ describe('MessageBubble terminal task summary', () => {
     expect(container.querySelector('[aria-label="Task progress"] button')).toBeNull()
   })
 })
+
+describe('MessageBubble attachments', () => {
+  const previewDataUrl = 'data:image/png;base64,iVBORw0KGgo='
+
+  it('opens an image thumbnail in an accessible preview and closes it with Escape', async () => {
+    const container = render(
+      <MessageBubble
+        role="user"
+        content="Here it is"
+        attachments={[{
+          name: 'screen.png',
+          mime: 'image/png',
+          size: 128,
+          preview_data_url: previewDataUrl
+        }]}
+      />
+    )
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Open screen.png preview"]'
+    )!
+    expect(trigger.querySelector('img')?.getAttribute('src')).toBe(previewDataUrl)
+
+    act(() => trigger.click())
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!
+    expect(dialog.getAttribute('aria-modal')).toBe('true')
+    expect(dialog.querySelector('img')?.getAttribute('alt')).toBe('screen.png')
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Close image preview')
+
+    act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })))
+    expect(container.querySelector('[role="dialog"]')).toBeNull()
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 0)))
+    expect(document.activeElement).toBe(trigger)
+  })
+
+  it('keeps non-images and unsafe image preview sources filename-only', () => {
+    const container = render(
+      <MessageBubble
+        role="user"
+        content="Files"
+        attachments={[
+          { name: 'notes.txt', mime: 'text/plain', size: 12 },
+          {
+            name: 'unsafe.png',
+            mime: 'image/png',
+            size: 12,
+            preview_data_url: 'javascript:alert(1)'
+          }
+        ]}
+      />
+    )
+    expect(container.querySelectorAll('.message-attachment')).toHaveLength(2)
+    expect(container.querySelector('.message-attachment--image')).toBeNull()
+    expect(container.textContent).toContain('notes.txt')
+    expect(container.textContent).toContain('unsafe.png')
+  })
+})

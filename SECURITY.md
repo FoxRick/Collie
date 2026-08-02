@@ -2,9 +2,10 @@
 
 ## System and scope
 
-Collie is a local-first Windows desktop application. This policy covers the
-Electron desktop shell (`collie-ui/`) and managed Python runtime
-(`collie-core/`) in this repository.
+Collie is a local-first Windows desktop application. This repository contains
+the Electron desktop shell (`collie-ui/`), the managed Python runtime
+(`collie-core/`), and release tooling. The landing site is a separate
+repository and is not covered by this policy.
 
 Important assets include local user data, provider and messenger credentials,
 approval decisions, and the integrity of packaged Windows releases. The
@@ -32,14 +33,19 @@ Meaningful security properties include:
 ## Reporting a vulnerability
 
 Do not report security vulnerabilities in public issues, discussions, or
-social-media posts. Use private vulnerability reporting in this repository's
-Security tab when it is available. Otherwise, email
-[hello@heycollie.com](mailto:hello@heycollie.com)
+social-media posts. Once GitHub private vulnerability reporting is enabled,
+use the private reporting channel in this repository's Security tab. If that
+channel is unavailable, email [hello@heycollie.com](mailto:hello@heycollie.com)
 with `Security report` in the subject line.
 
 Include the affected version or commit, reproducible steps, impact, and a
 minimal proof of concept where safe. Do not access other people's data,
 disrupt services, or include credentials in a report.
+
+**Publication prerequisite:** enable GitHub private vulnerability reporting
+and verify the repository's reporting settings before relying on this policy.
+The email address above is a manual fallback, not a claim of a dedicated
+security mailbox or response-time commitment.
 
 ## Reportable findings and severity context
 
@@ -49,6 +55,15 @@ unsafe handling of untrusted content, credential leakage, and release-integrity
 failures. Impact and reachability matter: a hypothetical issue without a
 credible path to the desktop application, packaged release, or user data may
 not warrant the same priority.
+
+## Limits and known alpha risks
+
+Collie is pre-release software. It currently has no enabled external OAuth
+connectors and no public installer. The application sends a request's relevant
+content to the model provider a user chooses; provider data handling is an
+external trust boundary. Windows release signing, a clean-account installation
+rehearsal, release artifact validation, and support/security routing are
+tracked release gates, not completed assurances.
 
 ## Security development expectations
 

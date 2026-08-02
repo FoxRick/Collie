@@ -2,12 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   collieClient,
   type AttachmentDraft,
+  type ApprovalPreset,
   type ApprovalRequest,
   type CollieEvent,
   type CollieMessage,
   type CommandCatalog,
   type Conversation,
   type ExecutionMode,
+  type FileAccessScope,
   type RuntimeStatus,
   type TaskState,
   type ThinkingState
@@ -23,7 +25,7 @@ import SkillsScreen from './SkillsScreen'
 import RoutinesScreen from './RoutinesScreen'
 import ConnectorsScreen from './ConnectorsScreen'
 import type { AppView } from '../lib/navigation'
-import { mergeStreamDelta } from '../lib/stream'
+import { mergeStreamDelta, nextStreamReveal, visibleStreamText } from '../lib/stream'
 import ApprovalSheet from '../components/approvals/ApprovalSheet'
 import TaskProgress, { isTaskTerminal } from '../components/tasks/TaskProgress'
 import {
@@ -48,6 +50,43 @@ interface Props {
 interface TaskTiming {
   startedAt: number
   completedMs?: number
+}
+
+const FILE_ACCESS_STORAGE_KEY = 'collie.fileAccessScope'
+export const FULL_FILE_ACCESS_CONFIRMATION =
+  'Full file access lets Collie read and change local text files anywhere on this computer. It cannot send, delete, pay, publish, change accounts, or change routines. Continue?'
+
+export function loadFileAccessScope(): FileAccessScope {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(FILE_ACCESS_STORAGE_KEY) || '{}') as {
+      mode?: unknown
+      roots?: unknown
+    }
+    if (parsed.mode === 'chosen_folders' && Array.isArray(parsed.roots)) {
+      const roots = parsed.roots.filter(
+        (root): root is string => typeof root === 'string' && Boolean(root.trim())
+      )
+      if (roots.length) return { mode: 'chosen_folders', roots }
+    }
+  } catch {
+    // A damaged preference falls back to the narrow selected-folder scope.
+  }
+  return { mode: 'selected_folder' }
+}
+
+export function confirmFileAccessScopeChange(
+  scope: FileAccessScope,
+  confirmFullAccess: (message: string) => boolean = (message) => window.confirm(message)
+): boolean {
+  return scope.mode !== 'full_file_access' || confirmFullAccess(FULL_FILE_ACCESS_CONFIRMATION)
+}
+
+export function persistFileAccessScope(
+  scope: FileAccessScope,
+  storage: Pick<Storage, 'setItem'> = localStorage
+): void {
+  if (scope.mode === 'full_file_access') return
+  storage.setItem(FILE_ACCESS_STORAGE_KEY, JSON.stringify(scope))
 }
 
 function formatElapsed(milliseconds: number): string {
@@ -106,8 +145,10 @@ export default function ChatScreen({
   const [portraitThinking, setPortraitThinking] = useState<ThinkingState | null>(null)
   const [isTyping, setIsTyping] = useState(false)
   const [executionMode, setExecutionMode] = useState<ExecutionMode>(() =>
-    localStorage.getItem('collie.executionMode') === 'execute' ? 'execute' : 'plan'
+    localStorage.getItem('collie.executionMode') === 'plan' ? 'plan' : 'execute'
   )
+  const [approvalPreset, setApprovalPreset] = useState<ApprovalPreset>('ask')
+  const [fileAccessScope, setFileAccessScope] = useState<FileAccessScope>(loadFileAccessScope)
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([])
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>({})
   const [commandCatalog, setCommandCatalog] = useState<CommandCatalog>({
@@ -124,10 +165,50 @@ export default function ChatScreen({
   const [cardPreview, setCardPreview] = useState<{ card_type: string; card_data: Record<string, unknown> } | null>(null)
   const activeIdRef = useRef<string | null>(null)
   const streamRef = useRef('')
-  const rafRef = useRef(0)
+  const streamDisplayRef = useRef('')
+  const streamTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingAssistantRef = useRef<CollieMessage | null>(null)
+  const finalizePendingRef = useRef<(() => void) | null>(null)
   const loadTokenRef = useRef(0)
   const taskSnapshotGenerationRef = useRef<Record<string, number>>({})
   activeIdRef.current = activeId
+
+  const stopStreamReveal = useCallback(() => {
+    if (streamTimerRef.current) {
+      clearTimeout(streamTimerRef.current)
+      streamTimerRef.current = null
+    }
+  }, [])
+
+  const scheduleStreamReveal = useCallback(() => {
+    if (streamTimerRef.current) return
+
+    const reveal = () => {
+      const next = nextStreamReveal(streamDisplayRef.current, streamRef.current)
+      streamDisplayRef.current = next
+      const pending = pendingAssistantRef.current
+      if (pending && activeIdRef.current === pending.conversation_id) {
+        // Once the terminal event arrives, its place in the transcript is
+        // fixed. Continue revealing into that reserved bubble so a later user
+        // event cannot jump ahead of the paced assistant response.
+        setMessages((previous) =>
+          previous.map((item) => item.id === pending.id ? { ...item, content: next } : item)
+        )
+        setStreamText('')
+      } else {
+        setStreamText(next)
+      }
+
+      if (next !== visibleStreamText(streamRef.current)) {
+        streamTimerRef.current = setTimeout(reveal, 32)
+      } else {
+        streamTimerRef.current = null
+        finalizePendingRef.current?.()
+      }
+    }
+
+    streamTimerRef.current = setTimeout(reveal, 32)
+  }, [])
 
   const refreshConversations = useCallback(async () => {
     try {
@@ -143,6 +224,16 @@ export default function ChatScreen({
       setRuntimeStatus(await collieClient.getStatus())
     } catch {
       // The local core may still be starting.
+    }
+  }, [])
+
+  const refreshApprovalPreset = useCallback(async () => {
+    try {
+      const { settings } = await collieClient.getSettings()
+      const stored = settings['permissions.local_write_preset']
+      if (stored === 'ask' || stored === 'allow') setApprovalPreset(stored)
+    } catch {
+      // Keep the conservative Ask me fallback until the core is available.
     }
   }, [])
 
@@ -175,6 +266,34 @@ export default function ChatScreen({
     }
   }, [])
 
+  const finalizePendingAssistant = useCallback(() => {
+    const msg = pendingAssistantRef.current
+    if (!msg || activeIdRef.current !== msg.conversation_id) return
+    pendingAssistantRef.current = null
+    setMessages((previous) => {
+      const existing = previous.findIndex((item) => item.id === msg.id)
+      if (existing === -1) return [...previous, msg]
+      const next = [...previous]
+      next[existing] = msg
+      return next
+    })
+    streamRef.current = ''
+    streamDisplayRef.current = ''
+    setStreamText('')
+    setCardPreview(null)
+    setPortraitThinking({
+      state: 'done',
+      phrase: 'Done — that was a good one.',
+      pet_animation: 'happy'
+    })
+    if (!document.hasFocus()) {
+      void window.collie?.petCommand('status:happy|Finished. Your result is ready in Collie.')
+    }
+    void refreshRuntimeStatus()
+    void refreshCommandCatalog()
+  }, [refreshCommandCatalog, refreshRuntimeStatus])
+  finalizePendingRef.current = finalizePendingAssistant
+
   const rememberProject = useCallback((path: string) => {
     setCurrentProject(path)
     if (!path) return
@@ -194,10 +313,9 @@ export default function ChatScreen({
     setPortraitThinking(null)
     setCardPreview(null)
     streamRef.current = ''
-    if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current)
-      rafRef.current = 0
-    }
+    streamDisplayRef.current = ''
+    pendingAssistantRef.current = null
+    stopStreamReveal()
     if (projectPath !== undefined) rememberProject(projectPath || '')
     if (!id) {
       if (token === loadTokenRef.current) setMessages([])
@@ -213,19 +331,30 @@ export default function ChatScreen({
     } catch {
       if (token === loadTokenRef.current) setMessages([])
     }
-  }, [hydrateActiveTask, rememberProject])
+  }, [hydrateActiveTask, rememberProject, stopStreamReveal])
+
+  useEffect(() => () => {
+    stopStreamReveal()
+    pendingAssistantRef.current = null
+    finalizePendingRef.current = null
+  }, [stopStreamReveal])
 
   useEffect(() => {
     void Promise.all([
       refreshConversations(),
       refreshRuntimeStatus(),
       refreshCommandCatalog(),
+      refreshApprovalPreset(),
       collieClient
         .listPendingApprovals()
         .then((data) => setApprovals(data.approvals))
         .catch(() => undefined)
     ]).finally(() => setActivityReady(true))
-  }, [refreshCommandCatalog, refreshConversations, refreshRuntimeStatus])
+  }, [refreshApprovalPreset, refreshCommandCatalog, refreshConversations, refreshRuntimeStatus])
+
+  useEffect(() => {
+    if (activeView === 'chat') void refreshApprovalPreset()
+  }, [activeView, refreshApprovalPreset])
 
   // Apply a conversation's saved mode once per switch — never re-stomp the
   // user's live selection on every conversation-list refresh.
@@ -247,6 +376,7 @@ export default function ChatScreen({
           void refreshConversations()
           void refreshRuntimeStatus()
           void refreshCommandCatalog()
+          void refreshApprovalPreset()
           setThinkingMap({})
           if (current) {
             collieClient
@@ -342,12 +472,7 @@ export default function ChatScreen({
         case 'delta':
           if (event.conversation_id === current) {
             streamRef.current = mergeStreamDelta(streamRef.current, event.text)
-            if (!rafRef.current) {
-              rafRef.current = requestAnimationFrame(() => {
-                setStreamText(streamRef.current)
-                rafRef.current = 0
-              })
-            }
+            scheduleStreamReveal()
           }
           break
         case 'card':
@@ -365,7 +490,7 @@ export default function ChatScreen({
               setActiveId(msg.conversation_id)
               setMessages([msg])
             }
-          } else if (msg.conversation_id === current) {
+          } else if (msg.conversation_id === current && msg.role !== 'assistant') {
             setMessages((prev) => {
               const existing = prev.findIndex((item) => item.id === msg.id)
               if (existing === -1) return [...prev, msg]
@@ -375,25 +500,28 @@ export default function ChatScreen({
             })
           }
           if (msg.role === 'assistant' && isCurrentConversationEvent(msg.conversation_id, current)) {
-            if (rafRef.current) {
-              cancelAnimationFrame(rafRef.current)
-              rafRef.current = 0
-            }
-            streamRef.current = ''
-            setStreamText('')
-            setCardPreview(null)
-            setPortraitThinking({
-              state: 'done',
-              phrase: 'Done — that was a good one.',
-              pet_animation: 'happy'
+            pendingAssistantRef.current = msg
+            // Reserve the assistant turn as soon as it is complete. The
+            // reveal timer replaces this provisional content in place, rather
+            // than appending after newer user turns.
+            const displayedContent = streamDisplayRef.current
+            setMessages((previous) => {
+              const existing = previous.findIndex((item) => item.id === msg.id)
+              const reserved = { ...msg, content: displayedContent }
+              if (existing === -1) return [...previous, reserved]
+              const next = [...previous]
+              next[existing] = reserved
+              return next
             })
-            if (!document.hasFocus()) {
-              void window.collie?.petCommand(
-                'status:happy|Finished. Your result is ready in Collie.'
-              )
+            setStreamText('')
+            if (streamRef.current || streamDisplayRef.current) {
+              streamRef.current = msg.content
+              scheduleStreamReveal()
+            } else {
+              finalizePendingAssistant()
             }
-            void refreshRuntimeStatus()
-            void refreshCommandCatalog()
+            void refreshConversations()
+            break
           }
           void refreshConversations()
           break
@@ -429,11 +557,14 @@ export default function ChatScreen({
             })
           }
           if (event.message && (!event.conversation_id || event.conversation_id === current)) {
-            if (rafRef.current) {
-              cancelAnimationFrame(rafRef.current)
-              rafRef.current = 0
-            }
+            stopStreamReveal()
             streamRef.current = ''
+            streamDisplayRef.current = ''
+            const pending = pendingAssistantRef.current
+            pendingAssistantRef.current = null
+            if (pending) {
+              setMessages((previous) => previous.filter((item) => item.id !== pending.id))
+            }
             setErrorText(event.message)
             setStreamText('')
             setCardPreview(null)
@@ -466,7 +597,7 @@ export default function ChatScreen({
       }
     })
     return off
-  }, [applyTaskSnapshot, hydrateActiveTask, onNavigate, refreshCommandCatalog, refreshConversations, refreshRuntimeStatus])
+  }, [applyTaskSnapshot, finalizePendingAssistant, hydrateActiveTask, onNavigate, refreshApprovalPreset, refreshCommandCatalog, refreshConversations, refreshRuntimeStatus, scheduleStreamReveal, stopStreamReveal])
 
   const activeThinking: ThinkingState | null = activeId
     ? (thinkingMap[activeId] ?? null)
@@ -536,7 +667,8 @@ export default function ChatScreen({
           text,
           attachments,
           executionMode,
-          currentProject || undefined
+          currentProject || undefined,
+          fileAccessScope
         )
         if (activeIdRef.current !== conversation_id) {
           if (command_handled) {
@@ -559,6 +691,7 @@ export default function ChatScreen({
     [
       currentProject,
       executionMode,
+      fileAccessScope,
       isWorkActive,
       openConversation,
       refreshCommandCatalog,
@@ -574,6 +707,42 @@ export default function ChatScreen({
       void collieClient.setExecutionMode(conversationId, mode).catch(() => undefined)
     }
   }, [])
+
+  const changeApprovalPreset = useCallback((preset: ApprovalPreset) => {
+    const previous = approvalPreset
+    setApprovalPreset(preset)
+    void collieClient.setApprovalPreset(preset).catch((error: unknown) => {
+      setApprovalPreset(previous)
+      setErrorText(error instanceof Error ? error.message : 'I could not change approval mode.')
+    })
+  }, [approvalPreset])
+
+  const changeFileAccessScope = useCallback((scope: FileAccessScope) => {
+    if (!confirmFileAccessScopeChange(scope)) return
+    setFileAccessScope(scope)
+    persistFileAccessScope(scope)
+  }, [])
+
+  const changeComposerProject = useCallback((path: string) => {
+    if (!path) {
+      // A conversation can persist its old project path in the core. Starting
+      // a fresh General Chat makes the composer label and effective file scope
+      // agree instead of silently retaining that previous project.
+      void openConversation(null, '')
+      return
+    }
+    rememberProject(path)
+  }, [openConversation, rememberProject])
+
+  const chooseFileAccessFolders = useCallback(async () => {
+    try {
+      const roots = await window.collie.pickFileAccessFolders()
+      if (!roots.length) return
+      changeFileAccessScope({ mode: 'chosen_folders', roots })
+    } catch (error) {
+      setErrorText(error instanceof Error ? error.message : 'I could not use those folders.')
+    }
+  }, [changeFileAccessScope])
 
   useEffect(() => {
     const requestChange = (event: Event): void => {
@@ -831,9 +1000,14 @@ export default function ChatScreen({
               projects={projects}
               providers={runtimeStatus.providers}
               onProviderChange={(providerId) => void changeProvider(providerId)}
-              onProjectChange={rememberProject}
+              onProjectChange={changeComposerProject}
               onAddProject={() => void addProject()}
               onAddModel={() => onNavigate('settings')}
+              approvalPreset={approvalPreset}
+              onApprovalPresetChange={changeApprovalPreset}
+              fileAccessScope={fileAccessScope}
+              onFileAccessScopeChange={changeFileAccessScope}
+              onChooseFileAccessFolders={() => void chooseFileAccessFolders()}
               onTypingChange={setIsTyping}
               onTranscribe={async (audio) => (await collieClient.transcribe(audio)).text}
               commandCatalog={commandCatalog}

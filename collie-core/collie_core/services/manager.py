@@ -1,6 +1,6 @@
 """Service manager: connect/disconnect services and materialize MCP configs.
 
-Connect flow:
+Connect flow (F038):
 1. UI sends ``connect_service`` over IPC.
 2. OAuth services run the browser flow; api_key services validate the pasted
    fields; local (auth="none") services just flip on.

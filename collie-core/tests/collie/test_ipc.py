@@ -527,19 +527,19 @@ async def test_custom_anthropic_endpoint_persists_runtime_fields(tmp_path: Path)
             ws,
             type="upsert_provider",
             id="custom",
-            provider_id="api-Example Gateway",
-            name="Example Gateway",
+            provider_id="api-Work Gateway",
+            name="Work Gateway",
             auth_type="api-key",
             protocol="anthropic",
             api_base="https://models.example.test",
-            secret_name="Example Gateway",
-            model="example-model",
+            secret_name="Work Gateway",
+            model="company-model",
             is_default=True,
         )
         await _recv_until(ws, "ok")
         assert db.get_setting("provider.name") == "anthropic"
         assert db.get_setting("provider.api_base") == "https://models.example.test"
-        assert db.get_setting("provider.secret_name") == "Example Gateway"
+        assert db.get_setting("provider.secret_name") == "Work Gateway"
         await ws.close()
     finally:
         await srv.stop()
@@ -910,6 +910,7 @@ async def test_approval_preset_applies_to_next_evaluation(tmp_path: Path) -> Non
         risk=Risk.LOCAL_WRITE,
         summary="Write report",
         reversible=True,
+        approve_for_me=True,
     )
     await srv.start()
     try:
@@ -936,7 +937,7 @@ async def test_public_allow_run_ignores_renderer_scope_identity(tmp_path: Path) 
         action="file.write",
         resource="C:/work/report.txt",
         risk="local_write",
-        display={"summary": "Write report"},
+        display={"summary": "Write report", "approve_for_me_eligible": True},
         run_id="trusted-run",
     )
     await srv.start()

@@ -648,7 +648,7 @@ class CollieRuntime:
         )
 
     async def _run_automation(self, auto: dict[str, Any]) -> None:
-        """Run a fired automation's prompt and deliver the result.
+        """Run a fired automation's prompt and deliver the result (F057-F065).
 
         The briefing lands in a per-automation desktop conversation and gets
         fanned out to messengers: any listed in ``delivery_channels`` plus
@@ -864,6 +864,7 @@ class CollieRuntime:
         plan_id: str | None = None,
         plan_version: int | None = None,
         project_path: str | None = None,
+        file_access_scope: dict[str, Any] | None = None,
         message_metadata: dict[str, Any] | None = None,
     ):
         if self.loop is None:
@@ -888,10 +889,21 @@ class CollieRuntime:
                 "plan_id": plan_id,
                 "plan_version": plan_version,
                 "origin": "chat",
+                # This value is read by the local-files permission request so
+                # its approval makes the receiving model provider explicit.
+                "model_provider": str(
+                    (default_provider or {}).get("name")
+                    or (default_provider or {}).get("id")
+                    or "configured model provider"
+                ),
             },
             workspace_scope=(
-                {"project_path": project_path, "access_mode": "restricted"}
-                if project_path
+                {
+                    **({"project_path": project_path} if project_path else {}),
+                    "access_mode": "restricted",
+                    **({"file_access_scope": file_access_scope} if file_access_scope else {}),
+                }
+                if project_path or file_access_scope
                 else None
             ),
         )

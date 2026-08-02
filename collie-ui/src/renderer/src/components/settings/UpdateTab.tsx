@@ -44,8 +44,8 @@ export default function UpdateTab(): React.JSX.Element {
 
   const version = status.availableVersion ? ` ${status.availableVersion}` : ''
   const statusCopy: Record<RendererUpdateStatus['phase'], string> = {
-    idle: 'Ready to check for updates.',
-    checking: 'Checking for updates…',
+    idle: 'Ready to check the private alpha release channel.',
+    checking: 'Checking the alpha release channel…',
     available: `Collie${version} is available. Download it when you are ready.`,
     downloading: `Downloading Collie${version}… ${Math.round(status.percent ?? 0)}%`,
     ready: `Collie${version} is downloaded and ready to install.`,

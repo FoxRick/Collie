@@ -11,6 +11,8 @@ Python runtime in `collie-core/` and an Electron/React shell in `collie-ui/`.
 - Do not report vulnerabilities in public issues. Follow [SECURITY.md](SECURITY.md).
 - For a larger change, open an issue or draft pull request early so the scope
   can be agreed before implementation grows.
+- Read the workspace instructions in [AGENTS.md](AGENTS.md) and the nearest
+  component instructions before editing.
 
 ## Development and checks
 
@@ -30,7 +32,9 @@ request.
   upstream code. Put new Collie behavior in `collie_core/` where practical.
 - Keep permission and approval behavior explicit. Friendly user-facing copy
   must not weaken controls for consequential actions.
-- Update public documentation when verified user-visible behavior changes.
+- Update the smallest canonical document when verified product, architecture,
+  or release truth changes. Follow the documentation-impact check in
+  [docs/WORKFLOW.md](docs/WORKFLOW.md).
 - Do not claim a provider, connector, installer, or release is available until
   the corresponding verified acceptance checks pass.
 
@@ -41,15 +45,11 @@ migration risk. Maintainers may ask for a smaller scope or additional evidence
 before merging.
 
 By contributing, you confirm that you have the right to submit the change and
-license its code and documentation under the repository's MIT License. Do not
-submit Collie branding, artwork, or third-party marks unless you have explicit
-permission and the accompanying provenance information required by
-[NOTICE.md](NOTICE.md).
+license it under the repository's MIT License.
 
 ## Attribution
 
 Collie includes adapted components from
 [HKUDS/nanobot](https://github.com/HKUDS/nanobot). Keep the required
 attribution and third-party notices intact; see [LICENSE](LICENSE) and
-[NOTICE.md](NOTICE.md), as well as
 [collie-core/THIRD_PARTY_NOTICES.md](collie-core/THIRD_PARTY_NOTICES.md).

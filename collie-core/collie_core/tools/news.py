@@ -1,4 +1,4 @@
-"""News tool: headlines and topic digests via Google News RSS.
+"""News tool: headlines and topic digests via Google News RSS (F036, Step 39).
 
 Free, no API key. Returns structured data for a NewsCard.
 """

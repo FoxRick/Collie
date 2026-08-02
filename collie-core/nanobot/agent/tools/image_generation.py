@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import Field
 
+from collie_core.permissions.models import PermissionRequest, Risk
 from nanobot.agent.tools.base import Tool, ToolResult, tool_parameters
 from nanobot.agent.tools.schema import (
     ArraySchema,
@@ -107,6 +108,30 @@ class ImageGenerationTool(Tool):
     @property
     def name(self) -> str:
         return "generate_image"
+
+    def permission_request(self, params: dict[str, Any]) -> PermissionRequest:
+        provider = str(self.config.provider or "configured image provider").strip()
+        references = tuple(
+            str(value).strip()
+            for value in params.get("reference_images") or []
+            if isinstance(value, str) and value.strip()
+        )
+        return PermissionRequest(
+            action="image.generate",
+            resource=provider,
+            risk=Risk.EXTERNAL_WRITE,
+            summary=f"Send an image generation request to {provider}",
+            reversible=True,
+            data_leaving_device=(provider,),
+            redacted_parameters={
+                "provider": provider,
+                "reference_images": list(references),
+            },
+            # The prompt and any reference images leave this device. This
+            # needs a current, one-time decision even if a prior task was
+            # approved for other local work.
+            hard_approval=True,
+        )
 
     @property
     def description(self) -> str:

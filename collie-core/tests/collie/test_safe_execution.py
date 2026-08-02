@@ -25,6 +25,7 @@ def _request(risk: Risk = Risk.LOCAL_WRITE, action: str = "file.write") -> Permi
         risk=risk,
         summary="Change a file",
         reversible=True,
+        approve_for_me=risk == Risk.LOCAL_WRITE,
     )
 
 
@@ -215,6 +216,64 @@ def test_read_non_path_resource_auto_allowed_even_with_project(tmp_path: Path) -
         ExecutionContext(project_path=str(project)), request
     )
     assert decision.effect == Effect.ALLOW
+    db.close()
+
+
+@pytest.mark.parametrize(
+    ("action", "resource"),
+    [
+        ("web_fetch", "https://heycollie.com"),
+        ("web_search", "http://example.com/search?q=collie"),
+    ],
+)
+def test_read_only_http_tools_are_auto_allowed_with_active_project(
+    tmp_path: Path, action: str, resource: str
+) -> None:
+    """HTTP URLs are remote resources, not paths outside the selected project."""
+    db = CollieDB(tmp_path / "db.sqlite")
+    project = tmp_path / "project"
+    project.mkdir()
+    request = PermissionRequest(
+        action=action,
+        resource=resource,
+        risk=Risk.READ,
+        summary="Read a public web page",
+        reversible=True,
+    )
+    decision = PermissionEvaluator(PermissionStore(db)).evaluate(
+        ExecutionContext(project_path=str(project)), request
+    )
+    assert decision.effect == Effect.ALLOW
+    db.close()
+
+
+@pytest.mark.parametrize(
+    "resource",
+    [
+        r"C:\outside\secret.txt",
+        r"\\server\share\secret.txt",
+        "/outside/secret.txt",
+        "../outside/secret.txt",
+    ],
+)
+def test_path_like_reads_outside_project_still_ask_for_approval(
+    tmp_path: Path, resource: str
+) -> None:
+    """Windows, UNC, POSIX, and relative filesystem paths retain the boundary."""
+    db = CollieDB(tmp_path / "db.sqlite")
+    project = tmp_path / "project"
+    project.mkdir()
+    request = PermissionRequest(
+        action="file.read",
+        resource=resource,
+        risk=Risk.READ,
+        summary="Read outside the project",
+        reversible=True,
+    )
+    decision = PermissionEvaluator(PermissionStore(db)).evaluate(
+        ExecutionContext(project_path=str(project)), request
+    )
+    assert decision.effect == Effect.ASK
     db.close()
 
 

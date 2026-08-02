@@ -1,6 +1,6 @@
 {
   "name": "collie",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.4",
   "description": "Your personal AI. With a dog.",
   "main": "./out/main/index.js",
   "author": "Collie",
@@ -9,11 +9,16 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "brand-icon:generate": "electron scripts/generate-brand-icon.cjs",
     "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json",
     "start": "electron-vite preview",
     "stage:core": "node scripts/stage-core.cjs",
     "smoke:packaged-core": "node scripts/smoke-packaged-core.cjs",
-    "dist": "electron-vite build && npm run stage:core && electron-builder",
+    "provenance:write": "node scripts/build-provenance.cjs write",
+    "provenance": "node scripts/build-provenance.cjs print",
+    "provenance:verify": "node scripts/artifact-provenance.cjs verify",
+    "artifact-provenance:write": "node scripts/artifact-provenance.cjs write",
+    "dist": "node scripts/package.cjs",
     "test": "vitest run",
     "test:ui:running": "node scripts/verify-ui-ux.cjs"
   },

@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest'
-import { mergeStreamDelta, visibleStreamText } from './stream'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  mergeStreamDelta,
+  nextStreamReveal,
+  stableMarkdownStreamText,
+  visibleStreamText
+} from './stream'
 
 describe('mergeStreamDelta', () => {
   it('appends ordinary token deltas', () => {
@@ -58,5 +63,90 @@ describe('visibleStreamText', () => {
 
   it('removes partial close tag fragments like </thi', () => {
     expect(visibleStreamText('Answer </thi')).toBe('Answer ')
+  })
+})
+
+describe('stableMarkdownStreamText', () => {
+  it('heals trailing emphasis without changing valid literal markers', () => {
+    expect(stableMarkdownStreamText('This is **still arriving')).toBe('This is **still arriving**')
+    expect(stableMarkdownStreamText('This is **ready** now')).toBe('This is **ready** now')
+    expect(stableMarkdownStreamText('This is __also arriving')).toBe('This is __also arriving__')
+    expect(stableMarkdownStreamText('This is _emphasis arriving')).toBe('This is _emphasis arriving_')
+    expect(stableMarkdownStreamText('Keep snake_case visible')).toBe('Keep snake_case visible')
+    expect(stableMarkdownStreamText('Keep a__b visible')).toBe('Keep a__b visible')
+    expect(stableMarkdownStreamText('Escaped \\**marker stays')).toBe('Escaped \\**marker stays')
+    expect(stableMarkdownStreamText('* list item')).toBe('* list item')
+  })
+
+  it('heals unfinished code and ignores marker text inside it', () => {
+    expect(stableMarkdownStreamText('Run `npm **te')).toBe('Run `npm **te`')
+    expect(stableMarkdownStreamText('Before\n```ts\nconst value = "**"')).toBe(
+      'Before\n```ts\nconst value = "**"\n```'
+    )
+    expect(stableMarkdownStreamText('`**literal**`')).toBe('`**literal**`')
+  })
+
+  it('continues suppressing hidden reasoning', () => {
+    expect(stableMarkdownStreamText('<think>private</think>Useful **answer')).toBe('Useful **answer**')
+  })
+
+  it('holds incomplete links and images until their target closes', () => {
+    expect(stableMarkdownStreamText('See [the guide')).toBe('See the guide')
+    expect(stableMarkdownStreamText('See [the guide](https://example.')).toBe('See the guide')
+    expect(stableMarkdownStreamText('See [the guide](https://example.com)')).toBe(
+      'See [the guide](https://example.com)'
+    )
+  })
+})
+
+describe('nextStreamReveal', () => {
+  it('reveals ordinary text at a bounded cadence without losing content', () => {
+    const content = 'A smooth complete response'
+    let displayed = ''
+    for (let frame = 0; frame < 20 && displayed !== content; frame += 1) {
+      const next = nextStreamReveal(displayed, content, 4)
+      expect(next.startsWith(displayed)).toBe(true)
+      expect(next.length - displayed.length).toBeLessThanOrEqual(4)
+      displayed = next
+    }
+    expect(displayed).toBe(content)
+  })
+
+  it('stays bounded through very long open code and link spans', () => {
+    for (const content of [`\`code ${'x'.repeat(10_000)}`, `[label ${'x'.repeat(10_000)}`]) {
+      const next = nextStreamReveal('', content, 17)
+      expect(next.length).toBe(17)
+      expect(stableMarkdownStreamText(next)).not.toMatch(/(^|[^\\])\[$/)
+    }
+  })
+
+  it('paces rapid deltas to the exact terminal text and supports cancellation', () => {
+    vi.useFakeTimers()
+    let raw = mergeStreamDelta('', 'A rapid ')
+    raw = mergeStreamDelta(raw, '**stream**')
+    const terminal = 'A rapid **stream** with an exact ending.'
+    let displayed = ''
+    let committed = ''
+    const timer = setInterval(() => {
+      displayed = nextStreamReveal(displayed, terminal, 5)
+      if (displayed === visibleStreamText(terminal)) committed = terminal
+    }, 32)
+    vi.advanceTimersByTime(32)
+    expect(displayed.length).toBeLessThan(terminal.length)
+    expect(committed).toBe('')
+    vi.advanceTimersByTime(1_000)
+    expect(committed).toBe(terminal)
+    clearInterval(timer)
+
+    displayed = ''
+    const cancelled = setInterval(() => {
+      displayed = nextStreamReveal(displayed, raw, 5)
+    }, 32)
+    vi.advanceTimersByTime(32)
+    clearInterval(cancelled)
+    const atSwitch = displayed
+    vi.advanceTimersByTime(500)
+    expect(displayed).toBe(atSwitch)
+    vi.useRealTimers()
   })
 })

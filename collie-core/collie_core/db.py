@@ -166,7 +166,7 @@ CREATE TABLE IF NOT EXISTS reminders (
 );
 """
 
-# In-app life-tool tables: shopping list, budget, and health.
+# Phase 3 in-app life-tool tables: shopping list, budget, health (F027, F031, F032).
 _SCHEMA_V2 = """
 CREATE TABLE IF NOT EXISTS shopping_items (
     id TEXT PRIMARY KEY,
@@ -3169,7 +3169,7 @@ class CollieDB:
     # -- data management ----------------------------------------------------------------------------
 
     def export_all(self) -> dict[str, Any]:
-        """Export all user data."""
+        """Full data export (for F104 data export)."""
         return {
             "exported_at": utc_now(),
             "schema_version": self.schema_version,
@@ -3217,7 +3217,7 @@ class CollieDB:
         }
 
     def clear_all(self) -> None:
-        """Wipe all user data."""
+        """Wipe all user data (for F105 data deletion)."""
         # Children before parents: run_steps cascades from runs anyway, but
         # usage (FK -> providers), connector_tool_cache (FK -> connections),
         # messages (FK -> conversations), and plans/runs must go first so no

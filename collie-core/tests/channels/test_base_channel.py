@@ -92,3 +92,4 @@ async def test_handle_message_group_ignores_unknown() -> None:
     )
 
     assert channel._sent == []
+

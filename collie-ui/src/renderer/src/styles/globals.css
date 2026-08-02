@@ -335,6 +335,23 @@ button {
   padding: 25px 20px 22px;
 }
 
+.sidebar-search-toggle {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  margin-left: auto;
+  place-items: center;
+  border-radius: 9px;
+  color: var(--collie-text-sidebar-muted);
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.sidebar-search-toggle:hover,
+.sidebar-search-toggle.is-active {
+  background: #252729;
+  color: #fff;
+}
+
 .brand-mark {
   position: relative;
   width: 34px;
@@ -386,6 +403,10 @@ button {
   border-radius: 11px;
   background: #1b1d1e;
 }
+
+.sidebar-search[hidden] { display: none; }
+
+.sidebar-search svg { color: var(--collie-text-sidebar-muted); }
 
 .sidebar-search:focus-within {
   border-color: rgba(255, 255, 255, 0.28);
@@ -451,6 +472,24 @@ button {
   background: #252729;
   color: #fff;
   box-shadow: inset 2px 0 0 #fff;
+}
+
+.conversation-action {
+  flex: 0 0 auto;
+  color: var(--collie-text-sidebar-muted);
+  opacity: 0;
+  transition: color 150ms ease, opacity 150ms ease;
+}
+
+.conversation-action:hover,
+.conversation-action.is-pinned {
+  color: #fff;
+}
+
+.conversation-action.is-pinned,
+.conversation-row:focus-within .conversation-action,
+.conversation-row:hover .conversation-action {
+  opacity: 1;
 }
 
 .sidebar-settings {
@@ -835,19 +874,24 @@ button {
 .execution-mode button.is-active { position: relative; border-color: var(--collie-btn-primary-bg); background: var(--collie-btn-primary-bg); color: white; }
 .execution-mode > span { margin-left: 7px; color: var(--muted); font-size: var(--collie-min-font-size); }
 
-.approval-sheet { z-index: 80; width: min(680px, calc(100vw - 44px)); border: 1px solid var(--collie-border); border-radius: 18px; background: var(--collie-surface); padding: 19px; box-shadow: 0 20px 60px rgb(25 19 13 / 24%); }
-.approval-sheet--inline { position: relative; flex: 0 0 auto; align-self: center; margin: 8px 12px 4px; border-color: var(--collie-btn-primary-bg); box-shadow: 0 12px 36px rgb(25 19 13 / 16%); }
+.approval-sheet { z-index: 80; width: min(520px, calc(100vw - 32px)); border: 1px solid var(--collie-border); border-radius: 14px; background: var(--collie-surface); padding: 14px; box-shadow: 0 16px 42px rgb(25 19 13 / 18%); }
+.approval-sheet--inline { position: relative; flex: 0 0 auto; align-self: center; margin: 8px 12px 4px; border-color: color-mix(in srgb, var(--collie-btn-primary-bg) 60%, var(--collie-border)); box-shadow: 0 8px 24px rgb(25 19 13 / 12%); }
 .approval-sheet--floating { position: fixed; left: calc(50% + 140px); bottom: 28px; transform: translateX(-50%); }
-.approval-heading { display: flex; gap: 11px; align-items: flex-start; }
-.approval-heading > span { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 11px; background: var(--collie-bone); color: var(--collie-btn-primary-bg); }
-.approval-heading h2 { margin: 2px 0 0; color: var(--ink); font-size: 17px; }
-.approval-sheet dl { display: grid; gap: 9px; margin: 16px 0; }
-.approval-sheet dl > div { display: grid; grid-template-columns: 145px 1fr; gap: 10px; }
-.approval-sheet dt { color: var(--muted); font-size: var(--collie-min-font-size); }
-.approval-sheet dd { margin: 0; overflow-wrap: anywhere; color: var(--ink); font-size: 12px; }
-.approval-warning { display: flex; gap: 7px; align-items: center; color: #9a4e17; font-size: 12px; }
-.approval-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.approval-heading { display: flex; gap: 9px; align-items: flex-start; }
+.approval-heading > span { display: grid; width: 31px; height: 31px; flex: 0 0 auto; place-items: center; border-radius: 9px; background: var(--collie-bone); color: var(--collie-btn-primary-bg); }
+.approval-heading h2 { margin: 1px 0 0; color: var(--ink); font-size: 16px; line-height: 1.25; }
+.approval-destination { margin: 9px 0 0 40px; overflow-wrap: anywhere; color: var(--ink); font-size: 12px; line-height: 1.4; }
+.approval-destination span { color: var(--muted); }
+.approval-warning { display: flex; gap: 7px; align-items: center; margin: 10px 0 0; border-radius: 8px; background: #fff3e5; padding: 8px 9px; color: #88410e; font-size: 12px; font-weight: 600; }
+.approval-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.approval-details { margin-top: 11px; border-top: 1px solid var(--collie-border); padding-top: 9px; }
+.approval-details summary { width: fit-content; cursor: pointer; color: var(--muted); font-size: var(--collie-min-font-size); }
+.approval-details dl { display: grid; gap: 7px; margin: 10px 0 0; }
+.approval-details dl > div { display: grid; grid-template-columns: minmax(126px, 0.8fr) 1.2fr; gap: 9px; }
+.approval-details dt { color: var(--muted); font-size: var(--collie-min-font-size); }
+.approval-details dd { margin: 0; overflow-wrap: anywhere; color: var(--ink); font-size: 12px; }
 .approval-run-all { display: block; margin: 10px 0 0 auto; color: var(--muted); font-size: var(--collie-min-font-size); text-decoration: underline; }
+@media (max-width: 620px) { .approval-sheet--floating { left: 50%; bottom: 16px; } .approval-sheet--inline { margin-inline: 4px; } .approval-destination { margin-left: 0; } .approval-actions { justify-content: stretch; } .approval-actions button { flex: 1 1 auto; } .approval-details dl > div { grid-template-columns: 1fr; gap: 2px; } }
 
 .plan-card { width: min(680px, calc(100vw - 360px)); margin-top: 8px; border: 1px solid var(--collie-border); border-radius: 16px; background: var(--collie-surface); padding: 17px; }
 .plan-card header { display: flex; gap: 11px; }
@@ -1578,9 +1622,21 @@ button {
 .attachment-chip small { margin-top: 2px; color: var(--muted); font-size: var(--collie-min-font-size); }
 .attachment-chip button { display: grid; width: 22px; height: 22px; flex: 0 0 auto; place-items: center; border-radius: 7px; color: var(--muted); }
 .attachment-chip button:hover { background: #f1f1ed; color: var(--ink); }
+.attachment-thumbnail { width: 38px; height: 38px; flex: 0 0 auto; border-radius: 7px; object-fit: cover; }
 .composer-error { margin: 6px 3px 0; color: var(--collie-snoot); font-size: var(--collie-min-font-size); }
 .message-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-.message-attachments span { display: inline-flex; align-items: center; gap: 5px; max-width: 210px; padding: 5px 7px; overflow: hidden; border: 1px solid currentColor; border-radius: 8px; font-size: var(--collie-min-font-size); line-height: 1; opacity: 0.78; text-overflow: ellipsis; white-space: nowrap; }
+.message-attachment { display: inline-flex; align-items: center; gap: 5px; max-width: 210px; padding: 5px 7px; overflow: hidden; border: 1px solid currentColor; border-radius: 8px; font-size: var(--collie-min-font-size); line-height: 1; opacity: 0.78; text-overflow: ellipsis; white-space: nowrap; }
+.message-attachment--image { padding: 4px 7px 4px 4px; cursor: zoom-in; text-align: left; }
+.message-attachment--image:hover { opacity: 1; }
+.message-attachment--image:focus-visible { outline: 2px solid var(--collie-amber); outline-offset: 2px; }
+.message-attachment--image img { width: 42px; height: 42px; flex: 0 0 auto; border-radius: 6px; object-fit: cover; }
+.message-attachment--image span { overflow: hidden; text-overflow: ellipsis; }
+.attachment-lightbox { position: fixed; z-index: 80; inset: 0; display: grid; place-items: center; padding: 28px; background: rgba(10, 11, 12, 0.72); backdrop-filter: blur(5px); }
+.attachment-lightbox-card { position: relative; display: flex; width: min(920px, 100%); max-height: 88vh; flex-direction: column; align-items: center; gap: 10px; }
+.attachment-lightbox-card > button { position: absolute; z-index: 1; top: 10px; right: 10px; display: grid; width: 34px; height: 34px; place-items: center; border-radius: 50%; background: rgba(18, 20, 20, 0.78); color: #fff; }
+.attachment-lightbox-card > button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.attachment-lightbox-card > img { max-width: 100%; max-height: calc(88vh - 34px); border-radius: 12px; background: #fff; box-shadow: 0 24px 70px rgba(0, 0, 0, 0.35); object-fit: contain; }
+.attachment-lightbox-card > p { max-width: 100%; overflow: hidden; color: #fff; font-size: var(--collie-min-font-size); text-overflow: ellipsis; white-space: nowrap; }
 .composer-hint { margin: 7px 4px 0; color: #969893; font-size: var(--collie-min-font-size); text-align: right; }
 
 /* Compact chat context and activity */
@@ -2172,6 +2228,7 @@ button {
 
 .composer-footer .composer-context {
   min-height: 24px;
+  flex-wrap: wrap;
   gap: 5px;
   padding: 0;
 }
@@ -2218,7 +2275,15 @@ button {
   animation: context-popover-in 130ms ease-out;
 }
 
-.context-popover--project { width: 340px; }
+.context-popover--files { width: min(430px, calc(100vw - 34px)); }
+.context-popover--safety { width: 360px; }
+.context-popover--safety small,
+.context-popover--files small {
+  overflow: visible;
+  line-height: 1.35;
+  text-overflow: clip;
+  white-space: normal;
+}
 
 @keyframes context-popover-in {
   from { opacity: 0; transform: translateY(4px) scale(0.985); }
@@ -2232,6 +2297,12 @@ button {
   font-weight: 750;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+}
+
+.context-popover-heading--section {
+  margin-top: 6px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
 }
 
 .context-popover > button {
@@ -2283,6 +2354,22 @@ button {
   font-size: var(--collie-min-font-size);
   font-weight: 700;
 }
+
+.file-access-roots {
+  display: grid;
+  max-height: 112px;
+  gap: 4px;
+  margin: 4px 7px 6px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 7px 9px;
+  color: var(--muted);
+  font-size: var(--collie-min-font-size);
+}
+
+.file-access-roots li { overflow-wrap: anywhere; }
 
 .composer-footer .composer-hint {
   flex: 0 0 auto;

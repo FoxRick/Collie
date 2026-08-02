@@ -1,4 +1,4 @@
-"""Generic OAuth 2.0 flow for service connections.
+"""Generic OAuth 2.0 flow for service connections (F038, Step 34).
 
 Authorization code + PKCE with a localhost callback:
 

@@ -8,7 +8,9 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
+from collie_core.permissions.defaults import is_automatic_local_action_ineligible
 from collie_core.permissions.models import (
     Effect,
     ExecutionContext,
@@ -32,6 +34,16 @@ def canonical_folder_contains(folder: str, resource: str) -> bool:
 def _is_path_resource(resource: str) -> bool:
     """Heuristic: does *resource* look like a local filesystem path?"""
     if not resource:
+        return False
+    # URLs contain forward slashes, but those are protocol separators rather
+    # than filesystem path components.  In particular, a selected project
+    # must not turn harmless read-only web tools into external-directory
+    # approvals.
+    try:
+        parsed = urlsplit(resource)
+    except ValueError:
+        parsed = None
+    if parsed and parsed.scheme.lower() in {"http", "https"} and parsed.netloc:
         return False
     expanded = os.path.expanduser(resource)
     return os.path.isabs(expanded) or "/" in resource or "\\" in resource
@@ -73,6 +85,9 @@ class PermissionEvaluator:
                 Effect.DENY, "An explicit deny rule blocks this action.", str(denied["id"])
             )
 
+        ordinary_safe = self._ordinary_safe(request)
+        review_safe = ordinary_safe or self._approve_for_me_eligible(request)
+
         if (
             request.risk != Risk.READ
             and context.conversation_id
@@ -85,10 +100,7 @@ class PermissionEvaluator:
                     Effect.DENY,
                     "Review status is unavailable, so this action cannot proceed safely.",
                 )
-            if review_gate and request.action not in {
-                "plan.present",
-                "task.progress",
-            }:
+            if review_gate and request.action not in {"plan.present", "task.progress"} and not review_safe:
                 return PermissionDecision(
                     Effect.DENY,
                     "This work needs an approved plan before changes can continue.",
@@ -124,11 +136,19 @@ class PermissionEvaluator:
 
         allowed = next((rule for rule in rules if rule.get("effect") == Effect.ALLOW), None)
         if allowed:
+            if (
+                str(allowed.get("scope_type") or "") == "run"
+                and not self._approve_for_me_eligible(request)
+            ):
+                return PermissionDecision(
+                    Effect.ASK,
+                    "This action is not eligible for approval for this task.",
+                )
             return PermissionDecision(
                 Effect.ALLOW, "A matching approval rule allows this action.", str(allowed["id"])
             )
 
-        if context.approve_all_for_run and context.run_id:
+        if context.approve_all_for_run and context.run_id and self._approve_for_me_eligible(request):
             return PermissionDecision(Effect.ALLOW, "Approved for this run.")
         if request.risk == Risk.READ:
             if context.project_path and _is_path_resource(request.resource):
@@ -139,9 +159,39 @@ class PermissionEvaluator:
                         "I need your approval before I can poke my nose in there.",
                     )
             return PermissionDecision(Effect.ALLOW, "Read-only actions are allowed.")
-        if request.risk == Risk.LOCAL_WRITE and self.local_write_preset == "allow":
+        if (
+            request.risk == Risk.LOCAL_WRITE
+            and self.local_write_preset == "allow"
+            and self._approve_for_me_eligible(request)
+        ):
             return PermissionDecision(Effect.ALLOW, "The local-write preset allows this action.")
+        if ordinary_safe:
+            return PermissionDecision(
+                Effect.ALLOW,
+                "This ordinary personal action is safe to do without another approval.",
+            )
         return PermissionDecision(Effect.ASK, "Your approval is needed before this action.")
+
+    @staticmethod
+    def _ordinary_safe(request: PermissionRequest) -> bool:
+        """Limit approval-free work to explicitly tagged reversible local operations."""
+        return bool(
+            request.approval_free
+            and request.risk == Risk.LOCAL_WRITE
+            and request.reversible
+            and not request.hard_approval
+            and not is_automatic_local_action_ineligible(request.action)
+        )
+
+    @staticmethod
+    def _approve_for_me_eligible(request: PermissionRequest) -> bool:
+        """Keep run-wide approval away from external and consequential actions."""
+        return bool(
+            request.approve_for_me
+            and request.risk == Risk.LOCAL_WRITE
+            and not request.hard_approval
+            and not is_automatic_local_action_ineligible(request.action)
+        )
 
     def _matching_rules(
         self, context: ExecutionContext, request: PermissionRequest

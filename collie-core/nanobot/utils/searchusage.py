@@ -164,3 +164,5 @@ def _parse_tavily_usage(data: dict[str, Any]) -> SearchUsageInfo:
         extract_used=account.get("extract_usage"),
         crawl_used=account.get("crawl_usage"),
     )
+
+

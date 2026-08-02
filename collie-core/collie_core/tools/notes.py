@@ -1,4 +1,4 @@
-"""Notes tool: Apple Notes, Notion, or Obsidian via MCP.
+"""Notes tool: Apple Notes / Notion / Obsidian via MCP (F026).
 
 When no notes service is connected, this tool nudges the user toward
 Settings → Services. Once connected, it points the model at the service's
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from collie_core.permissions.models import PermissionRequest, Risk
 from collie_core.tools.services_bridge import connected_service_id, mcp_tools_hint
 from nanobot.agent.tools.base import Tool, tool_parameters
 
@@ -57,6 +58,18 @@ class NotesTool(Tool):
     @property
     def read_only(self) -> bool:
         return False
+
+    def permission_request(self, params: dict[str, Any]) -> PermissionRequest:
+        action = str(params.get("action") or "").strip().lower()
+        return PermissionRequest(
+            action=f"notes.{action or 'manage'}",
+            resource="local-notes",
+            risk=Risk.LOCAL_WRITE,
+            summary="Manage your notes",
+            reversible=True,
+            approval_free=True,
+            approve_for_me=True,
+        )
 
     @classmethod
     def enabled(cls, ctx: Any) -> bool:

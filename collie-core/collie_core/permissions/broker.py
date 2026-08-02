@@ -96,6 +96,7 @@ class ApprovalBroker:
                 "data_leaving_device": list(request.data_leaving_device),
                 "parameters": request.redacted_parameters,
                 "suggested_scope": request.suggested_scope,
+                "approve_for_me_eligible": self.evaluator._approve_for_me_eligible(request),
                 "reason": decision.reason,
             },
             run_id=context.run_id,
@@ -138,6 +139,9 @@ class ApprovalBroker:
             run_id = str(row.get("run_id") or "").strip()
             if not run_id:
                 raise ValueError("approval request is not tied to a run")
+            display = row.get("display") if isinstance(row.get("display"), dict) else {}
+            if not bool(display.get("approve_for_me_eligible")):
+                raise ValueError("this action is not eligible for approval for this task")
             rule = self.db.add_approval_rule(
                 action=str(row["action"]),
                 resource_pattern=str(row["resource"]),

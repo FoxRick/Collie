@@ -14,3 +14,6 @@ Provider, product, and service names and logos are the trademarks of their
 respective owners. They are included only for nominative identification where
 present, do not imply affiliation, partnership, endorsement, or enabled
 integration, and are not licensed by this repository.
+
+The current asset review and its remaining provenance limitations are recorded
+in [docs/operations/release/asset-provenance.md](docs/operations/release/asset-provenance.md).

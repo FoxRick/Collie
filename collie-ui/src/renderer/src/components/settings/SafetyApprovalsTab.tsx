@@ -33,28 +33,33 @@ export default function SafetyApprovalsTab(): React.JSX.Element {
     <div>
       <h2 className="mb-2 text-xl font-semibold">Safety & approvals</h2>
       <p className="settings-lead">
-        Read-only work is allowed. External, sensitive, and destructive actions still ask.
+        Everyday help can stay smooth without giving Collie authority over consequential actions.
       </p>
       <section className="settings-card">
         <h3>Local changes</h3>
         <label className="form-field">
-          <span>When you directly ask Collie to change something on this computer</span>
+          <span>Approvals</span>
           <select
             value={preset}
             onChange={(event) => {
               const value = event.target.value as 'ask' | 'allow'
               setPreset(value)
               collieClient
-                .command('set_approval_preset', { preset: value })
+                .setApprovalPreset(value)
                 .catch(() => {
                   // The change did not reach the core — show the real value.
                   refreshPreset()
                 })
             }}
           >
-            <option value="ask">Ask every time</option>
-            <option value="allow">Allow reversible local changes</option>
+            <option value="ask">Ask me</option>
+            <option value="allow">Approve for me</option>
           </select>
+          <small>
+            {preset === 'allow'
+              ? 'Eligible ordinary local actions can continue. Consequential actions still ask.'
+              : 'Collie asks before bounded file edits and other eligible local changes that still need approval.'}
+          </small>
         </label>
       </section>
       <section className="settings-card">

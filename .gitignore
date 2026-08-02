@@ -1,14 +1,41 @@
-# Local runtime state
+# Local Codex and runtime state
+.agents/
+.codex/
+.local-runtime-logs/
+.pytest-tmp/
+.monorepo-staging/
+.nested-repo-backups/
 __pycache__/
 *.py[cod]
+collie-sites-preview/
+website/
+
+# Local agent worktrees and security-scan scratch state
+.site-release-worktree/
+.tmp-sites-security-release/
+.public-source-worktree/
+.public-product-repo/
+.public-website-repo/
 .tmp/
 
 # Local test and coverage state
 .pytest_cache/
 .pytest-*/
 collie-core/.pytest-final-*/
+collie-core/.tmp-pytest-audit/
 .coverage
 coverage/
+
+# Generic dependency, database, and runtime output
+node_modules/
+**/node_modules/
+dist/
+out/
+.electron-bundle/
+*.log
+*.db
+*.sqlite
+*.sqlite3
 
 # Local environment files; retain explicit, documented examples
 .env
@@ -28,3 +55,7 @@ collie-ui/out/
 # Generated build and visual QA artifacts
 *.tsbuildinfo
 collie-ui/screenshots/
+
+# Private company material and reference repositories stay outside the public product repository
+company/
+source code competitors/

@@ -20,6 +20,7 @@ export interface MessageAttachment {
   name: string
   mime: string
   size: number
+  preview_data_url?: string
 }
 
 export interface AttachmentDraft extends MessageAttachment {
@@ -37,6 +38,13 @@ export interface Conversation {
 }
 
 export type ExecutionMode = 'plan' | 'execute'
+export type ApprovalPreset = 'ask' | 'allow'
+export type FileAccessMode = 'selected_folder' | 'chosen_folders' | 'full_file_access'
+
+export interface FileAccessScope {
+  mode: FileAccessMode
+  roots?: string[]
+}
 
 export interface ThinkingState {
   state: string
@@ -511,15 +519,17 @@ export class CollieClient {
     conversationId: string | null,
     content: string,
     attachments: AttachmentDraft[] = [],
-    executionMode: ExecutionMode = 'plan',
-    projectPath?: string
+    executionMode: ExecutionMode = 'execute',
+    projectPath?: string,
+    fileAccessScope: FileAccessScope = { mode: 'selected_folder' }
   ): Promise<{ conversation_id: string; command_handled?: boolean }> {
     return this.command('chat', {
       conversation_id: conversationId ?? '',
       content,
       attachments,
       execution_mode: executionMode,
-      project_path: projectPath
+      project_path: projectPath,
+      file_access_scope: fileAccessScope
     })
   }
 
@@ -595,6 +605,10 @@ export class CollieClient {
 
   getSettings(): Promise<{ settings: Record<string, unknown> }> {
     return this.command('get_settings')
+  }
+
+  setApprovalPreset(preset: ApprovalPreset): Promise<{ preset: ApprovalPreset }> {
+    return this.command('set_approval_preset', { preset })
   }
 
   setSetting(key: string, value: unknown): Promise<unknown> {

@@ -40,6 +40,8 @@ Server -> client events:
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import inspect
 import json
 import os
@@ -61,6 +63,10 @@ from collie_core.permissions.models import Risk
 from collie_core.providers.storage import legacy_oauth_data_root
 from collie_core.session_identity import desktop_session_key
 from collie_core.voice import LocalVoiceService, VoiceInputError
+from nanobot.security.workspace_access import (
+    WorkspaceScopeError,
+    validate_local_file_access_scope_payload,
+)
 from nanobot.webui.attachment_ingress import store_inbound_attachments
 from nanobot.webui.ingress_policy import DEFAULT_WEBUI_INGRESS_POLICY
 from nanobot.webui.skills_api import webui_skill_detail_payload, webui_skills_payload
@@ -68,6 +74,13 @@ from nanobot.webui.skills_api import webui_skill_detail_payload, webui_skills_pa
 __all__ = ["CollieIPCServer"]
 
 _MAX_FRAME_BYTES = DEFAULT_WEBUI_INGRESS_POLICY.minimum_full_policy_frame_bytes()
+
+_MAX_PREVIEW_BYTES = 256 * 1024
+_SAFE_PREVIEW_MIMES = frozenset({"image/png", "image/jpeg", "image/webp", "image/gif"})
+_PREVIEW_DATA_URL = re.compile(
+    r"data:(image/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]*={0,2})",
+    re.IGNORECASE,
+)
 
 _ATTACHMENT_ERRORS = {
     "too_many_images": "Up to four files at a time, please.",
@@ -116,6 +129,32 @@ def _fallback_chat_title(content: str) -> str:
     if len(words) > 8 or len(title) > 48:
         title = title[:47].rstrip() + "…"
     return title[0].upper() + title[1:]
+
+
+def _safe_preview_data_url(attachment: dict[str, Any]) -> str | None:
+    """Return a bounded raster preview supplied by the shell, or omit it safely."""
+    attachment_mime = str(attachment.get("mime") or "").strip().lower()
+    if attachment_mime not in _SAFE_PREVIEW_MIMES:
+        return None
+
+    preview = attachment.get("preview_data_url")
+    if not isinstance(preview, str):
+        return None
+    match = _PREVIEW_DATA_URL.fullmatch(preview)
+    if match is None:
+        return None
+
+    encoded = match.group(2)
+    max_encoded_length = ((_MAX_PREVIEW_BYTES + 2) // 3) * 4
+    if not encoded or len(encoded) > max_encoded_length:
+        return None
+    try:
+        decoded = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        return None
+    if not decoded or len(decoded) > _MAX_PREVIEW_BYTES:
+        return None
+    return preview
 
 
 class CollieIPCServer:
@@ -462,7 +501,10 @@ class CollieIPCServer:
         return {"skill": skill}
 
     async def _cmd_new_conversation(self, connection: ServerConnection, frame: dict) -> dict:
-        return self.db.create_conversation(str(frame.get("title") or "New chat"))
+        conversation = self.db.create_conversation(str(frame.get("title") or "New chat"))
+        self.db.set_conversation_mode(str(conversation["id"]), "execute")
+        conversation["execution_mode"] = "execute"
+        return conversation
 
     async def _cmd_list_conversations(self, connection: ServerConnection, frame: dict) -> dict:
         return {"conversations": await asyncio.to_thread(
@@ -2114,12 +2156,16 @@ class CollieIPCServer:
                 })
                 return
             for item, saved_path in zip(raw_attachments, media_paths, strict=False):
-                attachment_meta.append({
+                metadata = {
                     "name": str(item.get("name") or Path(saved_path).name),
                     "mime": str(item.get("mime") or "application/octet-stream"),
                     "size": int(item.get("size") or 0),
                     "path": saved_path,
-                })
+                }
+                preview_data_url = _safe_preview_data_url(item)
+                if preview_data_url is not None:
+                    metadata["preview_data_url"] = preview_data_url
+                attachment_meta.append(metadata)
 
         conv_id = str(frame.get("conversation_id") or "")
         project_path = str(frame.get("project_path") or "").strip() or None
@@ -2138,9 +2184,37 @@ class CollieIPCServer:
                 return
             project_path = str(project.resolve())
         conversation = self.db.get_conversation(conv_id) if conv_id else None
+        selected_project_path = project_path or (
+            conversation.get("project_path") if conversation is not None else None
+        )
+        file_access_scope: dict[str, Any] | None = None
+        if "file_access_scope" in frame:
+            raw_file_access_scope = frame.get("file_access_scope")
+            try:
+                roots, unrestricted = validate_local_file_access_scope_payload(
+                    raw_file_access_scope,
+                    selected_folder=selected_project_path,
+                )
+            except WorkspaceScopeError as exc:
+                await self._send(connection, {
+                    "type": "error",
+                    "id": frame.get("id"),
+                    "message": f"That file access choice is not available: {exc.message}",
+                })
+                return
+            if unrestricted:
+                file_access_scope = {"mode": "full_file_access"}
+            else:
+                raw_mode = str(raw_file_access_scope["mode"])
+                file_access_scope = {"mode": raw_mode}
+                if raw_mode == "chosen_folders":
+                    file_access_scope["roots"] = [str(root) for root in roots]
+        created_conversation = conversation is None
         if conversation is None:
             conversation = self.db.create_conversation(project_path=project_path)
             conv_id = conversation["id"]
+            self.db.set_conversation_mode(conv_id, "execute")
+            conversation["execution_mode"] = "execute"
         elif project_path and conversation.get("project_path") != project_path:
             self.db.set_conversation_project(conv_id, project_path)
             conversation["project_path"] = project_path
@@ -2264,8 +2338,8 @@ class CollieIPCServer:
 
         mode = str(
             frame.get("execution_mode")
-            or conversation.get("execution_mode")
-            or "plan"
+            or ("execute" if created_conversation else conversation.get("execution_mode"))
+            or "execute"
         )
         self.db.set_conversation_mode(conv_id, mode)
         task = asyncio.create_task(
@@ -2275,6 +2349,7 @@ class CollieIPCServer:
                 media_paths,
                 execution_mode=mode,
                 project_path=project_path,
+                file_access_scope=file_access_scope,
                 message_metadata=message_metadata,
             )
         )
@@ -2391,6 +2466,7 @@ class CollieIPCServer:
         plan_id: str | None = None,
         plan_version: int | None = None,
         project_path: str | None = None,
+        file_access_scope: dict[str, Any] | None = None,
         message_metadata: dict[str, Any] | None = None,
     ) -> None:
         streamed = False
@@ -2592,6 +2668,7 @@ class CollieIPCServer:
                 "plan_id": plan_id,
                 "plan_version": plan_version,
                 "project_path": project_path,
+                "file_access_scope": file_access_scope,
             }
             if media:
                 chat_kwargs["media"] = media

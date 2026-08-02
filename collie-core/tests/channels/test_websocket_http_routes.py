@@ -706,14 +706,14 @@ async def test_mcp_presets_routes_require_token_and_return_payload(
             headers={
                 **auth,
                 "X-Nanobot-MCP-Values": json.dumps(
-                    {"browserbase_api_key": "test-browserbase-key"}
+                    {"browserbase_api_key": "bb_live_secret"}
                 ),
             },
         )
         assert enabled.status_code == 200
-        assert preset_queries[-1][1]["browserbase_api_key"] == ["test-browserbase-key"]
+        assert preset_queries[-1][1]["browserbase_api_key"] == ["bb_live_secret"]
         body = enabled.json()
-        assert "test-browserbase-key" not in enabled.text
+        assert "bb_live_secret" not in enabled.text
         assert body["last_action"]["message"] == "enable:browserbase MCP config reloaded."
         assert body["hot_reload"]["ok"] is True
         assert body["restart_required_sections"] == []

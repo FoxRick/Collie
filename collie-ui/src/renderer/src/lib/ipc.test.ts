@@ -92,4 +92,63 @@ describe('CollieClient connection startup', () => {
     await expect(reply).resolves.toMatchObject({ requested: true, status: 'pending_safe_boundary' })
     client.close()
   })
+
+  it('sends execute mode and the explicit file-access scope with chat', async () => {
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    const client = new CollieClient(4321)
+    const reply = client.chat(
+      null,
+      'Organize these files',
+      [],
+      'execute',
+      'C:\\Selected',
+      { mode: 'chosen_folders', roots: ['C:\\First', 'C:\\Second'] }
+    )
+    client.connect()
+    const socket = FakeWebSocket.instances[0]
+    socket.open()
+    const request = JSON.parse(socket.send.mock.calls[0][0] as string)
+    expect(request).toMatchObject({
+      type: 'chat',
+      execution_mode: 'execute',
+      project_path: 'C:\\Selected',
+      file_access_scope: {
+        mode: 'chosen_folders',
+        roots: ['C:\\First', 'C:\\Second']
+      }
+    })
+    socket.onmessage?.({
+      data: JSON.stringify({
+        id: request.id,
+        type: 'ok',
+        data: { conversation_id: 'conversation-1' }
+      })
+    })
+    await expect(reply).resolves.toEqual({ conversation_id: 'conversation-1' })
+    client.close()
+  })
+
+  it('keeps General Chat narrow when no selected folder exists', async () => {
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    const client = new CollieClient(4321)
+    const reply = client.chat(null, 'Hello')
+    client.connect()
+    const socket = FakeWebSocket.instances[0]
+    socket.open()
+    const request = JSON.parse(socket.send.mock.calls[0][0] as string)
+    expect(request.execution_mode).toBe('execute')
+    expect(request).toMatchObject({
+      file_access_scope: { mode: 'selected_folder' }
+    })
+    expect(request).not.toHaveProperty('project_path')
+    socket.onmessage?.({
+      data: JSON.stringify({
+        id: request.id,
+        type: 'ok',
+        data: { conversation_id: 'conversation-1' }
+      })
+    })
+    await expect(reply).resolves.toEqual({ conversation_id: 'conversation-1' })
+    client.close()
+  })
 })

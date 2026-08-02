@@ -1,4 +1,4 @@
-"""Subagent loader: Markdown files on disk, mirrored to SQLite.
+"""Subagent loader: .md files on disk, mirrored to SQLite (Step 36, F049).
 
 File format (adapted from the engine's SKILL.md pattern):
 

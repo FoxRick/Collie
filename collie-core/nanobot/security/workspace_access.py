@@ -9,8 +9,12 @@ from pathlib import Path
 from typing import Any, Literal
 
 WorkspaceAccessMode = Literal["restricted", "full"]
+LocalFileAccessMode = Literal["selected_folder", "chosen_folders", "full_file_access"]
 WORKSPACE_SCOPE_METADATA_KEY = "workspace_scope"
 _ACCESS_MODES = {"restricted", "full"}
+_LOCAL_FILE_ACCESS_MODES = {"selected_folder", "chosen_folders", "full_file_access"}
+_MAX_LOCAL_FILE_ROOTS = 16
+_WINDOWS_LOCAL_DRIVE_TYPES = frozenset({2, 3, 6})
 
 _TRUE_VALUES = {"1", "true", "yes", "on", "enabled"}
 _FALSE_VALUES = {"0", "false", "no", "off", "disabled", ""}
@@ -71,16 +75,28 @@ class WorkspaceScope:
     restrict_to_workspace: bool
     sandbox_status: WorkspaceSandboxStatus
     source_channel: str | None = None
+    local_file_roots: tuple[Path, ...] = ()
+    unrestricted_local_files: bool = False
+    local_file_access_mode: LocalFileAccessMode | None = None
 
     @property
     def project_name(self) -> str:
         return self.project_path.name or str(self.project_path)
 
-    def metadata(self) -> dict[str, str]:
-        return {
+    def metadata(self) -> dict[str, Any]:
+        metadata: dict[str, Any] = {
             "project_path": str(self.project_path),
             "access_mode": self.access_mode,
         }
+        if self.local_file_access_mode == "full_file_access":
+            metadata["file_access_scope"] = {"mode": "full_file_access"}
+        elif self.local_file_access_mode is not None:
+            metadata["file_access_scope"] = {"mode": self.local_file_access_mode}
+            if self.local_file_access_mode == "chosen_folders":
+                metadata["file_access_scope"]["roots"] = [
+                    str(root) for root in self.local_file_roots
+                ]
+        return metadata
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -98,12 +114,24 @@ class ToolWorkspace:
     project_path: Path | None
     restrict_to_workspace: bool
     scope: WorkspaceScope | None = None
+    local_file_roots: tuple[Path, ...] = ()
+    unrestricted_local_files: bool = False
 
     @property
     def allowed_root(self) -> Path | None:
         if self.restrict_to_workspace and self.project_path is not None:
             return self.project_path
         return None
+
+    @property
+    def allowed_local_file_roots(self) -> tuple[Path, ...]:
+        """Canonical local roots available to local filesystem tools."""
+
+        if self.unrestricted_local_files:
+            return ()
+        if self.local_file_roots:
+            return self.local_file_roots
+        return (self.allowed_root,) if self.allowed_root is not None else ()
 
 
 @dataclass(frozen=True)
@@ -160,7 +188,17 @@ class WorkspaceScopeResolver:
             return
         raw = metadata.get(WORKSPACE_SCOPE_METADATA_KEY)
         if isinstance(raw, dict):
-            session.metadata[WORKSPACE_SCOPE_METADATA_KEY] = dict(raw)
+            persisted = dict(raw)
+            local_file_scope = persisted.get("file_access_scope")
+            if (
+                isinstance(local_file_scope, dict)
+                and local_file_scope.get("mode") == "full_file_access"
+            ):
+                # Full local-file access is for the active in-memory turn
+                # only. Keeping it in session metadata would silently revive
+                # broad authority after a restart or later scope omission.
+                persisted.pop("file_access_scope", None)
+            session.metadata[WORKSPACE_SCOPE_METADATA_KEY] = persisted
 
 
 def workspace_sandbox_status(
@@ -216,10 +254,18 @@ def build_workspace_scope(
     access_mode: str,
     *,
     source_channel: str | None = None,
+    local_file_roots: tuple[Path, ...] | None = None,
+    unrestricted_local_files: bool | None = None,
+    local_file_access_mode: LocalFileAccessMode | None = None,
 ) -> WorkspaceScope:
     mode = _normalize_access_mode(access_mode)
     root = Path(project_path).expanduser().resolve(strict=False)
     restrict = mode == "restricted"
+    # Legacy WebUI ``full`` scopes keep their broad local-file behavior. New
+    # product file access always sets these fields explicitly and leaves
+    # ``access_mode`` restricted so it cannot affect network policy.
+    unrestricted = mode == "full" if unrestricted_local_files is None else unrestricted_local_files
+    roots = (root,) if local_file_roots is None and not unrestricted else (local_file_roots or ())
     return WorkspaceScope(
         project_path=root,
         access_mode=mode,
@@ -229,6 +275,9 @@ def build_workspace_scope(
             workspace=root,
         ),
         source_channel=source_channel,
+        local_file_roots=roots,
+        unrestricted_local_files=unrestricted,
+        local_file_access_mode=local_file_access_mode,
     )
 
 
@@ -282,7 +331,74 @@ def validate_workspace_scope_payload(
         raw_mode = default_access_mode(default_restrict_to_workspace)
     if not isinstance(raw_mode, str):
         raise WorkspaceScopeError("access_mode must be a string")
-    return build_workspace_scope(project, raw_mode, source_channel=source_channel)
+    mode = _normalize_access_mode(raw_mode)
+    local_file_scope = raw.get("file_access_scope")
+    if local_file_scope is None:
+        return build_workspace_scope(project, mode, source_channel=source_channel)
+    if mode != "restricted":
+        raise WorkspaceScopeError("file_access_scope requires restricted access_mode")
+    roots, unrestricted = validate_local_file_access_scope_payload(
+        local_file_scope,
+        selected_folder=project,
+    )
+    return build_workspace_scope(
+        project,
+        mode,
+        source_channel=source_channel,
+        local_file_roots=roots,
+        unrestricted_local_files=unrestricted,
+        local_file_access_mode=local_file_scope["mode"],
+    )
+
+
+def validate_local_file_access_scope_payload(
+    raw: Any,
+    *,
+    selected_folder: str | Path | None,
+) -> tuple[tuple[Path, ...], bool]:
+    """Validate one explicit product local-file access selection.
+
+    The return value is ``(roots, unrestricted_local_files)``. It intentionally
+    does not alter the generic workspace access mode, which is also used by
+    network safety decisions elsewhere in the engine.
+    """
+
+    if not isinstance(raw, dict):
+        raise WorkspaceScopeError("file_access_scope must be an object")
+    mode = raw.get("mode")
+    if not isinstance(mode, str) or mode not in _LOCAL_FILE_ACCESS_MODES:
+        raise WorkspaceScopeError(
+            "file_access_scope.mode must be selected_folder, chosen_folders, or full_file_access"
+        )
+    roots = raw.get("roots")
+    if mode == "full_file_access":
+        if roots not in (None, []):
+            raise WorkspaceScopeError("full_file_access does not accept roots")
+        return (), True
+    if mode == "selected_folder":
+        if roots not in (None, []):
+            raise WorkspaceScopeError("selected_folder does not accept roots")
+        if selected_folder is None:
+            # Desktop General Chat has no selected project. The engine turns
+            # this marker into its configured runtime workspace at the turn
+            # boundary, which also revokes any older broader session scope.
+            return (), False
+        return (_validate_local_file_root(selected_folder, field="project_path"),), False
+    if not isinstance(roots, list) or not roots:
+        raise WorkspaceScopeError("chosen_folders requires one or more roots")
+    if len(roots) > _MAX_LOCAL_FILE_ROOTS:
+        raise WorkspaceScopeError(f"chosen_folders supports at most {_MAX_LOCAL_FILE_ROOTS} roots")
+    canonical: list[Path] = []
+    seen: set[str] = set()
+    for value in roots:
+        root = _validate_local_file_root(value, field="file_access_scope.roots")
+        key = os.path.normcase(str(root))
+        if key not in seen:
+            seen.add(key)
+            canonical.append(root)
+    if not canonical:
+        raise WorkspaceScopeError("chosen_folders requires one or more roots")
+    return tuple(canonical), False
 
 
 def workspace_scope_from_metadata(
@@ -372,6 +488,10 @@ def current_tool_workspace(
         project_path=project_path,
         restrict_to_workspace=restrict,
         scope=scope,
+        local_file_roots=scope.local_file_roots if scope is not None else (),
+        unrestricted_local_files=(
+            scope.unrestricted_local_files if scope is not None else False
+        ),
     )
 
 
@@ -417,6 +537,59 @@ def _provider_label(provider: str) -> str:
     if provider in _PROVIDER_LABELS:
         return _PROVIDER_LABELS[provider]
     return provider.replace("_", " ").title()
+
+
+def _validate_local_file_root(value: Any, *, field: str) -> Path:
+    if not isinstance(value, (str, Path)):
+        raise WorkspaceScopeError(f"{field} must contain directory paths")
+    raw = str(value).strip()
+    if not raw or "\0" in raw:
+        raise WorkspaceScopeError(f"{field} contains an invalid directory path")
+    if raw.startswith(("\\\\", "//")):
+        raise WorkspaceScopeError(f"{field} cannot use a network directory")
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        raise WorkspaceScopeError(f"{field} directories must be absolute")
+    resolved = path.resolve(strict=False)
+    if str(resolved).startswith(("\\\\", "//")):
+        raise WorkspaceScopeError(f"{field} cannot use a network directory")
+    if not is_local_filesystem_path(resolved):
+        raise WorkspaceScopeError(f"{field} must be on a local drive")
+    if not resolved.is_dir():
+        raise WorkspaceScopeError(f"{field} directories must exist")
+    return resolved
+
+
+def is_local_filesystem_path(path: Path) -> bool:
+    """Return whether a canonical path is on a local filesystem.
+
+    Windows mapped drives are not UNC spellings, but they still point at a
+    network share.  The local-file boundary must reject them just like UNC
+    roots.  If Windows cannot classify a drive, fail closed.
+    """
+
+    if not _running_on_windows():
+        return True
+    anchor = str(path.anchor)
+    if not anchor:
+        return False
+    drive_type = _windows_drive_type(anchor)
+    return drive_type in _WINDOWS_LOCAL_DRIVE_TYPES
+
+
+def _windows_drive_type(anchor: str) -> int | None:
+    """Return a Windows drive type, or ``None`` if it cannot be determined."""
+
+    try:
+        import ctypes
+
+        return int(ctypes.windll.kernel32.GetDriveTypeW(anchor))
+    except (AttributeError, OSError, TypeError, ValueError):
+        return None
+
+
+def _running_on_windows() -> bool:
+    return os.name == "nt"
 
 
 def _normalize_access_mode(value: str) -> WorkspaceAccessMode:

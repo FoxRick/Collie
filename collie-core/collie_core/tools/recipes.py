@@ -1,4 +1,4 @@
-"""Recipes tool: search via TheMealDB (free, no API key).
+"""Recipes tool: search via TheMealDB (free, no API key) (F028, Step 39).
 
 Returns structured data for a RecipeCard; can scale servings and hand the
 ingredient list to the shopping list tool.
@@ -12,6 +12,7 @@ from typing import Any
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from collie_core.permissions.models import PermissionRequest, Risk
 from nanobot.agent.tools.base import Tool, tool_parameters
 
 __all__ = ["RecipesTool"]
@@ -82,6 +83,16 @@ class RecipesTool(Tool):
     @property
     def name(self) -> str:
         return "recipes"
+
+    def permission_request(self, params: dict[str, Any]) -> PermissionRequest:
+        action = str(params.get("action") or "").strip().lower()
+        return PermissionRequest(
+            action=f"recipes.{action or 'search'}",
+            resource=str(params.get("query") or "recipes"),
+            risk=Risk.READ,
+            summary="Find a recipe",
+            reversible=True,
+        )
 
     @property
     def description(self) -> str:

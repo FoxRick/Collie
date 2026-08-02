@@ -51,7 +51,7 @@ SETTINGS_DIR = _collie_dir()
 SETTINGS_FILE = SETTINGS_DIR / "pet_settings.json"
 COMMAND_FILE = SETTINGS_DIR / "pet_command.json"
 
-# How often the pet sniffs the command file for shell requests.
+# How often the pet sniffs the command file for shell requests (F078)
 COMMAND_POLL_MS = 500
 
 # Default scale relative to sprite cell size
@@ -436,7 +436,7 @@ class ColliePet:
     # ------------------------------------------------------------------
 
     def _poll_command_file(self) -> None:
-        """Apply commands from the Electron shell."""
+        """Apply commands from the Electron shell (F078)."""
         try:
             if COMMAND_FILE.exists():
                 data = json.loads(COMMAND_FILE.read_text(encoding="utf-8"))

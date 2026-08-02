@@ -1,1 +1,1 @@
-"""Collie automation scheduler for built-in briefings and reminders."""
+"""Collie automation scheduler (Phase 2: built-in briefings & reminders)."""

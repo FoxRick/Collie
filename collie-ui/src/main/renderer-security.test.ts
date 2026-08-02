@@ -56,9 +56,18 @@ describe('IPC sender trust', () => {
 
   it('registers every Collie IPC channel through the shared guard', () => {
     const source = readFileSync(new URL('./index.ts', import.meta.url), 'utf8')
+    const preloadSource = readFileSync(new URL('../preload/index.ts', import.meta.url), 'utf8')
     expect(source.match(/ipcMain\.handle\(/g)).toHaveLength(1)
     expect(source).not.toMatch(/ipcMain\.handle\(\s*['"]collie:/)
-    expect(source.match(/\bhandle\(\s*['"]collie:/g)).toHaveLength(21)
+    expect(source).toMatch(/\bhandle\(\s*['"]collie:/)
+    expect(source).not.toContain('collie:capture-screenshot')
+    expect(source).not.toContain('desktopCapturer')
+    expect(preloadSource).not.toContain('collie:capture-screenshot')
+    expect(preloadSource).not.toContain('captureScreenshot')
+    expect(source).toContain("handle('collie:pick-file-access-folders'")
+    expect(source).toContain("realpathAsync(selectedPath)")
+    expect(source).toContain("stats.isDirectory()")
+    expect(preloadSource).toContain("ipcRenderer.invoke('collie:pick-file-access-folders')")
   })
 })
 

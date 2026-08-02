@@ -8,6 +8,8 @@ reviewable work while keeping meaningful actions under their control.
 > repository currently publishes source code only; there is **no public
 > installer or GitHub Release** yet.
 
+The current public source release is **v0.1.0-alpha.4**.
+
 ## What the alpha includes
 
 - Streamed chat with conversation history and attachments.
@@ -57,21 +59,28 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m ruff check nanobot collie_core tests
 
 cd ..\collie-ui
-npm install
+npm ci
 npm test
 npm run typecheck
 npm run build
 npm run dev
 ```
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting a change.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting a change. Do not
+publish an installer from a local `dist` directory: release candidates must
+pass the documented clean-machine and immutable-artifact checks.
 
 ## Repository layout
 
 ```text
 collie-core/           Python runtime, agent loop, tools, approvals, and tests
 collie-ui/             Electron/React desktop application and packaging
+docs/                  Product, engineering, and release documentation
 ```
+
+The public website is maintained and released separately in the
+`collie-website` repository; its source is intentionally not part of this
+repository or its release history.
 
 The Python engine includes adapted code from
 [HKUDS/nanobot](https://github.com/HKUDS/nanobot), under the MIT License. The
@@ -84,9 +93,12 @@ third-party marks.
 
 ## More information
 
+- [Vision](docs/VISION.md)
+- [Project map](docs/PROJECT_MAP.md)
 - [Contribution guide](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
 - [License and brand notice](NOTICE.md)
+- [Release information](docs/operations/release/README.md)
 
 ## License
 

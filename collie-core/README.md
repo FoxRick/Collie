@@ -4,8 +4,9 @@ Collie Core is the internal Python runtime for the Collie Windows desktop app.
 It is launched and managed by the Electron shell in `../collie-ui`; it is not a
 standalone public install, CLI, hosted service, or PyPI distribution.
 
-For the product overview and supported capabilities, see the
-[repository root README](../README.md).
+For the product overview, supported alpha capabilities, and user installation
+guidance, see the [repository root README](../README.md). Release artifacts are
+published only through the Collie project release process.
 
 ## Development
 
@@ -40,10 +41,14 @@ npm run build
   passed to the managed core process only when required. Do not add tokens to
   source, logs, tests, or documentation.
 
+Read `AGENTS.md` for contributor-specific architecture and testing guidance.
+
 ## Security and contributions
 
-Do not open a public issue for a vulnerability. See the repository-level
-[security policy](../SECURITY.md) and [contribution guide](../CONTRIBUTING.md).
+Report vulnerabilities privately to
+[security@heycollie.com](mailto:security@heycollie.com); do not open a public
+issue. See [SECURITY.md](./SECURITY.md) and [CONTRIBUTING.md](./CONTRIBUTING.md)
+for the reporting and contribution workflows.
 
 ## Attribution and license
 

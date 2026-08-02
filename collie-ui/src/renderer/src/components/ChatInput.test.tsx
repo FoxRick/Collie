@@ -88,6 +88,9 @@ const hooks = vi.hoisted(() => {
     },
     stateCallCount(index: number): number {
       return stateCalls[index] || 0
+    },
+    setState<T>(index: number, value: T): void {
+      stateValues[index] = value
     }
   }
 })
@@ -101,7 +104,6 @@ vi.mock('react', () => ({
 
 vi.mock('lucide-react', () => ({
   ArrowUp: () => null,
-  Camera: () => null,
   Check: () => null,
   ChevronDown: () => null,
   FileText: () => null,
@@ -113,6 +115,7 @@ vi.mock('lucide-react', () => ({
   Mic: () => null,
   Paperclip: () => null,
   Plus: () => null,
+  ShieldCheck: () => null,
   Square: () => null,
   X: () => null
 }))
@@ -123,7 +126,14 @@ vi.mock('../lib/audio', () => ({
   startLocalDictation: vi.fn()
 }))
 
-import ChatInput from './ChatInput'
+import ChatInput, {
+  buildImagePreviews,
+  dataUrlDecodedBytes,
+  fitWithinMaxEdge,
+  rasterDimensionsFromDataUrl,
+  withImagePreview
+} from './ChatInput'
+import type { AttachmentDraft } from '../lib/ipc'
 
 describe('ChatInput compose command listener', () => {
   beforeEach(() => {
@@ -161,6 +171,11 @@ describe('ChatInput compose command listener', () => {
         onProjectChange: vi.fn(),
         onAddProject: vi.fn(),
         onAddModel: vi.fn(),
+        approvalPreset: 'ask',
+        onApprovalPresetChange: vi.fn(),
+        fileAccessScope: { mode: 'selected_folder' },
+        onFileAccessScopeChange: vi.fn(),
+        onChooseFileAccessFolders: vi.fn(),
         onTypingChange,
         onTranscribe: vi.fn().mockResolvedValue('')
       })
@@ -199,5 +214,128 @@ describe('ChatInput compose command listener', () => {
 
     eventTarget.dispatchEvent(composeEvent)
     expect(hooks.stateCallCount(0)).toBe(1)
+  })
+
+  it('keeps upload, removes screenshot capture, and renders image thumbnails', () => {
+    const eventTarget = Object.assign(new EventTarget(), {
+      setTimeout: vi.fn(() => 1),
+      clearTimeout: vi.fn()
+    })
+    vi.stubGlobal('window', eventTarget)
+    vi.stubGlobal('document', new EventTarget())
+    const props = {
+      onSend: vi.fn(),
+      onStop: vi.fn(),
+      busy: false,
+      mode: 'plan' as const,
+      onModeChange: vi.fn(),
+      onProviderChange: vi.fn(),
+      onProjectChange: vi.fn(),
+      onAddProject: vi.fn(),
+      onAddModel: vi.fn(),
+      approvalPreset: 'allow' as const,
+      onApprovalPresetChange: vi.fn(),
+      fileAccessScope: { mode: 'full_file_access' as const },
+      onFileAccessScopeChange: vi.fn(),
+      onChooseFileAccessFolders: vi.fn(),
+      onTranscribe: vi.fn().mockResolvedValue('')
+    }
+
+    hooks.beginRender()
+    let output = JSON.stringify(ChatInput(props))
+    expect(output).toContain('Attach files')
+    expect(output).not.toContain('Take screenshot')
+    expect(output).toContain('Approve for me')
+    expect(output).toContain('All local files')
+    expect(output.match(/\"aria-label\":\"Files\"/g)).toHaveLength(1)
+    expect(output).not.toContain('"role":"menu"')
+
+    hooks.setState(3, 'approvals')
+    hooks.beginRender()
+    output = JSON.stringify(ChatInput(props))
+    expect(output).toContain('bounded file edits and other eligible local changes that still need approval')
+    expect(output).toContain('Eligible ordinary local actions can continue')
+    expect(output).toContain('Consequential actions still ask')
+
+    hooks.setState(3, 'files')
+    hooks.beginRender()
+    output = JSON.stringify(ChatInput(props))
+    expect(output).toContain('Project folder')
+    expect(output).toContain('Access for this chat')
+    expect(output).toContain('Project folder only')
+    expect(output).toContain('Local files only')
+    expect(output).toContain('destructive actions')
+    expect(output).toContain('accounts')
+    expect(output).toContain('publishing')
+    expect(output).toContain('routines')
+
+    hooks.setState(1, [{
+      name: 'photo.png',
+      mime: 'image/png',
+      size: 100,
+      data_url: 'data:image/png;base64,original',
+      preview_data_url: 'data:image/png;base64,thumbnail'
+    }])
+    hooks.beginRender()
+    output = JSON.stringify(ChatInput(props))
+    expect(output).toContain('attachment-thumbnail')
+    expect(output).toContain('data:image/png;base64,thumbnail')
+  })
+})
+
+describe('ChatInput image preview bounds', () => {
+  it('fits large images within 1280px without distorting their aspect ratio', () => {
+    expect(fitWithinMaxEdge(4000, 2000)).toEqual({ width: 1280, height: 640 })
+    expect(fitWithinMaxEdge(600, 800)).toEqual({ width: 600, height: 800 })
+  })
+
+  it('calculates decoded base64 bytes without counting the data URL header or padding', () => {
+    expect(dataUrlDecodedBytes('data:image/png;base64,YQ==')).toBe(1)
+    expect(dataUrlDecodedBytes('data:image/png;base64,YWI=')).toBe(2)
+    expect(dataUrlDecodedBytes('data:image/png;base64,YWJj')).toBe(3)
+    expect(dataUrlDecodedBytes('not-a-data-url')).toBe(Number.POSITIVE_INFINITY)
+  })
+
+  it('reads source dimensions before the renderer decodes an image', () => {
+    const png = new Uint8Array(24)
+    png.set([0x89, 0x50, 0x4e, 0x47], 0)
+    png.set([0, 0, 0x20, 0], 16)
+    png.set([0, 0, 0x10, 0], 20)
+    const dataUrl = `data:image/png;base64,${btoa(String.fromCharCode(...png))}`
+    expect(rasterDimensionsFromDataUrl(dataUrl, 'image/png')).toEqual({ width: 8192, height: 4096 })
+    expect(rasterDimensionsFromDataUrl('data:image/png;base64,not-valid', 'image/png')).toBeNull()
+  })
+
+  it('keeps an oversized image filename-only without constructing an Image', async () => {
+    const png = new Uint8Array(24)
+    png.set([0x89, 0x50, 0x4e, 0x47], 0)
+    png.set([0, 0, 0x20, 1], 16)
+    png.set([0, 0, 0x20, 1], 20)
+    const attachment: AttachmentDraft = {
+      name: 'large.png',
+      mime: 'image/png',
+      size: png.length,
+      data_url: `data:image/png;base64,${btoa(String.fromCharCode(...png))}`
+    }
+    await expect(withImagePreview(attachment)).resolves.toEqual(attachment)
+  })
+
+  it('previews selected images sequentially', async () => {
+    const attachments: AttachmentDraft[] = [
+      { name: 'one.png', mime: 'image/png', size: 1, data_url: 'data:image/png;base64,YQ==' },
+      { name: 'two.png', mime: 'image/png', size: 1, data_url: 'data:image/png;base64,YQ==' }
+    ]
+    const started: string[] = []
+    let releaseFirst: (() => void) | undefined
+    const preview = vi.fn(async (attachment: AttachmentDraft) => {
+      started.push(attachment.name)
+      if (attachment.name === 'one.png') await new Promise<void>((resolve) => { releaseFirst = resolve })
+      return attachment
+    })
+    const pending = buildImagePreviews(attachments, preview)
+    expect(started).toEqual(['one.png'])
+    releaseFirst?.()
+    await expect(pending).resolves.toEqual(attachments)
+    expect(started).toEqual(['one.png', 'two.png'])
   })
 })

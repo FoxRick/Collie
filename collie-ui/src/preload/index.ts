@@ -50,10 +50,10 @@ const api = {
     ipcRenderer.invoke('collie:load-secrets'),
   pickAttachments: (): Promise<Array<{ name: string; mime: string; size: number; data_url: string }>> =>
     ipcRenderer.invoke('collie:pick-attachments'),
-  captureScreenshot: (): Promise<{ name: string; mime: string; size: number; data_url: string } | null> =>
-    ipcRenderer.invoke('collie:capture-screenshot'),
   pickProjectFolder: (): Promise<string | null> =>
     ipcRenderer.invoke('collie:pick-project-folder'),
+  pickFileAccessFolders: (): Promise<string[]> =>
+    ipcRenderer.invoke('collie:pick-file-access-folders'),
   openExternal: (url: string): Promise<void> =>
     ipcRenderer.invoke('collie:open-external', url),
   showWindow: (): Promise<void> =>

@@ -1,4 +1,4 @@
-"""Custom automations from plain English.
+"""Custom automations from plain English (Step 40, F062, F064).
 
 "Every Friday at 5pm, ask me how my week went" → schedule ``Fri 17:00`` plus
 a prompt the agent runs when it fires. Parsing is deterministic (no LLM

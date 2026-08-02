@@ -1,4 +1,4 @@
-"""Weather tool: current conditions and forecast via Open-Meteo.
+"""Weather tool: current conditions + forecast via open-meteo (F023).
 
 Free, no API key required. Returns structured data suitable for a WeatherCard.
 """
@@ -237,3 +237,4 @@ class WeatherTool(Tool):
             result["forecast"] = forecast
 
         return json.dumps(result)
+

@@ -37,25 +37,25 @@ function fakes(result: ProviderCandidateResult = {
 
 const input: ApiKeyProviderInput = {
   provider: 'custom',
-  displayName: 'Example Gateway',
+  displayName: 'Work Gateway',
   protocol: 'anthropic',
-  apiKey: 'test-key',
-  model: 'example-model',
+  apiKey: 'new-secret',
+  model: 'company-model',
   baseUrl: 'https://models.example.test/v1'
 }
 
 describe('transactional provider configuration', () => {
   it('builds the same normalized custom candidate for every renderer flow', () => {
     expect(apiKeyProviderCandidate(input)).toEqual({
-      provider_id: 'api-Example Gateway',
-      name: 'Example Gateway',
+      provider_id: 'api-Work Gateway',
+      name: 'Work Gateway',
       auth_type: 'api-key',
-      model: 'example-model',
+      model: 'company-model',
       runtime_name: 'custom',
       protocol: 'anthropic',
       api_base: 'https://models.example.test/v1',
-      secret_name: 'Example Gateway',
-      api_key: 'test-key'
+      secret_name: 'Work Gateway',
+      api_key: 'new-secret'
     })
   })
 

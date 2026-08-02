@@ -12,6 +12,7 @@ import PlanCard from '../plans/PlanCard'
 import CapabilityListCard from './CapabilityListCard'
 import StatusCard from './StatusCard'
 import SuggestionCard from './SuggestionCard'
+import FilesChangedCard from './FilesChangedCard'
 
 interface Props {
   cardType: string
@@ -48,6 +49,8 @@ export default function CardRenderer({ cardType, cardData }: Props): React.JSX.E
       return <StatusCard data={cardData} />
     case 'profile_suggestion':
       return <SuggestionCard data={cardData} />
+    case 'files_changed':
+      return <FilesChangedCard data={cardData} />
     default:
       return <div />
   }

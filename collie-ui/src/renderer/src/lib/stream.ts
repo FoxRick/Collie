@@ -76,3 +76,119 @@ export function visibleStreamText(content: string): string {
 
   return visible
 }
+
+function isEscaped(content: string, index: number): boolean {
+  let slashes = 0
+  for (let cursor = index - 1; cursor >= 0 && content[cursor] === '\\'; cursor -= 1) slashes += 1
+  return slashes % 2 === 1
+}
+
+function healTrailingLink(content: string, protectedIndexes: Set<number>): string {
+  const match = /(!?)\[([^\]\n]*)(?:\]\(([^)\n]*))?$/.exec(content)
+  if (!match || protectedIndexes.has(match.index) || isEscaped(content, match.index)) return content
+  return content.slice(0, match.index) + match[2]
+}
+
+/**
+ * Produce renderable live Markdown without changing the paced source text.
+ * Incomplete constructs are healed only for ReactMarkdown: delimiters are
+ * closed invisibly and unfinished links temporarily render as their label.
+ */
+export function stableMarkdownStreamText(content: string): string {
+  const visible = visibleStreamText(content)
+  const protectedIndexes = new Set<number>()
+  const delimiters: string[] = []
+  let fence = ''
+  let inlineCode = ''
+
+  for (let index = 0; index < visible.length;) {
+    if (isEscaped(visible, index)) {
+      const escapedCharacter = visible[index]
+      index += 1
+      while (visible[index] === escapedCharacter) index += 1
+      continue
+    }
+
+    if (fence) {
+      protectedIndexes.add(index)
+      if (visible.startsWith(fence, index)) {
+        for (let offset = 0; offset < fence.length; offset += 1) protectedIndexes.add(index + offset)
+        index += fence.length
+        fence = ''
+      } else {
+        index += 1
+      }
+      continue
+    }
+
+    if (inlineCode) {
+      protectedIndexes.add(index)
+      if (visible.startsWith(inlineCode, index)) {
+        for (let offset = 0; offset < inlineCode.length; offset += 1) protectedIndexes.add(index + offset)
+        index += inlineCode.length
+        inlineCode = ''
+      } else {
+        index += 1
+      }
+      continue
+    }
+
+    if (visible.startsWith('```', index)) {
+      fence = '```'
+      protectedIndexes.add(index)
+      protectedIndexes.add(index + 1)
+      protectedIndexes.add(index + 2)
+      index += 3
+      continue
+    }
+
+    if (visible[index] === '`') {
+      let run = 1
+      while (visible[index + run] === '`') run += 1
+      inlineCode = '`'.repeat(run)
+      for (let offset = 0; offset < run; offset += 1) protectedIndexes.add(index + offset)
+      index += run
+      continue
+    }
+
+    const marker = ['**', '__', '~~', '*', '_'].find((value) => visible.startsWith(value, index))
+    if (!marker) {
+      index += 1
+      continue
+    }
+
+    const before = visible[index - 1] ?? ''
+    const after = visible[index + marker.length] ?? ''
+    const intrawordUnderscore = marker.includes('_') && /\w/.test(before) && /\w/.test(after)
+    const listBullet = (marker === '*' || marker === '_') && (!before || before === '\n') && /\s/.test(after)
+    if (intrawordUnderscore || listBullet) {
+      index += marker.length
+      continue
+    }
+
+    const canOpen = Boolean(after) && !/\s/.test(after)
+    const canClose = Boolean(before) && !/\s/.test(before)
+    if (delimiters[delimiters.length - 1] === marker && canClose) delimiters.pop()
+    else if (canOpen) delimiters.push(marker)
+    index += marker.length
+  }
+
+  const healed = healTrailingLink(visible, protectedIndexes)
+  const codeClosure = fence ? `\n${fence}` : inlineCode
+  return healed + [...delimiters].reverse().join('') + codeClosure
+}
+
+/** Reveal a bounded amount per paint while never ending on unstable Markdown. */
+export function nextStreamReveal(
+  displayed: string,
+  content: string,
+  maxCharacters = 18
+): string {
+  const target = visibleStreamText(content)
+  if (target === displayed) return target
+  let shared = 0
+  const sharedLimit = Math.min(displayed.length, target.length)
+  while (shared < sharedLimit && displayed[shared] === target[shared]) shared += 1
+  const start = shared === displayed.length ? displayed.length : shared
+  return target.slice(0, start + Math.max(1, maxCharacters))
+}

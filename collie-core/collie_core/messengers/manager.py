@@ -1,4 +1,4 @@
-"""Messenger lifecycle and routing for Collie.
+"""Messenger lifecycle + routing for Collie (Phase 4, F093-F100 revised).
 
 Instead of a companion phone app, Collie talks through the messengers the
 user already carries: Telegram, WhatsApp, Slack, and Discord. The channel
