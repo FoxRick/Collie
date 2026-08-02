@@ -1,6 +1,6 @@
 # Connectors: research and implementation plan
 
-Status: in progress — four official MCP routes live as alpha; packaged-provider acceptance pending
+Status: in progress — five official MCP routes live as alpha; packaged-provider acceptance pending
 
 Date: 2026-07-29
 
@@ -29,6 +29,21 @@ Implementation checkpoint (2026-08-02) — alpha enablement:
   packaged build: OAuth, probe, read, restart, removal, approval) is still
   the gate before any public release claim — it is no longer a code
   blocker for the five enabled routes.
+
+Implementation checkpoint (2026-08-02) — review round 1 (`fix/codex-review-round-1`):
+
+- connected rows are only reported healthy and bound into the runtime when
+  their stored credentials actually exist; a connected row whose token is
+  missing surfaces as `auth_required` (`credentials_missing`) instead of a
+  phantom "Connected" badge;
+- the five enabled routes now declare explicit least-privilege OAuth scopes
+  (empty scopes made the MCP SDK omit the parameter, which the authorization
+  servers read as "everything advertised"); scope vocabulary is verified
+  against each provider's live RFC 8414/RFC 9728 metadata, and the recorded
+  `granted_scopes` prefer the scopes actually returned in the stored token;
+- VISION.md's alpha boundary now matches behavior: routes that have not
+  passed the packaged-app acceptance pass are labeled alpha with visible
+  verification status; acceptance remains the release gate.
 
 Implementation checkpoint (2026-07-29):
 
@@ -941,8 +956,9 @@ The connector initiative is complete when:
 
 1. Connections appears immediately after Routines.
 2. A normal user can add, inspect, rename, test, reconnect, and remove accounts.
-3. At least Notion, Linear, Todoist, and Atlassian pass the exact packaged-app
-   matrix before their Connect buttons are enabled.
+3. Notion, Linear, Todoist, Atlassian, and Airtable pass the exact packaged-app
+   matrix before their alpha routes are presented as release-ready (the five
+   routes are enabled as labeled alpha ahead of that pass).
 4. Gmail, Google Calendar/Drive, Outlook Email/Calendar, and OneDrive have a
    supported route that does not ask users for developer credentials.
 5. "Connect my email" in chat obtains explicit Collie approval before OAuth.

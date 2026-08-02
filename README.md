@@ -20,10 +20,13 @@ The current public source release is **v0.1.0-alpha.4**.
 - Guided Telegram setup with sender pairing and revocation.
 - A desktop Border Collie companion with responsive activity states.
 
-External OAuth connectors are not enabled in the current alpha source state.
-Every connector catalogue entry remains **Coming soon** until its exact
-packaged application passes authentication, tool discovery, live health, and
-release verification checks. Collie does not claim that every provider or
+OAuth connectors are enabled as alpha: five official MCP routes
+(Notion, Linear, Todoist, Atlassian, Airtable) can connect today and are
+labeled **Alpha** in the app with their verification status visible. Every
+other catalogue entry remains **Coming soon** until its exact packaged
+application passes authentication, tool discovery, live health, and release
+verification checks. The packaged-app acceptance pass stays the gate before
+any release claim — Collie does not claim that every provider or
 integration works out of the box.
 
 ## Safety and data handling

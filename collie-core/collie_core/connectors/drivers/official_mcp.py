@@ -64,7 +64,16 @@ class OfficialMcpDriver:
                         )
                         for tool in result.tools
                     ]
-        return ProbeResult(tools=tools, granted_scopes=list(definition.scopes))
+        granted = list(definition.scopes)
+        # Record the scopes the authorization server actually granted from
+        # the stored token (fall back to the requested set when absent).
+        stored = self.credentials.load(f"connector:{connection_id}")
+        if stored:
+            tokens = stored.get("tokens") or {}
+            actual = tokens.get("scope")
+            if actual:
+                granted = str(actual).split()
+        return ProbeResult(tools=tools, granted_scopes=granted)
 
     def revoke(
         self, definition: ConnectorDefinition, connection_id: str

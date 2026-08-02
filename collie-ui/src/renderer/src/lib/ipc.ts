@@ -171,6 +171,7 @@ export interface ConnectorConnection {
     | 'authorizing'
     | 'testing'
     | 'connected'
+    | 'auth_required'
     | 'attention'
     | 'failed'
     | 'revoking'

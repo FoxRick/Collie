@@ -647,6 +647,20 @@ class CollieDB:
                 (key, json.dumps(value)),
             )
 
+    def set_active_model(self, model: str) -> None:
+        """Persist the active model atomically: the global setting AND the
+        default provider row stay in agreement (one canonical source)."""
+        with self._write() as conn:
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                ("provider.model", json.dumps(model)),
+            )
+            conn.execute(
+                "UPDATE providers SET model = ? WHERE is_default = 1",
+                (model,),
+            )
+
     def all_settings(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
         for row in self._rows("SELECT key, value FROM settings"):

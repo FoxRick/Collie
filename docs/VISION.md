@@ -58,8 +58,10 @@ make the normal path intimidating.
 - Windows x64 is the initial supported platform.
 - Users connect a supported model provider; Collie does not require its own
   application account.
-- Connected services are enabled only after authentication, discovery, a live
-  health check, and packaged-app verification.
+- Connected services are enabled only after authentication, discovery, and a
+  live health check. Routes that have not yet passed the packaged-app
+  acceptance pass are labeled alpha with their verification status visible in
+  the app; that acceptance pass remains the gate before any release claim.
 - High-consequence actions remain disabled or explicitly approved until their
   safety and recovery behavior is designed and tested.
 - The public website is the entry point and mailing-list surface; GitHub

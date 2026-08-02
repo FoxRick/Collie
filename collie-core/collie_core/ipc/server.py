@@ -193,6 +193,7 @@ class CollieIPCServer:
         profile_store: Any = None,
         command_runner: Callable[..., Awaitable[dict[str, Any] | None]] | None = None,
         command_catalog: Callable[[], dict[str, Any]] | None = None,
+        command_requires_approval: Callable[[str], bool] | None = None,
         session_target: Callable[[str], tuple[str, str]] | None = None,
         conversation_deleter: Callable[[str], None] | None = None,
         on_set_approval_preset: Callable[[str], None] | None = None,
@@ -223,6 +224,7 @@ class CollieIPCServer:
         self._profile_store = profile_store
         self._command_runner = command_runner
         self._command_catalog = command_catalog
+        self._command_requires_approval = command_requires_approval
         self._session_target = session_target
         self._conversation_deleter = conversation_deleter
         self._on_set_approval_preset = on_set_approval_preset
@@ -231,6 +233,7 @@ class CollieIPCServer:
         self._clients: set[ServerConnection] = set()
         self._server: Any = None
         self._chat_tasks: dict[str, asyncio.Task] = {}
+        self._command_tasks: set[asyncio.Task] = set()
         self._active_material_runs: dict[str, int] = {}
         self._background_tasks: set[asyncio.Task] = set()
         self._oauth_attempts: dict[str, _OAuthAttemptState] = {}
@@ -770,7 +773,16 @@ class CollieIPCServer:
             raise ValueError("set_setting requires 'key'")
         if key not in _IPC_SETTABLE_SETTINGS:
             raise ValueError(f"Setting '{key}' is managed by Collie itself.")
-        self.db.set_setting(key, frame.get("value"))
+        if key == "provider.model":
+            # The active model is two sources in one transaction (setting +
+            # default provider row); a bare settings write would let a later
+            # provider rebuild revert the choice.
+            value = frame.get("value")
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError("provider.model must be a non-empty model id")
+            self.db.set_active_model(value)
+        else:
+            self.db.set_setting(key, frame.get("value"))
         return {"saved": True}
 
     async def _cmd_set_api_key(self, connection: ServerConnection, frame: dict) -> dict:
@@ -2252,19 +2264,54 @@ class CollieIPCServer:
         command_result: dict[str, Any] | None = None
         agent_content = content
         message_metadata: dict[str, Any] | None = None
+        session_key, command_origin = (
+            self._session_target(conv_id)
+            if self._session_target is not None
+            else (desktop_session_key(conv_id), "desktop")
+        )
+        execution_mode = str(conversation.get("execution_mode") or "execute")
+        if (
+            self._command_runner is not None
+            and not raw_attachments
+            and self._command_requires_approval is not None
+            and self._command_requires_approval(content)
+        ):
+            # Approval-gated commands (/model switch) await a user approval
+            # that resolves over THIS socket. Run them in a background task
+            # so the receive loop stays free to process resolve_approval —
+            # awaiting inline would deadlock until the approval times out.
+            user_msg = self.db.add_message(
+                conv_id, "user", content, attachments=attachment_meta or None
+            )
+            await self._send(connection, {"type": "ok", "id": frame.get("id"), "data": {
+                "conversation_id": conv_id,
+                "message": user_msg,
+                "command_handled": False,
+            }})
+            await self.broadcast({"type": "message", "conversation_id": conv_id,
+                                  "message": user_msg})
+            task = asyncio.create_task(
+                self._run_approval_command_task(
+                    conv_id,
+                    content=content,
+                    session_key=session_key,
+                    origin=command_origin,
+                    execution_mode=execution_mode,
+                )
+            )
+            self._command_tasks.add(task)
+            task.add_done_callback(self._command_tasks.discard)
+            return
         if (
             self._command_runner is not None
             and not raw_attachments
         ):
-            session_key, command_origin = (
-                self._session_target(conv_id)
-                if self._session_target is not None
-                else (desktop_session_key(conv_id), "desktop")
-            )
             command_result = await self._command_runner(
                 content,
                 session_key=session_key,
                 origin=command_origin,
+                conversation_id=conv_id,
+                execution_mode=execution_mode,
             )
             if command_result and command_result.get("new_conversation"):
                 conversation = self.db.create_conversation(
@@ -2383,6 +2430,49 @@ class CollieIPCServer:
         )
         self._chat_tasks[conv_id] = task
         task.add_done_callback(lambda t, c=conv_id: self._chat_tasks.pop(c, None))
+
+    async def _run_approval_command_task(
+        self,
+        conv_id: str,
+        *,
+        content: str,
+        session_key: str,
+        origin: str,
+        execution_mode: str,
+    ) -> None:
+        """Execute an approval-gated command outside the frame handler.
+
+        The command's authorization awaits a user resolution that arrives as
+        a frame on the same socket; running it inline would block the
+        receive loop until the approval times out.
+        """
+        if self._command_runner is None:
+            return
+        try:
+            result = await self._command_runner(
+                content,
+                session_key=session_key,
+                origin=origin,
+                conversation_id=conv_id,
+                execution_mode=execution_mode,
+            )
+        except Exception:
+            logger.exception("Approval-gated command failed")
+            return
+        if not result or not result.get("handled"):
+            return
+        assistant_msg = self.db.add_message(
+            conv_id,
+            "assistant",
+            str(result.get("content") or ""),
+            card_type=result.get("card_type"),
+            card_data=result.get("card_data"),
+        )
+        await self.broadcast({
+            "type": "message",
+            "conversation_id": conv_id,
+            "message": assistant_msg,
+        })
 
     async def _generate_conversation_title(
         self,

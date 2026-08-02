@@ -57,6 +57,8 @@ describe('connector connection status truthfulness', () => {
     expect(connectorConnectNotice('Notion', 'connected')).toContain('Connected to Notion')
     expect(connectorConnectNotice('Notion', 'authorizing')).toContain('already in progress')
     expect(connectorConnectNotice('Notion', 'attention')).toContain('needs attention')
+    expect(connectorConnectNotice('Notion', 'auth_required')).toContain('fresh sign-in')
+    expect(connectorConnectNotice('Notion', 'auth_required')).not.toContain('Connected')
     expect(connectorConnectNotice('Notion', 'failed')).not.toContain('Connected')
   })
 
