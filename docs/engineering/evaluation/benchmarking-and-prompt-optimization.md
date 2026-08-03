@@ -1,6 +1,6 @@
 # Benchmarking and prompt-optimization laboratory
 
-**Status:** proposed
+**Status:** in progress — Phase 1 landed (2026-08-02/03), Milestone A building
 **Audience:** product, engineering, evaluation, and release owners
 
 ## Outcome
@@ -35,13 +35,19 @@ foundation and should not be re-litigated:
 | Metered gateway | **Deferred** | Per-trial API keys + usage parsed from API responses give ~80% of the value at ~10% of the cost |
 | Normalized-tool mode | Deferred to Phase 2 | Native-harness mode alone measures the product users actually run |
 | SWE-bench / heavy anchor suites | Deferred | Image storage and runtime are a monster; deterministic product tasks first |
-| Cohort | Collie, Hermes, Codex CLI first | Hermes is CLI-scriptable, Codex has a built-in Harbor adapter. CommandCode v0.1.1 has no CLI (`bin: None`) — revisit when a headless build exists |
+| Cohort | Collie, Hermes, OpenCode CLI | Codex RETIRED 2026-08-02 (CLI 0.146+ is Responses-API-only; DeepSeek speaks Chat Completions → 401, verified live). OpenCode added; Hermes + OpenCode wrapped by custom adapter subclasses (stock adapters can't run this cohort) |
 | Scoring | Hidden deterministic verifiers check **state**, not prose | Kills self-serving scoring; LLM judging only where objective verification is impossible |
 | Security boundary | Non-root container, no host mounts, egress only to the gateway + simulated services, fresh filesystem per trial | Every downloaded harness and generated command is untrusted |
 
 ## The Collie-side gap: no headless mode
 
-`collie-core` states in `pyproject.toml`: *"Collie is launched by the
+**RESOLVED 2026-08-02 — PR #12 landed `collie_core/headless.py`.** The
+one-shot JSON contract below shipped as designed; the bench adapter defaults
+to the headless driver (`collie-bench` `ff90d99`, `build_job_config.py`
+`driver: headless`). An IPC driver remains as fallback. Historical context
+preserved below.
+
+`collie-core` stated in `pyproject.toml`: *"Collie is launched by the
 Electron shell as a managed subprocess. No CLI entry points."* The agent
 loop, providers, tools, permissions, and telemetry all exist and are tested
 (`collie_core.runtime` boots them); they are simply only ever started by the
@@ -218,22 +224,74 @@ aggregates and compares what Harbor already stored.
   or cost-per-solve falls materially with non-inferior quality — thresholds
   declared *before* the run, not after viewing it.
 
+## Phase 1 status (verified 2026-08-02/03)
+
+Landed and reproducible:
+
+- **Headless Collie mode** — `collie_core/headless.py` (PR #12), driver
+  `headless` default in collie-bench (`ff90d99`), IPC driver fallback.
+- **Prompt-hash telemetry** — `prompt_hash` / `tool_schema_hash` /
+  `config_hash` recorded per trial (verified in `result.json` metadata).
+- **`collie-bench` repo** (PRIVATE, FoxRick/collie-bench) — 5 deterministic
+  tasks with state-checking verifiers, 100% oracle pass; adapters for
+  Collie (headless), Hermes, OpenCode; frozen matrix in `configs/phase1.json`.
+- **First live benchmark** (`bench1`, 2026-08-02): collie + hermes + opencode
+  × reminder-set × 1 rep — **3/3 reward-1**. Full cohort proven end-to-end
+  (collie ~6 min, hermes ~1–2 min, opencode ~1–2 min per trial, ~12 min wall).
+- **Viewer** (`harbor view`) works on the VM; desktop launcher
+  `~/.local/bin/collie-bench-viewer.sh` (icon `Collie-Bench`) opens the
+  latest report. Two viewer pitfalls fixed: flat-layout nesting (stage a
+  real copy under `<job>/`) and symlinked job dirs rejected by the viewer's
+  path validation (400 "Invalid job name" — copy, don't symlink).
+
+Known data gaps (Milestone A fixes): input **prompt text** is not stored
+per trial (only `prompt_hash`); hermes adapter records no usage tokens
+(input/output/cost all `None`).
+
+## Milestone A — prompt variants, full capture, compare view (building)
+
+The prompt-optimization loop (the "1% per day" engine) needs three
+mechanical pieces, all in `collie-bench` — **zero product-code changes**:
+
+1. **Variant registry + injection** — `collie-bench/prompts/<variant>.md`
+   holds candidate system prompts. Collie's system prompt is template data
+   (`collie-core/nanobot/templates/agent/*.md`), pinned into the trial image
+   at build time, so a variant is a `COPY` of the candidate template over
+   the pinned checkout in `images/base/Dockerfile` — no engine change, no
+   fork. `build_job_config.py` picks the variant per trial; `prompt_hash`
+   (already recorded) proves which variant ran.
+2. **Full input capture** — the collie driver dumps the rendered
+   system-prompt + tool schema + task text per trial into `agent/`
+   (`prompt.txt`), alongside the existing `collie-result.json`. Fix the
+   hermes adapter to parse usage from its session output so all three
+   harnesses report input/output/cache tokens + cost.
+3. **Prompt-compare report** — extend `bench_report.py` (or a sibling)
+   with the cross-run view: harness × prompt-variant × task matrix (pass
+   rate, tokens in/out, cost, latency) plus a text diff between variants.
+   This is the "what's driving the numbers" view — two dimensions:
+   cross-harness (what does the winning harness tell the model?) and
+   cross-variant (did our change help?).
+
 ## Phased delivery
 
-### Phase 1 — measurement proof (the milestone this plan enables)
-- Headless Collie mode + prompt-hash telemetry (Collie repo PRs).
+### Phase 1 — measurement proof ✅ (landed 2026-08-02/03)
+- Headless Collie mode + prompt-hash telemetry (Collie repo PR #12 + follow-ups).
 - `collie-bench` repo: 5 deterministic product tasks (reminders, calendar
   conflict, file edit, doc extraction, multi-step plan) with pytest-style
   state verifiers, 100% oracle pass.
-- Adapters for Collie headless, Hermes CLI, Codex CLI; one DeepSeek model.
-- 45-trial matrix; one command reproduces it; report shows quality, tokens,
-  cost, caching, calls, latency, failure categories.
+- Adapters for Collie headless, Hermes CLI, OpenCode CLI; one DeepSeek model
+  (`deepseek/deepseek-v4-flash`).
+- 45-trial matrix config frozen (`configs/phase1.json`); bench1 (3-trial
+  full-cohort smoke) green 3/3; report shows quality, tokens, cost, caching,
+  calls, latency, failure categories.
 
-### Phase 2 — regression laboratory
+### Phase 2 — regression laboratory (next, after Milestone A)
 - 20 deterministic product tasks; add OpenCode, Aider (+ NanoBot family
   harnesses as they become CLI-benchable).
-- Nightly runs, paired statistics, frozen regression cohort + refreshed
-  ecosystem cohort, public reports.
+- Nightly runs (cron on the bench VM), paired statistics, frozen regression
+  cohort + refreshed ecosystem cohort, public reports.
+- Milestone B: scheduler + auto-report (the nightly loop is the autonomy
+  the product loop needs).
 
 ### Phase 3 — guarded optimization
 - Private holdout scorer; failure analysis + candidate-patch generation.
@@ -259,19 +317,27 @@ aggregates and compares what Harbor already stored.
 
 ## Open decisions
 
-- Benchmark VM: dedicated Linux box (Hetzner/OVH-class, 4 vCPU/16 GB is
-  enough for Phase 1); the current Hermes VM is off-limits (it runs the
-  Telegram gateway — untrusted harness code stays away).
-- First exact model id + provider (DeepSeek v4 flash, OpenAI-compatible).
-- `collie-bench` repo public vs private at Phase 1 (recommend public dev
-  suite, private holdouts).
-- Retention policy for full prompts and trajectories.
+- ~~Benchmark VM~~ **RESOLVED**: live trials run on the Hermes VM (docker
+  group + buildx installed 2026-08-02; `sg docker` wrapper for commands).
+  If a bigger matrix strains the box, revisit a dedicated Linux host later.
+- ~~First exact model id + provider~~ **RESOLVED**: `deepseek/deepseek-v4-flash`
+  (OpenAI-compatible), key via `COLLIE_BENCH_KEY` env, never in configs.
+- ~~`collie-bench` repo public vs private~~ **RESOLVED**: PRIVATE
+  (decision 2026-08-02) — dev suite + verifiers stay out of public view.
+- Retention policy for full prompts and trajectories (Milestone A's prompt
+  capture makes this concrete; default: keep per-report dirs, prune jobs/
+  after report generation).
 
 ## Follow-up PR roadmap (Collie repo)
 
-1. **This plan** (current PR) — review and merge the direction.
-2. **Headless mode** — `collie_core/headless.py` entry point + test + docs
-   (engineering decision: internal capability, not a product CLI).
-3. **Prompt-hash telemetry** — additive run-record fields + migration test.
-4. (Lab repo, after 2–3 merge) adapters, tasks, verifiers, and the
-   cross-run report layer on top of Harbor's viewer data.
+1. **This plan** ✅ (PR #10 merged, direction approved).
+2. **Headless mode** ✅ (`collie_core/headless.py` landed in PR #12 —
+   engineering decision: internal capability, not a product CLI).
+3. **Prompt-hash telemetry** ✅ (additive run-record fields + tests).
+4. (Lab repo, done 2026-08-02) adapters, tasks, verifiers, cross-run report
+   layer on top of Harbor's viewer data.
+5. **Milestone A** (lab repo): variant registry + image COPY injection +
+   full prompt capture + hermes usage fix + prompt-compare report.
+6. **Milestone B** (lab repo): nightly cron matrix + auto-report.
+7. **Milestone C** (product repo PR): ship a winning prompt variant into
+   `nanobot/templates/agent/` — the first evidence-gated product change.
