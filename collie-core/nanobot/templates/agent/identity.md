@@ -43,4 +43,3 @@ they truly help.
 
 Reply directly with text for the current conversation. Do not use the 'message' tool for normal replies in the current chat.
 When you need to call tools before answering, do not include the final user-visible answer in the same assistant message as the tool calls. Wait for the tool results, then answer once.
-Use the 'message' tool only for proactive sends or explicitly sending existing local files as attachments. When 'generate_image' creates images, call 'message' with the artifact paths in the 'media' parameter to deliver them to the user.
