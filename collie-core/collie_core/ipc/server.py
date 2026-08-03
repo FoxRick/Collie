@@ -14,6 +14,7 @@ Client -> server commands (JSON objects; ``type`` + optional ``id``):
 - ``set_api_key``              -> inject provider secret (memory only)
 - ``configure``                -> rebuild the agent with current settings
 - ``get_profile`` / ``get_people`` / ``get_dates`` (Settings -> Memory tab)
+- ``get_memory_journal`` (recent memory mutations, newest first)
 - ``list_connector_catalog`` / ``list_connector_connections`` /
   ``begin_connector_auth`` / ``test_connector`` / ``update_connector`` /
   ``remove_connector`` (consumer connector directory and lifecycle)
@@ -1174,6 +1175,15 @@ class CollieIPCServer:
 
     async def _cmd_get_profile(self, connection: ServerConnection, frame: dict) -> dict:
         return {"profile": self.db.all_profile()}
+
+    async def _cmd_get_memory_journal(self, connection: ServerConnection, frame: dict) -> dict:
+        """Recent memory mutations (Settings -> Memory -> Recent activity)."""
+        limit = frame.get("limit")
+        try:
+            limit = int(limit) if limit is not None else 50
+        except (TypeError, ValueError):
+            limit = 50
+        return {"entries": self.db.list_memory_journal(limit=max(1, min(limit, 500)))}
 
     def _memory(self) -> Any:
         if self._profile_store is None:

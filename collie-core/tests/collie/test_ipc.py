@@ -111,6 +111,32 @@ async def test_ping_and_status(server: CollieIPCServer) -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_memory_journal(server: CollieIPCServer, tmp_path: Path) -> None:
+    from collie_core.memory.profile import ProfileStore
+
+    # Give the server a profile store and write a couple of mutations.
+    profile = ProfileStore(server.db, tmp_path / "workspace")
+    profile.set("location", "Lisbon")
+    profile.add_person("Mom", allergies="peanuts")
+
+    ws = await _connect(server)
+    await _send(ws, type="get_memory_journal", id="1")
+    reply = await _recv_until(ws, "ok")
+    entries = reply["data"]["entries"]
+    assert entries[0]["kind"] == "person"
+    assert entries[0]["subject"] == "Mom"
+    assert entries[1]["kind"] == "fact"
+    assert entries[1]["subject"] == "location"
+    assert entries[1]["value"] == "Lisbon"
+
+    await _send(ws, type="get_memory_journal", id="2", limit="bogus")
+    reply = await _recv_until(ws, "ok")
+    assert reply["id"] == "2"
+    assert len(reply["data"]["entries"]) == 2
+    await ws.close()
+
+
+@pytest.mark.asyncio
 async def test_unknown_and_invalid_frames(server: CollieIPCServer) -> None:
     ws = await _connect(server)
     await ws.send("not json")

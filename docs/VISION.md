@@ -77,7 +77,10 @@ or stop it, and return later without having to reconstruct their context.
 
 - A developer shell disguised as a consumer application.
 - A universal connector claim unsupported by real provider verification.
-- Autonomous changes to permissions, identity, or personal memory without
-  review.
+- Autonomous changes to permissions or identity without review, or
+  rewrites/deletions of personal memory without review. Additive memory
+  writes may be automatic when logged and reversible; forgetting,
+  contradicting, or consolidating remembered facts stays an explicit
+  approval.
 - Showing chain-of-thought or raw tool traffic as the default progress model.
 - Trading user control or truthful behavior for a more magical demo.
