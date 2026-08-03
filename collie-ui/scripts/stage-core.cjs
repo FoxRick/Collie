@@ -1,4 +1,4 @@
-const { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } = require('fs')
+const { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } = require('fs')
 const { dirname, join, relative, resolve, sep } = require('path')
 const { spawnSync } = require('child_process')
 const {
@@ -146,6 +146,14 @@ function stagePythonWindows(pythonHome) {
   copyVenvSitePackages(join(destination, 'Lib', 'site-packages'))
 }
 
+function isSymbolicLink(path) {
+  try {
+    return lstatSync(path).isSymbolicLink()
+  } catch {
+    return false
+  }
+}
+
 function stagePythonLinux(pythonHome) {
   // python-build-standalone install layout:
   //   bin/python3(.12), lib/python3.12/…, lib/libpython3.12.so.1.0
@@ -163,20 +171,26 @@ function stagePythonLinux(pythonHome) {
   const destination = join(stageRoot, 'python')
   mkdirSync(destination, { recursive: true })
 
-  copyTree(join(pythonHome, 'bin'), join(destination, 'bin'), (rel) => {
+  // Skip symlinks: python-build-standalone ships absolute aliases (python3,
+  // pip3, idle3, libpython3.11.so → the build machine's paths). Only regular
+  // files are portable; the python3 launcher is recreated below.
+  copyTree(join(pythonHome, 'bin'), join(destination, 'bin'), (rel, source) => {
     if (!rel) return true
-    return !isCacheOrBytecode(rel)
+    if (isCacheOrBytecode(rel)) return false
+    return !isSymbolicLink(source)
   })
-  copyTree(join(pythonHome, 'lib', stdlib), join(destination, 'lib', stdlib), (rel) => {
+  copyTree(join(pythonHome, 'lib', stdlib), join(destination, 'lib', stdlib), (rel, source) => {
     if (!rel) return true
+    if (isSymbolicLink(source)) return false
     const normalized = rel.replaceAll('\\', '/')
     if (normalized === 'site-packages' || normalized.startsWith('site-packages/')) return false
     return !isCacheOrBytecode(normalized)
   })
   for (const entry of readdirSync(join(pythonHome, 'lib'))) {
-    if (entry.startsWith('libpython')) {
-      cpSync(join(pythonHome, 'lib', entry), join(destination, 'lib', entry), { force: true })
-    }
+    if (!entry.startsWith('libpython')) continue
+    const source = join(pythonHome, 'lib', entry)
+    if (isSymbolicLink(source)) continue
+    cpSync(source, join(destination, 'lib', entry), { force: true })
   }
 
   copyVenvSitePackages(join(destination, 'lib', stdlib, 'site-packages'))
@@ -302,8 +316,14 @@ function stageMcpRuntimeLinux() {
   return runtimeRoot
 }
 
+function bundledPythonLauncher() {
+  return process.platform === 'win32'
+    ? join(stageRoot, 'python', 'python.exe')
+    : join(stageRoot, 'python', 'bin', 'python3')
+}
+
 function verifyBundle() {
-  const python = join(stageRoot, 'python', 'python.exe')
+  const python = bundledPythonLauncher()
   const result = spawnSync(
     python,
     [
@@ -337,7 +357,7 @@ stagePython(pythonHome)
 const mcpRuntimeRoot = stageMcpRuntime()
 verifyBundle()
 const mcpProbe = spawnSync(
-  join(stageRoot, 'python', 'python.exe'),
+  bundledPythonLauncher(),
   ['-m', 'collie_core.services.packaged_probe'],
   {
     cwd: stageRoot,
