@@ -1,7 +1,8 @@
 # Share Collie
 
-**Status:** Accepted product direction; implementation pending
+**Status:** parked — deferred, not in the current plan; spec kept for future reference
 **Date:** 2026-08-01
+**Parked:** 2026-08-03
 **Applies to:** Post-alpha multiplayer and shared-chat work
 
 ## Outcome
