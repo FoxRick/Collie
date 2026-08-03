@@ -1,7 +1,7 @@
-"""Dog-themed thinking states (spec §3.10, F082-F092).
+"""Thinking states (spec §3.10, F082-F092).
 
-Maps engine activity (tool calls, streaming, errors) to the collie phrases
-shown in the ThinkingBar and mirrored by the desktop pet.
+Maps engine activity (tool calls, streaming, errors) to the friendly
+phrases shown in the ThinkingBar and mirrored by the desktop pet.
 """
 
 from __future__ import annotations
@@ -10,18 +10,18 @@ __all__ = ["PHRASES", "phrase_for_state", "thinking_state_for_tool"]
 
 # state -> (phrase, pet animation)
 PHRASES: dict[str, tuple[str, str]] = {
-    "searching": ("Sniffing out reliable sources…", "walk"),
+    "searching": ("Looking through reliable sources…", "walk"),
     "planning": ("Mapping out the next steps…", "working"),
-    "fetching": ("Fetching what I need…", "walk"),
+    "fetching": ("Getting what I need…", "walk"),
     "generating": ("Writing your answer…", "working"),
     "processing": ("Working through it…", "working"),
     "summarizing": ("Sorting out the important bits…", "working"),
-    "remembering": ("Burying that detail for later…", "working"),
-    "recovering": ("Shaking it off and trying again…", "concerned"),
-    "done": ("All done — tail wag included.", "happy"),
-    "error": ("I hit a snag, but I’m still here.", "concerned"),
+    "remembering": ("Saving that detail for later…", "working"),
+    "recovering": ("Let me try that again…", "concerned"),
+    "done": ("All done!", "happy"),
+    "error": ("I hit a snag, but I'm still here.", "concerned"),
     "idle": ("Ready when you are.", "idle"),
-    "startup": ("Just stretching — ready in a moment.", "working"),
+    "startup": ("Just getting ready — one moment.", "working"),
     "pantry": ("Checking the pantry…", "walk"),
     "mapping": ("Looking over the map…", "walk"),
     "calendar": ("Checking your calendar…", "working"),

@@ -42,7 +42,7 @@ _SUCCESS_PAGE = """<!doctype html>
              height: 100vh; margin: 0;">
 <div style="text-align: center;">
   <div style="font-size: 64px;">&#128021;</div>
-  <h1 style="margin: 8px 0;">Got it! *tail wag*</h1>
+  <h1 style="margin: 8px 0;">Got it!</h1>
   <p style="color: #8C8C8C;">{service} is connected. You can close this tab
   and head back to Collie.</p>
 </div></body></html>"""

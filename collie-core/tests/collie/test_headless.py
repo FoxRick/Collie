@@ -41,7 +41,7 @@ def _fake_openai_app(*, delay_s: float = 0.0) -> web.Application:
         if body.get("stream"):
             resp = web.StreamResponse(headers={"Content-Type": "text/event-stream"})
             await resp.prepare(request)
-            chunks = ["Woof! ", "You said: ", "hello."]
+            chunks = ["Hi! ", "You said: ", "hello."]
             for i, text in enumerate(chunks):
                 payload = {
                     "id": "chatcmpl-fake",
@@ -73,7 +73,7 @@ def _fake_openai_app(*, delay_s: float = 0.0) -> web.Application:
             "model": body["model"],
             "choices": [{
                 "index": 0,
-                "message": {"role": "assistant", "content": "Woof! You said: hello."},
+                "message": {"role": "assistant", "content": "Hi! You said: hello."},
                 "finish_reason": "stop",
             }],
             "usage": {"prompt_tokens": 20, "completion_tokens": 6, "total_tokens": 26},
@@ -166,7 +166,7 @@ async def test_headless_runs_task_and_outputs_contract(
     assert document["conversation_id"]
 
     # Final answer from the fake endpoint, sanitized
-    assert document["final_text"] == "Woof! You said: hello."
+    assert document["final_text"] == "Hi! You said: hello."
 
     # Usage/calls are ints >= 0
     for value in document["usage"].values():

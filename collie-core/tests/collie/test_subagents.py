@@ -219,7 +219,7 @@ async def test_call_subagent_inherits_parent_workspace_scope(
     assert inherited.restrict_to_workspace is True
 
 
-async def test_call_subagent_unknown_name_lists_buddies(loader: SubagentLoader) -> None:
+async def test_call_subagent_unknown_name_lists_helpers(loader: SubagentLoader) -> None:
     loader.create("Writing Coach", "writing")
     bind_subagent_loader(loader)
     tool = CallSubagentTool(FakeManager())
@@ -246,7 +246,7 @@ async def test_call_subagent_respects_concurrency(loader: SubagentLoader) -> Non
 
         reset_request_context(token)
         bind_subagent_loader(None)
-    assert "paws full" in result
+    assert "helpers are busy right now" in result
 
 
 # -- IPC ------------------------------------------------------------------------

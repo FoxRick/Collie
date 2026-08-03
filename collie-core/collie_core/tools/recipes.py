@@ -117,7 +117,7 @@ class RecipesTool(Tool):
         try:
             if action == "search":
                 if not query:
-                    return self.error("What dish should I sniff out?")
+                    return self.error("What dish should I look up?")
                 data = _api_get(f"{_SEARCH_URL}?{urlencode({'s': query})}")
                 meals = data.get("meals") or []
                 if not meals:

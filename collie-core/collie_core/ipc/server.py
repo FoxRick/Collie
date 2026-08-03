@@ -447,7 +447,7 @@ class CollieIPCServer:
             safe_message = (
                 str(e)
                 if isinstance(e, (ValueError, VoiceInputError))
-                else "Uh oh. I chased my tail on that one. Try again?"
+                else "Uh oh. That didn't go as planned. Try again?"
             )
             await self._send(connection, {
                 "type": "error", "id": req_id,
@@ -1070,7 +1070,7 @@ class CollieIPCServer:
                 await self._send(connection, {
                     "type": "error", "id": req_id,
                     "message": str(e) if isinstance(e, ValueError) else
-                               "Uh oh. I chased my tail on that one. Try again?",
+                               "Uh oh. That didn't go as planned. Try again?",
                     "detail": str(e),
                 })
                 return
@@ -1308,7 +1308,7 @@ class CollieIPCServer:
         code = str(frame.get("code") or "").strip().upper()
         result = approve_code(code)
         if result is None:
-            raise ValueError("That code didn't match — it may have expired. Sniff again?")
+            raise ValueError("That code didn't match — it may have expired. Try again?")
         channel, sender_id = result
         confirmed = await self._messengers().confirm_pairing(channel, sender_id)
         await self.broadcast({"type": "messenger_pairing", "messenger": channel})
@@ -3032,7 +3032,7 @@ class CollieIPCServer:
             await self.send_thinking(conv_id, "error")
             await self.broadcast({
                 "type": "error", "conversation_id": conv_id,
-                "message": "Uh oh. I chased my tail on that one. Try again?",
+                "message": "Uh oh. That didn't go as planned. Try again?",
                 "detail": str(e),
             })
             return

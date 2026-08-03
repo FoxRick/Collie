@@ -114,7 +114,7 @@ export default function MemoryTab({ onNotice }: Props): React.JSX.Element {
   }
 
   if (loading) {
-    return <div className="settings-loading">Sniffing out your memories...</div>
+    return <div className="settings-loading">Looking through your memories...</div>
   }
 
   const profileEntries = Object.entries(profile).filter(([, value]) => value && value !== '')

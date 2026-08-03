@@ -1113,8 +1113,8 @@ class TelegramChannel(BaseChannel):
             await self._send_pairing_code_if_private(sender_id, update.message, user)
             return
         await update.message.reply_text(
-            "Woof! No commands to memorize — just tell me what you need. 🐕\n\n"
-            "I can check your calendar, sniff out the weather, set reminders, "
+            "Hi! No commands to memorize — just tell me what you need. 😊\n\n"
+            "I can check your calendar, check the weather, set reminders, "
             "search the web, and remember what matters to you.\n\n"
             "This chat is paired with the Collie app on your computer."
         )

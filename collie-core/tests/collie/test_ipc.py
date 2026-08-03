@@ -38,9 +38,9 @@ class FakeOutbound:
 
 async def fake_chat_runner(content: str, *, conversation_id: str, on_stream, on_progress):
     await on_progress("", tool_events=[{"phase": "start", "name": "web_search"}])
-    for chunk in ("Woof! ", "Here you go."):
+    for chunk in ("Hi! ", "Here you go."):
         await on_stream(chunk)
-    return FakeOutbound("Woof! Here you go.")
+    return FakeOutbound("Hi! Here you go.")
 
 
 @pytest.fixture()
@@ -65,7 +65,7 @@ async def _connect(srv: CollieIPCServer):
     ws = await websockets.connect(f"ws://127.0.0.1:{srv.port}")
     ready = json.loads(await ws.recv())
     assert ready["type"] == "ready"
-    assert "stretching" in ready["phrase"]
+    assert "getting ready" in ready["phrase"]
     return ws
 
 
@@ -660,8 +660,8 @@ async def test_chat_full_flow(server: CollieIPCServer) -> None:
     assert "searching" in seen_states       # web_search tool event
     assert "generating" in seen_states      # streaming started
     assert seen_states[-1] == "done"
-    assert "".join(deltas) == "Woof! Here you go."
-    assert final_msg["content"] == "Woof! Here you go."
+    assert "".join(deltas) == "Hi! Here you go."
+    assert final_msg["content"] == "Hi! Here you go."
 
     # Conversation auto-titled from first message + both messages persisted
     convs = server.db.list_conversations()
@@ -750,7 +750,7 @@ async def test_chat_without_runner_reports_friendly_error(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_chat_runner_exception_is_dog_themed(tmp_path: Path) -> None:
+async def test_chat_runner_exception_is_friendly(tmp_path: Path) -> None:
     async def broken_runner(content, *, conversation_id, on_stream, on_progress):
         raise RuntimeError("boom")
 
@@ -762,7 +762,7 @@ async def test_chat_runner_exception_is_dog_themed(tmp_path: Path) -> None:
         await _send(ws, type="chat", id="1", content="hello")
         await _recv_until(ws, "ok")
         err = await _recv_until(ws, "error")
-        assert "chased my tail" in err["message"]
+        assert "didn't go as planned" in err["message"]
         await ws.close()
     finally:
         await srv.stop()

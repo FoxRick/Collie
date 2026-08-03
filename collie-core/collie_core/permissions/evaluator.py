@@ -184,7 +184,7 @@ class PermissionEvaluator:
                     return PermissionDecision(
                         Effect.ASK,
                         f"'{request.resource}' is outside the active project. "
-                        "I need your approval before I can poke my nose in there.",
+                        "I need your approval before I can take a look in there.",
                     )
             return PermissionDecision(Effect.ALLOW, "Read-only actions are allowed.")
         if (

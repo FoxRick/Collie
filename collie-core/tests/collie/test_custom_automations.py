@@ -53,7 +53,7 @@ def test_create_custom_automation(tmp_path: Path) -> None:
         assert "how my week went" in config["prompt"]
         assert len(row["name"]) <= 48
 
-        with pytest.raises(ValueError, match="sniff"):
+        with pytest.raises(ValueError, match="work out"):
             create_custom_automation(db, "do something nice for me")
         with pytest.raises(ValueError):
             create_custom_automation(db, "")
@@ -99,7 +99,7 @@ async def test_automation_ipc_create_and_delete(tmp_path: Path) -> None:
         reply = await _roundtrip(ws, type="create_automation", id="2",
                                  description="whenever you feel like it")
         assert reply["type"] == "error"
-        assert "sniff" in reply["message"] or "sniff" in str(reply.get("detail"))
+        assert "work out" in reply["message"] or "work out" in str(reply.get("detail"))
 
         reply = await _roundtrip(ws, type="delete_automation", id="3",
                                  automation_id=auto["id"])
