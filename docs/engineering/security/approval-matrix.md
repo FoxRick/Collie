@@ -59,7 +59,7 @@ conversation project folder with the local-file boundary:
 |---|---|
 | **Project folder only** | The conversation project folder only. This is the default. Choosing General Chat clears the previous conversation project scope. |
 | **Choose other folders…** | One to sixteen user-selected, canonical local folders. |
-| **Full file access** | Local text files anywhere on the machine except network/device paths, drive roots, and reparse-point paths. It requires an explicit confirmation and is not persisted across app restarts. |
+| **Full file access** | Local text files anywhere on the machine except network/device paths, drive roots, and reparse-point paths. It is session-only: never persisted across app restarts. |
 
 This combined control does not merge the underlying security concepts. Product
 file access keeps the generic workspace `access_mode` restricted, including
@@ -67,6 +67,19 @@ Full file access. It therefore does not relax loopback/network protections or
 grant external authority. The selected scope is carried with the current turn,
 validated again in the core, and inherited by subagents; a child cannot broaden
 it.
+
+Two UX rules keep the boundary honest:
+
+- **No dead-end approvals.** When the requested target is outside every
+  granted folder, `local_files` refuses the request up front (a policy denial)
+  instead of showing an approval card for an action the tool boundary would
+  reject anyway. The model must ask the user to grant the folder first.
+- **Scope changes apply mid-turn.** The composer sends the new selection to
+  the core immediately (`set_file_access_scope`); local file tools consult the
+  live per-conversation override before the turn-bound scope, so a folder
+  granted while a task is running applies to the next tool call instead of
+  only the next message. The override is cleared when the turn ends and can
+  never leak into a later turn.
 
 ## Opening files with the default app
 

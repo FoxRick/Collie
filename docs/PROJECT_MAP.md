@@ -72,6 +72,11 @@ validates the allowed roots, and the `local_files` tool revalidates them while
 executing; the `open_file` tool (default-app open of harmless file types and
 folders) shares that same canonical resolution. Subagents inherit the same
 immutable scope and cannot broaden it.
+A composer change also reaches the core immediately via the
+`set_file_access_scope` IPC command; local file tools consult that live
+per-conversation override before the turn-bound scope, so a folder granted
+mid-task applies to the running turn (the override is cleared when the turn
+ends).
 Full local-file access remains session-only and does not grant connector,
 network, or external-write authority.
 

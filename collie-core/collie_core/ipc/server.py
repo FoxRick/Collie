@@ -65,6 +65,7 @@ from collie_core.session_identity import desktop_session_key
 from collie_core.voice import LocalVoiceService, VoiceInputError
 from nanobot.security.workspace_access import (
     WorkspaceScopeError,
+    set_live_local_file_scope,
     validate_local_file_access_scope_payload,
 )
 from nanobot.webui.attachment_ingress import store_inbound_attachments
@@ -568,6 +569,36 @@ class CollieIPCServer:
         mode = str(frame.get("execution_mode") or "")
         self.db.set_conversation_mode(conv_id, mode)
         return {"conversation_id": conv_id, "execution_mode": mode}
+
+    async def _cmd_set_file_access_scope(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
+        """Apply a file-access scope immediately, including to a running turn.
+
+        The renderer fires this when the user changes the Files scope mid-chat;
+        local file tools consult the live override so the new folders apply to
+        the in-flight turn instead of only the next message.
+        """
+        conv_id = str(frame.get("conversation_id") or "").strip()
+        if not conv_id:
+            raise ValueError("A conversation is required to update file access.")
+        conversation = await asyncio.to_thread(self.db.get_conversation, conv_id)
+        if conversation is None:
+            raise ValueError("That conversation no longer exists.")
+        selected_folder = str(conversation.get("project_path") or "") or None
+        raw = frame.get("file_access_scope")
+        if not isinstance(raw, dict):
+            raise ValueError("file_access_scope must be an object")
+        roots, unrestricted = validate_local_file_access_scope_payload(
+            raw, selected_folder=selected_folder
+        )
+        set_live_local_file_scope(conv_id, roots, unrestricted)
+        scope: dict[str, Any] = {
+            "mode": "full_file_access" if unrestricted else str(raw["mode"])
+        }
+        if not unrestricted and raw["mode"] == "chosen_folders":
+            scope["roots"] = [str(root) for root in roots]
+        return {"applied": True, "file_access_scope": scope}
 
     async def _cmd_rename_conversation(self, connection: ServerConnection, frame: dict) -> dict:
         self.db.rename_conversation(str(frame["conversation_id"]), str(frame["title"]))

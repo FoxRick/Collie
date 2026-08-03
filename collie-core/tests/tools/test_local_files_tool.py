@@ -7,7 +7,7 @@ import pytest
 
 import collie_core.tools.local_files as local_files
 from collie_core.db import CollieDB
-from collie_core.permissions.broker import ApprovalBroker
+from collie_core.permissions.broker import ApprovalBroker, PermissionDeniedError
 from collie_core.permissions.evaluator import PermissionEvaluator
 from collie_core.permissions.models import ExecutionContext, Risk
 from collie_core.permissions.store import PermissionStore
@@ -16,7 +16,9 @@ from nanobot.agent.tools.context import RequestContext, request_context
 from nanobot.security.workspace_access import (
     bind_workspace_scope,
     build_workspace_scope,
+    clear_live_local_file_scope,
     reset_workspace_scope,
+    set_live_local_file_scope,
 )
 
 
@@ -164,6 +166,7 @@ def test_local_files_permission_metadata_is_local_and_in_scope(scoped_tool) -> N
     assert write.approval_free is False
     assert write.approve_for_me is True
     assert write.data_leaving_device == ()
+    assert write.redacted_parameters["allowed_local_roots"] == [str(root.resolve())]
 
     with request_context(
         RequestContext(
@@ -189,9 +192,10 @@ def test_local_files_permission_metadata_is_local_and_in_scope(scoped_tool) -> N
     assert overwrite.approval_free is False
     assert overwrite.approve_for_me is True
 
-    outside = tool.permission_request({"operation": "save", "path": "../outside.txt", "content": "no"})
-    assert outside.approval_free is False
-    assert outside.approve_for_me is False
+    with pytest.raises(PermissionDeniedError):
+        tool.permission_request(
+            {"operation": "save", "path": "../outside.txt", "content": "no"}
+        )
 
 
 @pytest.mark.asyncio
@@ -237,6 +241,8 @@ async def test_local_file_read_broker_discloses_exact_path_and_provider(scoped_t
             "path": str(target.resolve()),
             "model_provider": "ChatGPT",
             "local_only": True,
+            "allowed_local_roots": [str(root.resolve())],
+            "unrestricted_local_files": False,
         }
         assert display["approve_for_me_eligible"] is False
         with pytest.raises(ValueError, match="not eligible"):
@@ -244,3 +250,73 @@ async def test_local_file_read_broker_discloses_exact_path_and_provider(scoped_t
         await broker.resolve(str(approval["id"]), "allow_once")
         await task
     db.close()
+
+
+@pytest.mark.asyncio
+async def test_live_file_access_override_applies_mid_turn(tmp_path: Path) -> None:
+    """A scope change while the turn runs applies to the very next tool call."""
+    root = tmp_path / "project"
+    root.mkdir()
+    desktop = tmp_path / "desktop"
+    desktop.mkdir()
+    token = bind_workspace_scope(
+        build_workspace_scope(root, "restricted", source_channel="websocket")
+    )
+    set_live_local_file_scope("conv-live", (desktop,), False)
+    try:
+        with request_context(
+            RequestContext(
+                channel="collie",
+                chat_id="conv-live",
+                metadata={"permission_context": {"conversation_id": "conv-live"}},
+            )
+        ):
+            tool = LocalFilesTool()
+            # The target is outside the turn-bound project, but the live
+            # override (the user just granted the Desktop folder) admits it.
+            request = tool.permission_request(
+                {"operation": "save", "path": str(desktop / "draft.txt"), "content": "hi"}
+            )
+            assert request.resource == str((desktop / "draft.txt").resolve())
+            assert request.redacted_parameters["allowed_local_roots"] == [
+                str(desktop.resolve())
+            ]
+            result = await tool.execute(
+                operation="save", path=str(desktop / "draft.txt"), content="hi"
+            )
+            assert not result.is_error
+            assert (desktop / "draft.txt").read_text(encoding="utf-8") == "hi"
+    finally:
+        clear_live_local_file_scope("conv-live")
+        reset_workspace_scope(token)
+
+
+def test_live_file_access_override_is_conversation_scoped(tmp_path: Path) -> None:
+    """An override for one conversation never leaks into another."""
+    root = tmp_path / "project"
+    root.mkdir()
+    desktop = tmp_path / "desktop"
+    desktop.mkdir()
+    token = bind_workspace_scope(
+        build_workspace_scope(root, "restricted", source_channel="websocket")
+    )
+    set_live_local_file_scope("conv-a", (desktop,), False)
+    try:
+        with request_context(
+            RequestContext(
+                channel="collie",
+                chat_id="conv-b",
+                metadata={"permission_context": {"conversation_id": "conv-b"}},
+            )
+        ):
+            with pytest.raises(PermissionDeniedError):
+                LocalFilesTool().permission_request(
+                    {
+                        "operation": "save",
+                        "path": str(desktop / "draft.txt"),
+                        "content": "no",
+                    }
+                )
+    finally:
+        clear_live_local_file_scope("conv-a")
+        reset_workspace_scope(token)

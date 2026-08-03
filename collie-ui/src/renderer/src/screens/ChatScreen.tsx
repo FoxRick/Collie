@@ -53,8 +53,6 @@ interface TaskTiming {
 }
 
 const FILE_ACCESS_STORAGE_KEY = 'collie.fileAccessScope'
-export const FULL_FILE_ACCESS_CONFIRMATION =
-  'Full file access lets Collie read and change local text files anywhere on this computer. It cannot send, delete, pay, publish, change accounts, or change routines. Continue?'
 
 export function loadFileAccessScope(): FileAccessScope {
   try {
@@ -72,13 +70,6 @@ export function loadFileAccessScope(): FileAccessScope {
     // A damaged preference falls back to the narrow selected-folder scope.
   }
   return { mode: 'selected_folder' }
-}
-
-export function confirmFileAccessScopeChange(
-  scope: FileAccessScope,
-  confirmFullAccess: (message: string) => boolean = (message) => window.confirm(message)
-): boolean {
-  return scope.mode !== 'full_file_access' || confirmFullAccess(FULL_FILE_ACCESS_CONFIRMATION)
 }
 
 export function persistFileAccessScope(
@@ -725,9 +716,15 @@ export default function ChatScreen({
   }, [approvalPreset])
 
   const changeFileAccessScope = useCallback((scope: FileAccessScope) => {
-    if (!confirmFileAccessScopeChange(scope)) return
     setFileAccessScope(scope)
     persistFileAccessScope(scope)
+    // Apply the choice to the in-flight turn right away (the core keeps a
+    // live per-conversation override that local file tools consult), not
+    // only to the next message.
+    const conversationId = activeIdRef.current
+    if (conversationId) {
+      collieClient.setFileAccessScope(conversationId, scope).catch(() => undefined)
+    }
   }, [])
 
   const changeComposerProject = useCallback((path: string) => {
@@ -976,16 +973,27 @@ export default function ChatScreen({
             {planChangeNotice}
           </div>
         ) : null}
-          {approvals.map((approval) => (
-            <ApprovalSheet
-              key={approval.id}
-              approval={approval}
-              inline
-              onResolved={() =>
-                setApprovals((current) => current.filter((item) => item.id !== approval.id))
-              }
-            />
-          ))}
+          {approvals.length > 0 ? (
+            <div className="approval-stack">
+              {approvals.length > 1 ? (
+                <div className="approval-stack-count" role="status">
+                  {approvals.length} approvals waiting — approve them one at a time
+                </div>
+              ) : null}
+              <ApprovalSheet
+                key={approvals[approvals.length - 1].id}
+                approval={approvals[approvals.length - 1]}
+                inline
+                onResolved={() =>
+                  setApprovals((current) =>
+                    current.filter(
+                      (item) => item.id !== approvals[approvals.length - 1].id
+                    )
+                  )
+                }
+              />
+            </div>
+          ) : null}
           <div className="portrait-composer-layout">
             <InteractiveColliePortrait
               thinking={portraitThinking}

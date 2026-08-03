@@ -568,6 +568,16 @@ export class CollieClient {
     })
   }
 
+  setFileAccessScope(
+    conversationId: string,
+    fileAccessScope: FileAccessScope
+  ): Promise<{ applied: boolean; file_access_scope: FileAccessScope }> {
+    return this.command('set_file_access_scope', {
+      conversation_id: conversationId,
+      file_access_scope: fileAccessScope
+    })
+  }
+
   transcribe(audio: string): Promise<{ text: string }> {
     return this.command('transcribe', { audio }, 600_000)
   }
