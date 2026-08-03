@@ -11,7 +11,12 @@ from __future__ import annotations
 from typing import Any
 
 from collie_core.memory.profile import PROFILE_KEYS, ProfileStore
+from collie_core.permissions.models import PermissionRequest, Risk
 from nanobot.agent.tools.base import Tool, tool_parameters
+
+_PERSON_FIELDS = frozenset(
+    {"relationship", "birthday", "allergies", "preferences", "gift_ideas", "notes"}
+)
 
 _profile_store: ProfileStore | None = None
 
@@ -81,6 +86,74 @@ class RememberTool(Tool):
             "Use this whenever the user shares lasting personal information. "
             "Also supports forgetting with kind=forget_fact / forget_person."
         )
+
+    def permission_request(self, params: dict[str, Any]) -> PermissionRequest:
+        """Additive memory writes are approval-free; forgets and rewrites ask.
+
+        New facts, people, and dates are reversible local writes and land
+        silently (they are journaled for undo in Settings). Forgetting, or
+        overwriting a memory that already holds a different value, stays an
+        explicit approval — that is a rewrite in disguise, not an addition.
+        """
+        kind = str(params.get("kind") or "").strip()
+        store = _store()
+
+        if kind in ("forget_fact", "forget_person"):
+            return PermissionRequest(
+                action="memory.forget",
+                resource="profile",
+                risk=Risk.LOCAL_WRITE,
+                summary="Forget a memory",
+                reversible=False,
+                approval_free=False,
+            )
+
+        if kind == "fact":
+            key = (params.get("key") or "").strip().lower().replace(" ", "_")
+            value = str(params.get("value") or "").strip()
+            existing = store.get(key) if store is not None else None
+            conflict = existing not in (None, "") and str(existing) != value
+        elif kind == "person":
+            name = (params.get("name") or "").strip()
+            existing = store.find_person(name) if store is not None else None
+            conflict = self._person_conflicts(existing, params)
+        elif kind == "date":
+            label = (params.get("label") or "").strip()
+            date = str(params.get("date") or "").strip()
+            existing = None
+            if store is not None:
+                existing = next(
+                    (d for d in store.list_dates() if d.get("label") == label), None
+                )
+            conflict = existing is not None and str(existing.get("date") or "") != date
+        else:
+            # Unknown kinds fail closed: ask rather than auto-approve.
+            conflict = True
+
+        return PermissionRequest(
+            action="memory.write",
+            resource="profile",
+            risk=Risk.LOCAL_WRITE,
+            summary="Remember something new"
+            if not conflict
+            else "Update a memory you already have",
+            reversible=True,
+            approval_free=not conflict,
+        )
+
+    @staticmethod
+    def _person_conflicts(
+        existing: dict[str, Any] | None, params: dict[str, Any]
+    ) -> bool:
+        """A person write conflicts when it changes an existing stored field."""
+        if existing is None:
+            return False
+        for field in _PERSON_FIELDS:
+            incoming = (params.get(field) or "").strip()
+            stored = str(existing.get(field) or "").strip()
+            if incoming and stored and incoming != stored:
+                return True
+        return False
 
     @classmethod
     def enabled(cls, ctx: Any) -> bool:

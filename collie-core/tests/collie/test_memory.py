@@ -6,6 +6,7 @@ import pytest
 
 from collie_core.db import CollieDB
 from collie_core.memory.profile import ProfileStore
+from collie_core.permissions.models import Risk
 from collie_core.tools import memory as memory_tool_module
 from collie_core.tools.memory import RememberTool, bind_profile_store
 
@@ -128,3 +129,131 @@ def test_tool_loader_discovers_collie_tools(store: ProfileStore) -> None:
 
     registered = loader.load(_Ctx(), registry)
     assert "remember" in registered
+
+
+# -- permission posture -----------------------------------------------------
+
+def test_remember_new_fact_is_approval_free(store: ProfileStore) -> None:
+    bind_profile_store(store)
+    tool = RememberTool()
+    request = tool.permission_request({"kind": "fact", "key": "location", "value": "Lisbon"})
+    assert request.approval_free is True
+    assert request.reversible is True
+    assert request.risk == Risk.LOCAL_WRITE
+
+
+def test_remember_overwrite_fact_requires_approval(store: ProfileStore) -> None:
+    bind_profile_store(store)
+    store.set("location", "Madrid")
+    tool = RememberTool()
+    request = tool.permission_request({"kind": "fact", "key": "location", "value": "Lisbon"})
+    assert request.approval_free is False
+
+
+def test_remember_same_fact_value_is_approval_free(store: ProfileStore) -> None:
+    bind_profile_store(store)
+    store.set("location", "Madrid")
+    tool = RememberTool()
+    request = tool.permission_request({"kind": "fact", "key": "location", "value": "Madrid"})
+    assert request.approval_free is True
+
+
+def test_remember_forget_requires_approval(store: ProfileStore) -> None:
+    bind_profile_store(store)
+    tool = RememberTool()
+    request = tool.permission_request({"kind": "forget_fact", "key": "location"})
+    assert request.approval_free is False
+    assert request.reversible is False
+    request = tool.permission_request({"kind": "forget_person", "name": "Mom"})
+    assert request.approval_free is False
+
+
+def test_remember_new_person_is_approval_free(store: ProfileStore) -> None:
+    bind_profile_store(store)
+    tool = RememberTool()
+    request = tool.permission_request({"kind": "person", "name": "Mom"})
+    assert request.approval_free is True
+
+
+def test_remember_person_field_change_requires_approval(store: ProfileStore) -> None:
+    bind_profile_store(store)
+    store.add_person("Mom", allergies="peanuts")
+    tool = RememberTool()
+    request = tool.permission_request(
+        {"kind": "person", "name": "Mom", "allergies": "shellfish"}
+    )
+    assert request.approval_free is False
+    # Same value again is a no-op, not a rewrite.
+    request = tool.permission_request(
+        {"kind": "person", "name": "Mom", "allergies": "peanuts"}
+    )
+    assert request.approval_free is True
+
+
+def test_remember_new_date_is_approval_free(store: ProfileStore) -> None:
+    bind_profile_store(store)
+    tool = RememberTool()
+    request = tool.permission_request({"kind": "date", "date": "03-15", "label": "Mom's birthday"})
+    assert request.approval_free is True
+
+
+def test_remember_date_move_requires_approval(store: ProfileStore) -> None:
+    bind_profile_store(store)
+    store.add_date("03-15", "Mom's birthday", recurring=True)
+    tool = RememberTool()
+    request = tool.permission_request({"kind": "date", "date": "03-16", "label": "Mom's birthday"})
+    assert request.approval_free is False
+
+
+def test_remember_unknown_kind_fails_closed(store: ProfileStore) -> None:
+    bind_profile_store(store)
+    tool = RememberTool()
+    request = tool.permission_request({"kind": "nope"})
+    assert request.approval_free is False
+
+
+# -- memory journal -----------------------------------------------------------
+
+def test_journal_records_fact_add_update_delete(store: ProfileStore) -> None:
+    store.set("location", "Lisbon")
+    store.set("location", "Porto")
+    store.delete("location")
+    entries = store.db.list_memory_journal()
+    assert [e["action"] for e in entries] == ["delete", "update", "add"]
+    assert entries[2]["kind"] == "fact"
+    assert entries[2]["subject"] == "location"
+    assert entries[2]["value"] == "Lisbon"
+    assert entries[1]["value"] == "Porto"
+
+
+def test_journal_records_person_and_date(store: ProfileStore) -> None:
+    store.add_person("Mom", allergies="peanuts")
+    mom = store.find_person("Mom")
+    assert mom is not None
+    store.delete_person(mom["id"])
+    store.add_date("03-15", "Mom's birthday", recurring=True)
+    entries = store.db.list_memory_journal()
+    actions = [e["action"] for e in entries]
+    assert actions == ["add", "delete", "add"]
+    assert entries[2]["kind"] == "person"
+    assert entries[2]["subject"] == "Mom"
+    assert entries[0]["kind"] == "date"
+    assert entries[0]["subject"] == "Mom's birthday"
+
+
+def test_journal_limit(store: ProfileStore) -> None:
+    for i in range(5):
+        store.set(f"key{i}", str(i))
+    assert len(store.db.list_memory_journal(limit=2)) == 2
+
+
+@pytest.mark.asyncio
+async def test_remember_tool_journals_through_profile_store(store: ProfileStore) -> None:
+    bind_profile_store(store)
+    tool = RememberTool()
+    await tool.execute(kind="fact", key="goals", value="learn Spanish")
+    entries = store.db.list_memory_journal()
+    assert entries[0]["kind"] == "fact"
+    assert entries[0]["subject"] == "goals"
+    assert entries[0]["action"] == "add"
+    assert entries[0]["value"] == "learn Spanish"

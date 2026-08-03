@@ -57,7 +57,7 @@ The improvement process should be:
 5. Apply meaningful behavioural changes only after approval.
 6. Keep the previous version for rollback.
 
-Automatic maintenance may update indexes, compact sessions, remove duplicate context, and record project changes. Rewriting agents or skills, changing personal memory, or changing settings and permissions should require approval.
+Automatic maintenance may update indexes, compact sessions, remove duplicate context, and record project changes. Additive memory writes (new facts, people, and dates) may also be automatic when they are logged and reversible, with a visible recent-activity trail the owner can inspect. Rewriting agents or skills, changing or deleting personal memory, or changing settings and permissions should require approval.
 
 The Gardener should improve Collie in response to observed problems and repeated patterns, not rewrite things merely because a timer fired.
 

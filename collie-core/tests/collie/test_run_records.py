@@ -94,7 +94,7 @@ def _table_names(path: Path) -> set[str]:
 
 
 def test_schema_v11_tables_created_on_fresh_db(db: CollieDB) -> None:
-    assert db.schema_version == 12
+    assert db.schema_version == 13
     tables = _table_names(db.path)
     assert {"turn_events", "tool_events"} <= tables
 
@@ -116,7 +116,7 @@ def test_v10_db_upgrades_to_v11_preserving_data(tmp_path: Path) -> None:
 
     upgraded = CollieDB(path)
     try:
-        assert upgraded.schema_version == 12
+        assert upgraded.schema_version == 13
         assert upgraded.get_conversation("c1")["title"] == "Keep me"
     finally:
         upgraded.close()

@@ -520,6 +520,23 @@ ALTER TABLE turn_events ADD COLUMN tool_schema_hash TEXT;
 ALTER TABLE turn_events ADD COLUMN config_hash TEXT;
 """
 
+# Append-only journal of every memory mutation. Powers the Settings -> Memory
+# "recently remembered" view and one-action undo (Gardener rollback rail):
+# kind (fact|person|date), subject (key/name/label), action (add|update|delete),
+# value (new value / snapshot for undo), created_at.
+_SCHEMA_V13 = """
+CREATE TABLE IF NOT EXISTS memory_journal (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    action TEXT NOT NULL,
+    value TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_memory_journal_created
+    ON memory_journal(created_at DESC);
+"""
+
 # Ordered migrations: index 0 == schema version 1, etc.
 _MIGRATIONS: list[str] = [
     _SCHEMA_V1,
@@ -534,6 +551,7 @@ _MIGRATIONS: list[str] = [
     _SCHEMA_V10,
     _SCHEMA_V11,
     _SCHEMA_V12,
+    _SCHEMA_V13,
 ]
 
 
@@ -989,6 +1007,9 @@ class CollieDB:
     def list_dates(self) -> list[dict[str, Any]]:
         return self._rows("SELECT * FROM important_dates ORDER BY date")
 
+    def get_date(self, date_id: str) -> dict[str, Any] | None:
+        return self._row("SELECT * FROM important_dates WHERE id = ?", (date_id,))
+
     def update_date(self, date_id: str, **fields: Any) -> None:
         allowed = {"date", "label", "recurring", "reminder_days_before", "person_id"}
         updates = {key: value for key, value in fields.items() if key in allowed}
@@ -1006,6 +1027,37 @@ class CollieDB:
     def delete_date(self, date_id: str) -> None:
         with self._write() as conn:
             conn.execute("DELETE FROM important_dates WHERE id = ?", (date_id,))
+
+    # -- memory journal ----------------------------------------------------------
+
+    def log_memory_journal(
+        self,
+        kind: str,
+        subject: str,
+        action: str,
+        value: Any = None,
+    ) -> None:
+        """Append one memory mutation to the journal (add|update|delete)."""
+        snapshot = json.dumps(value, ensure_ascii=False) if value is not None else None
+        with self._write() as conn:
+            conn.execute(
+                "INSERT INTO memory_journal (kind, subject, action, value, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (kind, subject, action, snapshot, utc_now()),
+            )
+
+    def list_memory_journal(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Most recent journal entries first, newest on top."""
+        rows = self._rows(
+            "SELECT * FROM memory_journal ORDER BY id DESC LIMIT ?", (limit,)
+        )
+        for row in rows:
+            if row.get("value"):
+                try:
+                    row["value"] = json.loads(row["value"])
+                except (TypeError, ValueError):
+                    pass
+        return rows
 
     # -- reminders ---------------------------------------------------------------------------
 

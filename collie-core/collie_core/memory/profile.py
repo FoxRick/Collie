@@ -62,15 +62,27 @@ class ProfileStore:
 
     # -- profile facts -------------------------------------------------------
 
+    def _journal(self, kind: str, subject: str, action: str, value: Any = None) -> None:
+        """Append a mutation record for the Settings -> Memory undo trail."""
+        self.db.log_memory_journal(kind, subject, action, value)
+
     def get(self, key: str, default: Any = None) -> Any:
         return self.db.get_profile(key, default)
 
     def set(self, key: str, value: Any) -> None:
+        existing = self.db.get_profile(key, None)
         self.db.set_profile(key, value)
+        self._journal(
+            "fact", key,
+            "add" if existing is None or existing == "" else "update",
+            value,
+        )
         self.regenerate_memory_md()
 
     def delete(self, key: str) -> None:
+        existing = self.db.get_profile(key, None)
         self.db.delete_profile(key)
+        self._journal("fact", key, "delete", existing)
         self.regenerate_memory_md()
 
     def all(self) -> dict[str, Any]:
@@ -83,8 +95,10 @@ class ProfileStore:
         if existing:
             self.db.update_person(existing["id"], **fields)
             person = self.db.get_person(existing["id"])
+            self._journal("person", name, "update", fields)
         else:
             person = self.db.add_person(name, **fields)
+            self._journal("person", name, "add", fields)
         self.regenerate_memory_md()
         return person  # type: ignore[return-value]
 
@@ -95,11 +109,15 @@ class ProfileStore:
         return self.db.find_person(name)
 
     def update_person(self, person_id: str, **fields: Any) -> None:
+        person = self.db.get_person(person_id) or {}
         self.db.update_person(person_id, **fields)
+        self._journal("person", person.get("name") or person_id, "update", fields)
         self.regenerate_memory_md()
 
     def delete_person(self, person_id: str) -> None:
+        person = self.db.get_person(person_id) or {}
         self.db.delete_person(person_id)
+        self._journal("person", person.get("name") or person_id, "delete", person)
         self.regenerate_memory_md()
 
     def list_people(self) -> list[dict[str, Any]]:
@@ -109,6 +127,7 @@ class ProfileStore:
 
     def add_date(self, date: str, label: str, **kwargs: Any) -> dict[str, Any]:
         row = self.db.add_date(date, label, **kwargs)
+        self._journal("date", label, "add", {"date": date, **kwargs})
         self.regenerate_memory_md()
         return row
 
@@ -116,11 +135,15 @@ class ProfileStore:
         return self.db.list_dates()
 
     def update_date(self, date_id: str, **fields: Any) -> None:
+        row = self.db.get_date(date_id) or {}
         self.db.update_date(date_id, **fields)
+        self._journal("date", row.get("label") or date_id, "update", fields)
         self.regenerate_memory_md()
 
     def delete_date(self, date_id: str) -> None:
+        row = self.db.get_date(date_id) or {}
         self.db.delete_date(date_id)
+        self._journal("date", row.get("label") or date_id, "delete", row)
         self.regenerate_memory_md()
 
     # -- MEMORY.md generation --------------------------------------------------------
