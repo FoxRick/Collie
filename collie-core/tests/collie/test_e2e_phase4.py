@@ -39,7 +39,7 @@ async def _fake_openai_app() -> web.Application:
             "model": body["model"],
             "choices": [{
                 "index": 0,
-                "message": {"role": "assistant", "content": "Woof! All set."},
+                "message": {"role": "assistant", "content": "Hi! All set."},
                 "finish_reason": "stop",
             }],
             "usage": {"prompt_tokens": 10, "completion_tokens": 4,
@@ -176,7 +176,7 @@ async def test_phase4_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
             ))
             channel = FakePhoneChannel.instances[-1]
             await _wait_for(lambda: channel.sent)
-            assert "Woof!" in channel.sent[0].content
+            assert "Hi!" in channel.sent[0].content
 
             # ...and it mirrors into a desktop conversation
             conv_id = db.get_setting("messengers.telegram.conversation_id")
@@ -227,7 +227,7 @@ async def test_phase4_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
             assert briefing_conv
             briefing_msgs = db.get_messages(briefing_conv)
             assert briefing_msgs[-1]["role"] == "assistant"
-            assert "Woof!" in briefing_msgs[-1]["content"]
+            assert "Hi!" in briefing_msgs[-1]["content"]
     finally:
         await runtime._shutdown_loop()
         await runtime.ipc.stop()

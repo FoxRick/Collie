@@ -125,7 +125,7 @@ schemas; `tests/collie/test_prompt_hashes.py` covers the hash telemetry
   (`nanobot/pairing`), approved in Settings → Phone via `approve_pairing`.
   The engine data dir (pairing.json, media) is anchored to `~/.collie` by
   `set_config_path` at runtime boot.
-- **Thinking states**: dog-themed phrases in `collie_core/ipc/thinking.py`;
+- **Thinking states**: friendly thinking phrases in `collie_core/ipc/thinking.py`;
   never use corporate language in user-facing strings.
 
 ## Testing
@@ -140,6 +140,6 @@ schemas; `tests/collie/test_prompt_hashes.py` covers the hash telemetry
 
 ## Voice Rules (user-facing strings)
 
-Collie speaks like a smart, loyal dog who can type: warm, first-person,
-playful, never corporate. Errors say things like "Uh oh. I chased my tail on
-that one." — never "An error occurred while processing your request."
+Collie speaks like a warm, friendly person who can type: first-person,
+welcoming, never corporate. Errors say things like "Uh oh. That didn't go
+as planned." — never "An error occurred while processing your request."

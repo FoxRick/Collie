@@ -34,7 +34,7 @@ async def _fake_openai_app() -> web.Application:
                 headers={"Content-Type": "text/event-stream"}
             )
             await resp.prepare(request)
-            chunks = ["Woof! ", "You said: ", "hello."]
+            chunks = ["Hi! ", "You said: ", "hello."]
             for i, text in enumerate(chunks):
                 payload = {
                     "id": "chatcmpl-fake",
@@ -66,7 +66,7 @@ async def _fake_openai_app() -> web.Application:
             "model": body["model"],
             "choices": [{
                 "index": 0,
-                "message": {"role": "assistant", "content": "Woof! You said: hello."},
+                "message": {"role": "assistant", "content": "Hi! You said: hello."},
                 "finish_reason": "stop",
             }],
             "usage": {"prompt_tokens": 20, "completion_tokens": 6, "total_tokens": 26},
@@ -139,8 +139,8 @@ async def test_phase1_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
                     pytest.fail(f"IPC error: {frame}")
 
             assert assistant is not None
-            assert "Woof!" in assistant["content"]
-            assert "".join(deltas) == "Woof! You said: hello."
+            assert "Hi!" in assistant["content"]
+            assert "".join(deltas) == "Hi! You said: hello."
             assert "processing" in states
             assert states[-1] == "done"
 

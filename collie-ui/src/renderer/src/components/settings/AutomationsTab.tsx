@@ -88,7 +88,7 @@ export default function AutomationsTab({ onNotice }: Props): React.JSX.Element {
     setBusy(true)
     try {
       await collieClient.createAutomation(description.trim())
-      onNotice("Scheduled! I'll be right on time. *tail wag*")
+      onNotice("Scheduled! I'll be right on time.")
       setCreating(false)
       setDescription('')
       await refresh()
@@ -115,7 +115,7 @@ export default function AutomationsTab({ onNotice }: Props): React.JSX.Element {
   if (loading) {
     return (
       <div className="py-8 text-center text-sm" style={{ color: 'var(--collie-paw)' }}>
-        Sniffing out your automations...
+        Looking through your automations...
       </div>
     )
   }
@@ -133,7 +133,7 @@ export default function AutomationsTab({ onNotice }: Props): React.JSX.Element {
     <div>
       <h3 className="mb-1 font-semibold">Automatic Tasks</h3>
       <p className="mb-3 text-sm" style={{ color: 'var(--collie-paw)' }}>
-        Collie can check in on a schedule — like a good dog reminding you to eat.
+        Collie can check in on a schedule — like a good friend reminding you to eat.
       </p>
       <div className="space-y-2">
         {items.map((auto) => (

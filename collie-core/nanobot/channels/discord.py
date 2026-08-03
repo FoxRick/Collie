@@ -159,8 +159,8 @@ if DISCORD_AVAILABLE:
                     return
                 await self._reply_ephemeral(
                     interaction,
-                    "Woof! No commands to memorize — just tell me what you need. 🐕\n"
-                    "I can check your calendar, sniff out the weather, set "
+                    "Hi! No commands to memorize — just tell me what you need. 😊\n"
+                    "I can check your calendar, check the weather, set "
                     "reminders, search the web, and remember what matters to you.\n"
                     "This chat is paired with the Collie app on your computer.",
                 )

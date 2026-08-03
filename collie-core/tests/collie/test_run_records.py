@@ -880,7 +880,7 @@ async def test_runtime_records_chat_turn_via_build_loop(
         assert body.get("model")
         resp = web.StreamResponse(headers={"Content-Type": "text/event-stream"})
         await resp.prepare(request)
-        for i, text in enumerate(["Woof! ", "You said: ", "hello."]):
+        for i, text in enumerate(["Hi! ", "You said: ", "hello."]):
             payload = {
                 "id": "chatcmpl-fake",
                 "object": "chat.completion.chunk",
@@ -978,8 +978,8 @@ class FakeOutbound:
 
 async def fake_chat_runner(content: str, *, conversation_id: str, on_stream, on_progress):
     await on_progress("", tool_events=[{"phase": "start", "name": "web_search"}])
-    await on_stream("Woof!")
-    return FakeOutbound("Woof! Here you go.")
+    await on_stream("Hi!")
+    return FakeOutbound("Hi! Here you go.")
 
 
 async def test_ipc_get_run_records_and_tool_events_round_trip(

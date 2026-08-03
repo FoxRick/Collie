@@ -36,7 +36,7 @@ async def _fake_openai_app() -> web.Application:
             "model": body["model"],
             "choices": [{
                 "index": 0,
-                "message": {"role": "assistant", "content": "Woof! All set."},
+                "message": {"role": "assistant", "content": "Hi! All set."},
                 "finish_reason": "stop",
             }],
             "usage": {"prompt_tokens": 10, "completion_tokens": 4,
@@ -165,7 +165,7 @@ async def test_phase3_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
                 if frame["type"] == "error":
                     pytest.fail(f"IPC error: {frame}")
             assert assistant is not None
-            assert "Woof!" in assistant["content"]
+            assert "Hi!" in assistant["content"]
 
             # -- search + export + disconnect --------------------------------
             reply = await _roundtrip(ws, type="search_messages", id="q1",

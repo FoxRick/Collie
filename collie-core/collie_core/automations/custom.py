@@ -126,7 +126,7 @@ def create_custom_automation(
         structured = parse_structured_schedule(description, timezone_name)
     except ValueError as exc:
         raise ValueError(
-            "I couldn't sniff out a clear schedule. Try 'weekdays at 8am', "
+            "I couldn't work out a clear schedule. Try 'weekdays at 8am', "
             "'every Friday at 5pm', or 'the first day of every month at 9am'. "
             f"{exc}"
         ) from exc

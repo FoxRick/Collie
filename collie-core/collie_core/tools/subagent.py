@@ -90,7 +90,7 @@ class CallSubagentTool(Tool):
             names = [str(r["name"]) for r in loader.db.list_subagents()]
             if names:
                 return (
-                    f"I don't have a helper called '{name}'. My buddies are: "
+                    f"I don't have a helper called '{name}'. My helpers are: "
                     f"{', '.join(names)}. Or make a new one in "
                     "Settings → Subagents!"
                 )
@@ -116,7 +116,7 @@ class CallSubagentTool(Tool):
         limit = min(3, self._manager.max_concurrent_subagents)
         if running >= limit:
             return (
-                f"My buddies have their paws full ({running}/{limit} busy). "
+                f"My helpers are busy right now ({running}/{limit} busy). "
                 "Let one finish before calling in another."
             )
         operator_running = any(

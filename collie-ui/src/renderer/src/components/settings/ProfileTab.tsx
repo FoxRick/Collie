@@ -31,7 +31,7 @@ export default function ProfileTab({ onNotice }: Props): React.JSX.Element {
     try {
       await collieClient.command('write_file', { path: 'VISION.md', content: vision })
       setSaved(true)
-      onNotice('Personality saved! *tail wag*')
+      onNotice('Personality saved!')
       setTimeout(() => setSaved(false), 2000)
     } catch (e) {
       onNotice(e instanceof Error ? e.message : 'Failed to save')
@@ -46,7 +46,7 @@ export default function ProfileTab({ onNotice }: Props): React.JSX.Element {
       </p>
       {loading ? (
         <div className="py-8 text-center text-sm" style={{ color: 'var(--collie-paw)' }}>
-          Sniffing out your settings...
+          Looking through your settings...
         </div>
       ) : (
         <>

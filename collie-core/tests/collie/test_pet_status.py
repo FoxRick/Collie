@@ -86,9 +86,9 @@ def test_completion_stays_until_acknowledged() -> None:
 def test_explicit_status_state_keeps_bubble_and_animation_in_sync() -> None:
     pet, root, label, states = _pet()
 
-    pet._set_status("Sniffing out reliable sources…", state="walk")
+    pet._set_status("Looking through reliable sources…", state="walk")
 
-    assert label.text == "Sniffing out reliable sources…"
+    assert label.text == "Looking through reliable sources…"
     assert states == ["walk"]
     assert root.scheduled[0][0] == 12_000
 

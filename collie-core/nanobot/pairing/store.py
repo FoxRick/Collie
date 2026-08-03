@@ -228,7 +228,7 @@ def get_approved(channel: str) -> list[str]:
 def format_pairing_reply(code: str) -> str:
     """Return the pairing-code message sent to unrecognised DM senders."""
     return (
-        "Woof! I only chat with my human. 🐕\n\n"
+        "Hi! I only chat with my human. 😊\n\n"
         f"Your pairing code is: {code}\n\n"
         "If I'm your Collie, open the Collie app on your computer, go to "
         "Settings → Phone, and enter this code. Then message me again!"

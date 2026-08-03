@@ -203,7 +203,7 @@ export default function ConnectorsScreen(): React.JSX.Element {
       }
     } catch (error) {
       setProgress(null)
-      setNotice(error instanceof Error ? error.message : 'That connection slipped my paws.')
+      setNotice(error instanceof Error ? error.message : "That connection didn't go through.")
     } finally {
       connectInFlight.current = false
       setBusy(false)
@@ -245,7 +245,7 @@ export default function ConnectorsScreen(): React.JSX.Element {
               .testConnector(selected.id)
               .then(({ connection }) => {
                 setSelected(connection)
-                setNotice('Connection looks healthy. *tail wag*')
+                setNotice('Connection looks healthy.')
               })
               .catch((error) =>
                 setNotice(error instanceof Error ? error.message : 'The check failed.')

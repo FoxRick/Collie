@@ -182,12 +182,12 @@ async def test_dispatch_final_message_mirrors_and_remembers(db, monkeypatch) -> 
     manager = await _started_manager(db, monkeypatch)
     manager.broadcaster = broadcaster
     handled = await manager.dispatch(
-        OutboundMessage(channel="telegram", chat_id="42", content="Woof, done!")
+        OutboundMessage(channel="telegram", chat_id="42", content="Hi, done!")
     )
     assert handled is True
     channel = manager.channels["telegram"]
     await _wait_until(lambda: len(channel.sent) == 1)
-    assert channel.sent[0].content == "Woof, done!"
+    assert channel.sent[0].content == "Hi, done!"
     await _wait_until(
         lambda: db.get_setting("messengers.telegram.last_chat_id") == "42"
     )
@@ -197,7 +197,7 @@ async def test_dispatch_final_message_mirrors_and_remembers(db, monkeypatch) -> 
     assert conv["title"] == "📱 Telegram"
     messages = db.get_messages(conv_id)
     assert messages[-1]["role"] == "assistant"
-    assert messages[-1]["content"] == "Woof, done!"
+    assert messages[-1]["content"] == "Hi, done!"
     assert any(e["type"] == "message" for e in events)
     await manager.stop()
 
@@ -249,18 +249,18 @@ async def test_dispatch_progress_dropped_streams_forwarded(db, monkeypatch) -> N
 
     # Final streamed response: no re-send, but mirrored to the desktop
     await manager.dispatch(OutboundMessage(
-        channel="telegram", chat_id="42", content="Woof",
+        channel="telegram", chat_id="42", content="Hi",
         event=StreamedResponseEvent(),
     ))
     conv_id = db.get_setting("messengers.telegram.conversation_id")
     await _wait_until(
         lambda: conv_id is not None
         and db.get_messages(conv_id)
-        and db.get_messages(conv_id)[-1]["content"] == "Woof"
+        and db.get_messages(conv_id)[-1]["content"] == "Hi"
     )
     assert channel.sent == []
     messages = db.get_messages(conv_id)
-    assert messages[-1]["content"] == "Woof"
+    assert messages[-1]["content"] == "Hi"
     await manager.stop()
 
 

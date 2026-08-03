@@ -1,13 +1,13 @@
 /** English — the reference dictionary. Every key must exist here. */
 export const en = {
   'app.loading': 'Collie is waking up...',
-  'app.loadingSub': '*stretching paws, wagging tail*',
+  'app.loadingSub': '*warming up…*',
 
   'sidebar.newChat': 'New chat',
-  'sidebar.searchPlaceholder': 'Sniff through chats...',
+  'sidebar.searchPlaceholder': 'Search chats...',
   'sidebar.searchLabel': 'Search conversations',
   'sidebar.empty': "Nothing here yet! Start a chat — I'm all ears.",
-  'sidebar.noMatches': 'No matches — my nose came up empty.',
+  'sidebar.noMatches': 'No matches found.',
   'sidebar.settings': 'Settings',
   'sidebar.delete': 'Delete chat: {title}',
   'sidebar.working': 'Collie is working on this chat',
