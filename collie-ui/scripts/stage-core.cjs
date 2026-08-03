@@ -179,19 +179,20 @@ function stagePythonLinux(pythonHome) {
     if (isCacheOrBytecode(rel)) return false
     return !isSymbolicLink(source)
   })
-  copyTree(join(pythonHome, 'lib', stdlib), join(destination, 'lib', stdlib), (rel, source) => {
+  // Whole lib/ tree: stdlib (minus its site-packages, replaced below by the
+  // venv's), shared libs (libpython3.11.so.1.0, libtcl9.0.so, libtcl9tk9.0.so)
+  // and the bundled Tcl/Tk 9.0 script dirs (tcl9.0/, tk9.0/, itcl4.3.5/) the
+  // bundled _tkinter needs to load.
+  copyTree(join(pythonHome, 'lib'), join(destination, 'lib'), (rel, source) => {
     if (!rel) return true
     if (isSymbolicLink(source)) return false
     const normalized = rel.replaceAll('\\', '/')
-    if (normalized === 'site-packages' || normalized.startsWith('site-packages/')) return false
+    if (normalized.startsWith(`${stdlib}/`) && (
+      normalized === `${stdlib}/site-packages` ||
+      normalized.startsWith(`${stdlib}/site-packages/`)
+    )) return false
     return !isCacheOrBytecode(normalized)
   })
-  for (const entry of readdirSync(join(pythonHome, 'lib'))) {
-    if (!entry.startsWith('libpython')) continue
-    const source = join(pythonHome, 'lib', entry)
-    if (isSymbolicLink(source)) continue
-    cpSync(source, join(destination, 'lib', entry), { force: true })
-  }
 
   copyVenvSitePackages(join(destination, 'lib', stdlib, 'site-packages'))
 
