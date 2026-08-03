@@ -26,6 +26,15 @@ nsis:
   oneClick: true
   perMachine: false
   warningsAsErrors: false
+linux:
+  icon: build/icon.png
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  artifactName: Collie-${version}.${ext}
+  category: Utility
+  maintainer: Collie <hello@heycollie.com>
 publish:
   provider: github
   owner: FoxRick

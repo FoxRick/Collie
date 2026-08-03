@@ -89,8 +89,13 @@ export async function spawnCore(isDev: boolean): Promise<void> {
   delete env.PYTHONHOME
   delete env.VIRTUAL_ENV
   const nodeDir = join(bundledMcpRuntime(isDev), 'node')
-  if (existsSync(join(nodeDir, 'node.exe'))) {
-    env.PATH = `${nodeDir}${process.platform === 'win32' ? ';' : ':'}${env.PATH ?? ''}`
+  const nodeExecutable = join(
+    nodeDir,
+    process.platform === 'win32' ? 'node.exe' : join('bin', 'node')
+  )
+  if (existsSync(nodeExecutable)) {
+    const nodePathDir = process.platform === 'win32' ? nodeDir : join(nodeDir, 'bin')
+    env.PATH = `${nodePathDir}${process.platform === 'win32' ? ';' : ':'}${env.PATH ?? ''}`
   }
 
   state = 'starting'

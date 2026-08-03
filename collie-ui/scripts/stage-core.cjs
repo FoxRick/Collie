@@ -1,4 +1,4 @@
-const { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } = require('fs')
+const { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } = require('fs')
 const { dirname, join, relative, resolve, sep } = require('path')
 const { spawnSync } = require('child_process')
 const {
@@ -93,11 +93,21 @@ function stageSource() {
   cpSync(join(coreRoot, 'pyproject.toml'), join(stageRoot, 'pyproject.toml'))
 }
 
-function stagePython(pythonHome) {
-  if (process.platform !== 'win32') {
-    fail('The installer staging script currently supports the Windows NSIS package only.')
+function venvSitePackages() {
+  const windows = join(coreRoot, '.venv', 'Lib', 'site-packages')
+  if (existsSync(windows)) return windows
+  const unixLib = join(coreRoot, '.venv', 'lib')
+  if (existsSync(unixLib)) {
+    for (const entry of readdirSync(unixLib, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !/^python3\.\d+$/.test(entry.name)) continue
+      const candidate = join(unixLib, entry.name, 'site-packages')
+      if (existsSync(candidate)) return candidate
+    }
   }
+  fail(`venv site-packages not found under ${coreRoot}/.venv`)
+}
 
+function stagePythonWindows(pythonHome) {
   const pythonExe = join(pythonHome, 'python.exe')
   if (!existsSync(pythonExe)) {
     fail(`Python runtime not found at ${pythonExe}. Set COLLIE_PYTHON_HOME correctly.`)
@@ -133,12 +143,76 @@ function stagePython(pythonHome) {
     })
   }
 
-  const venvSitePackages = join(coreRoot, '.venv', 'Lib', 'site-packages')
-  copyTree(venvSitePackages, join(destination, 'Lib', 'site-packages'), (rel) => {
+  copyVenvSitePackages(join(destination, 'Lib', 'site-packages'))
+}
+
+function stagePythonLinux(pythonHome) {
+  // python-build-standalone install layout:
+  //   bin/python3(.12), lib/python3.12/…, lib/libpython3.12.so.1.0
+  const launcher = join(pythonHome, 'bin', 'python3')
+  if (!existsSync(launcher)) {
+    fail(
+      `Python runtime not found at ${launcher}. Set COLLIE_PYTHON_HOME to a ` +
+        'python-build-standalone install directory (contains bin/python3 and lib/python3.x).'
+    )
+  }
+  const stdlib = readdirSync(join(pythonHome, 'lib'))
+    .find((entry) => /^python3\.\d+$/.test(entry))
+  if (!stdlib) fail(`No python3.x stdlib directory under ${join(pythonHome, 'lib')}.`)
+
+  const destination = join(stageRoot, 'python')
+  mkdirSync(destination, { recursive: true })
+
+  copyTree(join(pythonHome, 'bin'), join(destination, 'bin'), (rel) => {
+    if (!rel) return true
+    return !isCacheOrBytecode(rel)
+  })
+  copyTree(join(pythonHome, 'lib', stdlib), join(destination, 'lib', stdlib), (rel) => {
+    if (!rel) return true
+    const normalized = rel.replaceAll('\\', '/')
+    if (normalized === 'site-packages' || normalized.startsWith('site-packages/')) return false
+    return !isCacheOrBytecode(normalized)
+  })
+  for (const entry of readdirSync(join(pythonHome, 'lib'))) {
+    if (entry.startsWith('libpython')) {
+      cpSync(join(pythonHome, 'lib', entry), join(destination, 'lib', entry), { force: true })
+    }
+  }
+
+  copyVenvSitePackages(join(destination, 'lib', stdlib, 'site-packages'))
+
+  // electron-builder beforePack + the Electron main resolve the launcher as
+  // <resources>/collie-core/python/bin/python3 — make sure it exists.
+  const stagedBin = join(destination, 'bin')
+  if (!existsSync(join(stagedBin, 'python3'))) {
+    const candidates = readdirSync(stagedBin)
+      .filter((name) => /^python3(\.\d+)?$/.test(name))
+      .sort()
+    const launcherBinary = candidates[candidates.length - 1]
+    if (!launcherBinary) fail(`No python3 launcher staged in ${stagedBin}.`)
+    cpSync(join(stagedBin, launcherBinary), join(stagedBin, 'python3'), { force: true })
+  }
+}
+
+function copyVenvSitePackages(destination) {
+  const venvPackages = venvSitePackages()
+  copyTree(venvPackages, destination, (rel) => {
     if (!rel) return true
     if (isCacheOrBytecode(rel)) return false
-    return filterPortableSitePackage(rel, join(venvSitePackages, rel))
+    return filterPortableSitePackage(rel, join(venvPackages, rel))
   })
+}
+
+function stagePython(pythonHome) {
+  if (process.platform === 'win32') {
+    stagePythonWindows(pythonHome)
+    return
+  }
+  if (process.platform === 'linux') {
+    stagePythonLinux(pythonHome)
+    return
+  }
+  fail('The installer staging script currently supports the Windows NSIS and Linux AppImage packages only.')
 }
 
 function verifyPortableBundle() {
@@ -158,13 +232,22 @@ function nodeExecutable() {
 }
 
 function stageMcpRuntime() {
-  if (process.platform !== 'win32') {
-    fail('The packaged MCP runtime currently supports Windows x64 only.')
+  if (process.platform === 'win32') {
+    if (process.arch !== 'x64') {
+      fail(`The alpha supports Windows x64 only; this build is ${process.arch}.`)
+    }
+    return stageMcpRuntimeWindows()
   }
-  if (process.arch !== 'x64') {
-    fail(`The alpha supports Windows x64 only; this build is ${process.arch}.`)
+  if (process.platform === 'linux') {
+    if (process.arch !== 'x64') {
+      fail(`The alpha supports x64 only; this build is ${process.arch}.`)
+    }
+    return stageMcpRuntimeLinux()
   }
+  fail('The packaged MCP runtime currently supports Windows x64 and Linux x64 only.')
+}
 
+function stageMcpRuntimeWindows() {
   const sourceNode = nodeExecutable()
   if (!existsSync(sourceNode)) {
     fail(`Node runtime not found at ${sourceNode}. Set COLLIE_NODE_EXE correctly.`)
@@ -178,6 +261,34 @@ function stageMcpRuntime() {
   rmSync(runtimeRoot, { recursive: true, force: true })
   mkdirSync(join(runtimeRoot, 'node'), { recursive: true })
   cpSync(sourceNode, join(runtimeRoot, 'node', 'node.exe'), { force: true })
+
+  const nodeLicense = join(dirname(sourceNode), 'LICENSE')
+  if (existsSync(nodeLicense)) {
+    cpSync(nodeLicense, join(runtimeRoot, 'node', 'LICENSE'), { force: true })
+  }
+
+  copyTree(
+    join(uiRoot, 'runtime', 'mcp-probe-server'),
+    join(runtimeRoot, 'servers', 'mcp-probe-server')
+  )
+  return runtimeRoot
+}
+
+function stageMcpRuntimeLinux() {
+  const sourceNode = nodeExecutable()
+  if (!existsSync(sourceNode)) {
+    fail(`Node runtime not found at ${sourceNode}. Set COLLIE_NODE_EXE correctly.`)
+  }
+
+  const runtimeRoot = join(stageParent, 'mcp-runtime')
+  const rel = relative(uiRoot, runtimeRoot)
+  if (!rel || rel.startsWith(`..${sep}`) || rel === '..') {
+    fail(`Refusing to reset MCP staging path outside the UI repository: ${runtimeRoot}`)
+  }
+  rmSync(runtimeRoot, { recursive: true, force: true })
+  // packaged_probe resolves the launcher as <mcp-runtime>/node/bin/node on Unix.
+  mkdirSync(join(runtimeRoot, 'node', 'bin'), { recursive: true })
+  cpSync(sourceNode, join(runtimeRoot, 'node', 'bin', 'node'), { force: true })
 
   const nodeLicense = join(dirname(sourceNode), 'LICENSE')
   if (existsSync(nodeLicense)) {
