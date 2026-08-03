@@ -51,7 +51,7 @@ class ContextBuilder:
     BOOTSTRAP_FILES = ["VISION.md", "AGENTS.md", "MEMORY.md"]
     _RUNTIME_CONTEXT_TAG = RUNTIME_CONTEXT_TAG
     _MAX_RECENT_HISTORY = 50
-    _MAX_HISTORY_TOKENS = 8_000  # hard cap on recent history section size (tokens)
+    _MAX_HISTORY_TOKENS = 3_000  # hard cap on recent history section size (tokens)
     _RUNTIME_CONTEXT_END = RUNTIME_CONTEXT_END
 
     def __init__(self, workspace: Path, timezone: str | None = None, disabled_skills: list[str] | None = None):
@@ -134,7 +134,7 @@ class ContextBuilder:
         root = workspace or self.workspace
         workspace_path = str(root.expanduser().resolve())
         system = platform.system()
-        runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, Python {platform.python_version()}"
+        runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}"
 
         return render_template(
             "agent/identity.md",
