@@ -875,6 +875,8 @@ button {
 .execution-mode > span { margin-left: 7px; color: var(--muted); font-size: var(--collie-min-font-size); }
 
 .approval-sheet { z-index: 80; width: min(520px, calc(100vw - 32px)); border: 1px solid var(--collie-border); border-radius: 14px; background: var(--collie-surface); padding: 14px; box-shadow: 0 16px 42px rgb(25 19 13 / 18%); }
+.approval-stack { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.approval-stack-count { font-size: 12px; font-weight: 600; color: var(--collie-text-muted); background: var(--collie-surface); border: 1px solid var(--collie-border); border-radius: 999px; padding: 3px 12px; margin: 4px 12px 0; }
 .approval-sheet--inline { position: relative; flex: 0 0 auto; align-self: center; margin: 8px 12px 4px; border-color: color-mix(in srgb, var(--collie-btn-primary-bg) 60%, var(--collie-border)); box-shadow: 0 8px 24px rgb(25 19 13 / 12%); }
 .approval-sheet--floating { position: fixed; left: calc(50% + 140px); bottom: 28px; transform: translateX(-50%); }
 .approval-heading { display: flex; gap: 9px; align-items: flex-start; }

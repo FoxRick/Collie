@@ -465,6 +465,33 @@ def current_workspace_scope() -> WorkspaceScope | None:
     return _CURRENT_WORKSPACE_SCOPE.get()
 
 
+# A live, per-conversation file-access override for the in-flight turn. The
+# renderer can widen (or narrow) local-file access while a turn is running;
+# local file tools consult this before the turn-bound scope so a freshly
+# granted folder applies immediately instead of on the next message. The
+# agent loop clears the entry when the turn ends so it can never leak into
+# later turns (the next turn's scope always comes from its own metadata).
+_live_local_file_scope: dict[str, tuple[tuple[Path, ...], bool]] = {}
+
+
+def set_live_local_file_scope(
+    conversation_id: str, roots: tuple[Path, ...], unrestricted: bool
+) -> None:
+    """Record the most recent file-access selection for one conversation."""
+    _live_local_file_scope[str(conversation_id)] = (tuple(roots), unrestricted)
+
+
+def clear_live_local_file_scope(conversation_id: str) -> None:
+    _live_local_file_scope.pop(str(conversation_id), None)
+
+
+def live_local_file_scope(
+    conversation_id: str,
+) -> tuple[tuple[Path, ...], bool] | None:
+    """Return ``(roots, unrestricted)`` for a live override, or ``None``."""
+    return _live_local_file_scope.get(str(conversation_id))
+
+
 def current_tool_workspace(
     default_workspace: str | Path | None,
     *,

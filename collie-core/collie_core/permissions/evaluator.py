@@ -157,6 +157,28 @@ class PermissionEvaluator:
         if context.approve_all_for_run and context.run_id and self._approve_for_me_eligible(request):
             return PermissionDecision(Effect.ALLOW, "Approved for this run.")
         if request.risk == Risk.READ:
+            redacted = (
+                request.redacted_parameters
+                if isinstance(request.redacted_parameters, dict)
+                else {}
+            )
+            if redacted.get("unrestricted_local_files") is True:
+                # Full local-file access is selected: no project-boundary ask
+                # for local file tools (reads that disclose content still hit
+                # their own hard-approval gate above).
+                return PermissionDecision(
+                    Effect.ALLOW, "Full local file access is selected."
+                )
+            allowed_roots = redacted.get("allowed_local_roots")
+            if isinstance(allowed_roots, list):
+                for root in allowed_roots:
+                    if isinstance(root, str) and canonical_folder_contains(
+                        root, request.resource
+                    ):
+                        return PermissionDecision(
+                            Effect.ALLOW,
+                            "The resource is inside a granted local folder.",
+                        )
             if context.project_path and _is_path_resource(request.resource):
                 if not canonical_folder_contains(context.project_path, request.resource):
                     return PermissionDecision(

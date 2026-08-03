@@ -859,7 +859,7 @@ export default function ChatInput({
                 >
                   <span>
                     <b>Project folder only</b>
-                    <small>{workspace || 'No folder selected — using Collie workspace.'}</small>
+                    <small>{workspace || 'Collie Workspace'}</small>
                   </span>
                   {fileAccessScope.mode === 'selected_folder' && <Check size={14} />}
                 </button>
@@ -890,7 +890,7 @@ export default function ChatInput({
                 >
                   <span>
                     <b>Full file access</b>
-                    <small>Local files only. Sends, payments, destructive actions, accounts, publishing, and routines stay protected.</small>
+                    <small>Local text files anywhere on this computer.</small>
                   </span>
                   {fileAccessScope.mode === 'full_file_access' && <Check size={14} />}
                 </button>

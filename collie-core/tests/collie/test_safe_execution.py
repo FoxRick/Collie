@@ -229,6 +229,51 @@ def test_read_inside_project_is_auto_allowed(tmp_path: Path) -> None:
     db.close()
 
 
+def test_read_inside_granted_local_root_is_auto_allowed(tmp_path: Path) -> None:
+    """A folder granted via Files -> Choose other folders needs no project ask."""
+    db = CollieDB(tmp_path / "db.sqlite")
+    project = tmp_path / "project"
+    project.mkdir()
+    granted = tmp_path / "granted"
+    granted.mkdir()
+    evaluator = PermissionEvaluator(PermissionStore(db))
+    target = str(granted / "notes.md")
+    request = PermissionRequest(
+        action="local_file.read",
+        resource=target,
+        risk=Risk.READ,
+        summary="List a folder the user granted",
+        reversible=True,
+        redacted_parameters={"allowed_local_roots": [str(granted)]},
+    )
+    decision = evaluator.evaluate(
+        ExecutionContext(project_path=str(project)), request
+    )
+    assert decision.effect == Effect.ALLOW
+    db.close()
+
+
+def test_read_with_full_local_file_access_is_auto_allowed(tmp_path: Path) -> None:
+    """Full file access skips the project-boundary ask for local file tools."""
+    db = CollieDB(tmp_path / "db.sqlite")
+    project = tmp_path / "project"
+    project.mkdir()
+    evaluator = PermissionEvaluator(PermissionStore(db))
+    request = PermissionRequest(
+        action="local_file.read",
+        resource=str(tmp_path / "anywhere" / "notes.md"),
+        risk=Risk.READ,
+        summary="List anywhere with full file access",
+        reversible=True,
+        redacted_parameters={"unrestricted_local_files": True},
+    )
+    decision = evaluator.evaluate(
+        ExecutionContext(project_path=str(project)), request
+    )
+    assert decision.effect == Effect.ALLOW
+    db.close()
+
+
 def test_read_without_project_is_auto_allowed(tmp_path: Path) -> None:
     db = CollieDB(tmp_path / "db.sqlite")
     evaluator = PermissionEvaluator(PermissionStore(db))

@@ -19,6 +19,10 @@ from collie_core.permissions.broker import ApprovalBroker
 from collie_core.permissions.evaluator import PermissionEvaluator
 from collie_core.permissions.models import Effect, ExecutionContext, PermissionRequest, Risk
 from collie_core.permissions.store import PermissionStore
+from nanobot.security.workspace_access import (
+    clear_live_local_file_scope,
+    live_local_file_scope,
+)
 
 
 def _free_port() -> int:
@@ -150,6 +154,53 @@ async def test_settings_roundtrip(server: CollieIPCServer) -> None:
     await _send(ws, type="get_settings", id="2")
     settings = (await _recv_until(ws, "ok"))["data"]["settings"]
     assert settings["provider.name"] == "openrouter"
+    await ws.close()
+
+
+@pytest.mark.asyncio
+async def test_set_file_access_scope_applies_live_override(
+    server: CollieIPCServer, tmp_path: Path
+) -> None:
+    ws = await _connect(server)
+    await _send(ws, type="new_conversation", id="1")
+    conv = (await _recv_until(ws, "ok"))["data"]
+
+    granted = tmp_path / "granted"
+    granted.mkdir()
+    await _send(
+        ws,
+        type="set_file_access_scope",
+        id="2",
+        conversation_id=conv["id"],
+        file_access_scope={"mode": "chosen_folders", "roots": [str(granted)]},
+    )
+    data = (await _recv_until(ws, "ok"))["data"]
+    assert data["applied"] is True
+    assert data["file_access_scope"] == {
+        "mode": "chosen_folders",
+        "roots": [str(granted.resolve())],
+    }
+    try:
+        assert live_local_file_scope(conv["id"]) == ((granted.resolve(),), False)
+    finally:
+        clear_live_local_file_scope(conv["id"])
+    await ws.close()
+
+
+@pytest.mark.asyncio
+async def test_set_file_access_scope_requires_existing_conversation(
+    server: CollieIPCServer,
+) -> None:
+    ws = await _connect(server)
+    await _send(
+        ws,
+        type="set_file_access_scope",
+        id="1",
+        conversation_id="missing-conversation",
+        file_access_scope={"mode": "selected_folder"},
+    )
+    error = await _recv_until(ws, "error")
+    assert "no longer exists" in error["message"]
     await ws.close()
 
 

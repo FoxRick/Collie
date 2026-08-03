@@ -263,11 +263,8 @@ describe('ChatInput compose command listener', () => {
     expect(output).toContain('Project folder')
     expect(output).toContain('Access for this chat')
     expect(output).toContain('Project folder only')
-    expect(output).toContain('Local files only')
-    expect(output).toContain('destructive actions')
-    expect(output).toContain('accounts')
-    expect(output).toContain('publishing')
-    expect(output).toContain('routines')
+    expect(output).toContain('Collie Workspace')
+    expect(output).toContain('Local text files anywhere on this computer')
 
     hooks.setState(1, [{
       name: 'photo.png',

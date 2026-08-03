@@ -69,6 +69,7 @@ from nanobot.security.workspace_access import (
     WORKSPACE_SCOPE_METADATA_KEY,
     WorkspaceScopeResolver,
     bind_workspace_scope,
+    clear_live_local_file_scope,
     reset_workspace_scope,
 )
 from nanobot.session import turn_continuation
@@ -1108,6 +1109,16 @@ class AgentLoop:
             turn_scope_stack.close()
             reset_workspace_scope(workspace_token)
             reset_request_context(request_token)
+            # A file-access override granted mid-turn lives only as long as
+            # the turn that it applied to. Clear it so the next turn starts
+            # from its own message/session scope again.
+            live_conversation_id = str(
+                (permission_context.get("conversation_id") or "")
+                if isinstance(permission_context, dict)
+                else ""
+            )
+            if live_conversation_id:
+                clear_live_local_file_scope(live_conversation_id)
         self._last_usage = result.usage
         if result.stop_reason == "max_iterations":
             logger.warning("Max iterations ({}) reached", self.max_iterations)

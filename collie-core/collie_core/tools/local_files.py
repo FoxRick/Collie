@@ -14,10 +14,15 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+from collie_core.permissions.broker import PermissionDeniedError
 from collie_core.permissions.models import PermissionRequest, Risk, Scope
 from nanobot.agent.tools.base import Tool, ToolResult, tool_parameters
 from nanobot.agent.tools.context import current_request_context
-from nanobot.security.workspace_access import current_tool_workspace, is_local_filesystem_path
+from nanobot.security.workspace_access import (
+    current_tool_workspace,
+    is_local_filesystem_path,
+    live_local_file_scope,
+)
 from nanobot.security.workspace_policy import WorkspaceBoundaryError, is_path_within
 
 __all__ = ["LocalFilesTool"]
@@ -50,6 +55,10 @@ _WRITE_OPERATIONS = frozenset({"create", "overwrite", "edit", "save"})
 
 class _LocalFileError(ValueError):
     """A user-facing local file validation failure."""
+
+
+class _OutsideScopeError(_LocalFileError):
+    """The resolved target is outside every folder the user granted."""
 
 
 def _configured_model_provider() -> str:
@@ -98,6 +107,18 @@ def _has_reparse_component(path: Path) -> bool:
     return False
 
 
+def _current_conversation_id() -> str:
+    """Return the active conversation id, or ``""`` when untracked."""
+    context = current_request_context()
+    metadata = context.metadata if context is not None else {}
+    permission_context = (
+        metadata.get("permission_context", {}) if isinstance(metadata, dict) else {}
+    )
+    if not isinstance(permission_context, dict):
+        permission_context = {}
+    return str(permission_context.get("conversation_id") or "")
+
+
 def _scope_roots(access: Any) -> tuple[list[Path], bool]:
     """Return explicit file roots, accepting the staged scope API defensively."""
     scope = getattr(access, "scope", None)
@@ -125,6 +146,21 @@ def _scope_roots(access: Any) -> tuple[list[Path], bool]:
             and not _is_filesystem_root(root)
         ):
             roots.append(root)
+
+    # A live mid-turn override (set when the user changes file access while a
+    # turn is running) wins over the turn-bound scope: it is the freshest user
+    # consent and applies immediately instead of on the next message.
+    conversation_id = _current_conversation_id()
+    if conversation_id:
+        live = live_local_file_scope(conversation_id)
+        if live is not None:
+            live_roots, live_unrestricted = live
+            if live_unrestricted:
+                return [], True
+            if live_roots:
+                return list(live_roots), False
+            # An empty override means "selected folder" with no project yet;
+            # fall through to the project fallback below.
 
     # Until all callers supply the new fields, a selected/restricted project
     # remains a safe compatibility root.  A legacy full turn is intentionally
@@ -176,7 +212,7 @@ def _resolve_local_path(path: str, *, allow_directory: bool) -> tuple[Path, bool
     if _is_filesystem_root(target):
         raise _LocalFileError("A drive root is not a valid local file target.")
     if not unrestricted and not any(is_path_within(target, root) for root in roots):
-        raise _LocalFileError("That path is outside the folders allowed for this task.")
+        raise _OutsideScopeError("That path is outside the folders allowed for this task.")
     if not allow_directory and target.exists() and target.is_dir():
         raise _LocalFileError("That path is a folder, not a text file.")
     return target, bool(unrestricted or any(is_path_within(target, root) for root in roots))
@@ -296,8 +332,21 @@ class LocalFilesTool(Tool):
                 str(params.get("path") or ""), allow_directory=operation == "list"
             )
             resource = str(target)
-        except _LocalFileError:
-            resource, target, in_scope = str(params.get("path") or "local file"), None, False
+        except _OutsideScopeError as exc:
+            # The approval gate must never ask for an action that the tool
+            # boundary would reject anyway. Deny up front so the model asks
+            # the user to grant the folder instead of burning approval cards
+            # on requests that can only fail.
+            raise PermissionDeniedError(
+                f"{exc} Ask the user to grant access to that folder first "
+                "(Files menu -> Choose other folders, or Full file access)."
+            ) from exc
+        except _LocalFileError as exc:
+            # Any other local-file validation failure is also a hard boundary:
+            # the action can never succeed, so an approval would be a dead end.
+            raise PermissionDeniedError(str(exc)) from exc
+        roots, unrestricted = _scope_roots(current_tool_workspace(None))
+        allowed_roots = [str(root) for root in roots] if roots else []
         safe_write = bool(is_write and in_scope)
         reversible = bool(
             is_write
@@ -320,6 +369,8 @@ class LocalFilesTool(Tool):
                     "path": resource,
                     "model_provider": provider,
                     "local_only": True,
+                    "allowed_local_roots": allowed_roots,
+                    "unrestricted_local_files": unrestricted,
                 },
                 # Selecting a Files scope limits where the tool may look; it
                 # is not consent to disclose this file's contents externally.
@@ -337,6 +388,8 @@ class LocalFilesTool(Tool):
                 "operation": operation,
                 "path": resource,
                 "local_only": True,
+                "allowed_local_roots": allowed_roots,
+                "unrestricted_local_files": unrestricted,
             },
             # A folder selection defines where files may be touched, not an
             # automatic consent to edit them.  Workstream A can offer an
