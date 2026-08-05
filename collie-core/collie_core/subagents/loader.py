@@ -23,6 +23,7 @@ import yaml
 from loguru import logger
 
 from collie_core.db import CollieDB
+from collie_core.versions import VersionStore
 
 __all__ = [
     "STARTERS",
@@ -117,6 +118,26 @@ class SubagentLoader:
     def __init__(self, workspace: Path, db: CollieDB) -> None:
         self.dir = workspace / "subagents"
         self.db = db
+
+    # -- versioning (Gardener rollback rail) --------------------------------
+
+    def _snapshot(
+        self, filename: str, before: str, after: str, *, source: str = "user"
+    ) -> str | None:
+        """Snapshot a subagent file edit; never breaks the write on failure."""
+        try:
+            return VersionStore(self.db).snapshot(
+                "subagent", filename, before, after, source=source
+            )
+        except Exception:
+            logger.exception("subagent version snapshot failed (swallowed)")
+            return None
+
+    def latest_version_id(self, filename: str) -> str | None:
+        try:
+            return VersionStore(self.db).latest_version_id("subagent", filename)
+        except Exception:
+            return None
 
     # -- disk <-> db sync ----------------------------------------------------
 
@@ -235,6 +256,7 @@ class SubagentLoader:
             filename=filename,
             execution_posture=execution_posture,
         )
+        self._snapshot(filename, "", path.read_text(encoding="utf-8"))
         logger.info("Subagent created: {}", filename)
         return row
 
@@ -278,9 +300,14 @@ class SubagentLoader:
             if old_path.exists():
                 old_path.rename(self.dir / new_filename)
             filename = new_filename
-        (self.dir / filename).write_text(
+        before = ""
+        target_path = self.dir / filename
+        if target_path.exists():
+            before = target_path.read_text(encoding="utf-8")
+        target_path.write_text(
             self._render(new_name, new_desc, new_prompt, posture), encoding="utf-8"
         )
+        self._snapshot(filename, before, target_path.read_text(encoding="utf-8"))
         return self.db.upsert_subagent(
             new_name,
             description=new_desc,
@@ -299,7 +326,9 @@ class SubagentLoader:
         if filename:
             file_path = self.dir / filename
             if file_path.exists():
+                before = file_path.read_text(encoding="utf-8")
                 file_path.unlink()
+                self._snapshot(filename, before, "")
         self.db.delete_subagent(subagent_id)
         logger.info("Subagent deleted: {}", filename or subagent_id)
 

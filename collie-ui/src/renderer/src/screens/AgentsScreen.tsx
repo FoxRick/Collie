@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, Bot, Eye, Plus, Shapes, Sparkles, Trash2, Zap, X } from 'lucide-react'
-import { collieClient, type CollieSkill, type Subagent, type SubagentStarter } from '../lib/ipc'
+import { ArrowLeft, Bot, Eye, History, Plus, Shapes, Sparkles, Trash2, Undo2, Zap, X } from 'lucide-react'
+import { collieClient, type ArtifactVersion, type CollieSkill, type Subagent, type SubagentStarter } from '../lib/ipc'
 import AgentAvatar from '../components/AgentAvatar'
 
 function summarizeDescription(description: string): string {
@@ -39,6 +39,8 @@ export default function AgentsScreen(): React.JSX.Element {
   const [notice, setNotice] = useState('')
   const [skills, setSkills] = useState<CollieSkill[]>([])
   const [category, setCategory] = useState<AgentCategory>('All')
+  const [versions, setVersions] = useState<ArtifactVersion[]>([])
+  const [undoingId, setUndoingId] = useState<string | null>(null)
 
   const selected = useMemo(
     () => agents.find((agent) => agent.id === selectedId) ?? null,
@@ -76,6 +78,41 @@ export default function AgentsScreen(): React.JSX.Element {
     setPrompt(selected?.system_prompt ?? '')
     setExecutionPosture(selected?.execution_posture ?? 'read_only')
   }, [selected])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!selected?.filename || new URLSearchParams(window.location.search).has('preview')) {
+      setVersions([])
+      return
+    }
+    collieClient
+      .listVersions({ artifact_type: 'subagent', artifact_key: selected.filename })
+      .then(({ versions }) => {
+        if (!cancelled) setVersions(versions)
+      })
+      .catch(() => {
+        if (!cancelled) setVersions([])
+      })
+    return () => { cancelled = true }
+  }, [selected?.filename])
+
+  const undoVersion = async (versionId: string): Promise<void> => {
+    setUndoingId(versionId)
+    try {
+      await collieClient.rollbackArtifact(versionId)
+      await refresh()
+      const { versions: fresh } = await collieClient.listVersions({
+        artifact_type: 'subagent',
+        artifact_key: selected?.filename
+      })
+      setVersions(fresh)
+      setNotice('Undone — the earlier version is back.')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'I could not undo that change.')
+    } finally {
+      setUndoingId(null)
+    }
+  }
 
   const createAgent = async (
     nextName = name.trim(),
@@ -249,6 +286,49 @@ export default function AgentsScreen(): React.JSX.Element {
                   Save changes
                 </button>
               </div>
+            </section>
+            <section className="detail-card detail-card--wide">
+              <div className="detail-card-heading">
+                <div>
+                  <span className="detail-label">History</span>
+                  <h2>Past versions</h2>
+                </div>
+                <History size={18} />
+              </div>
+              <p className="detail-help">
+                Every edit to {selected.name}'s instructions is kept here, so a change
+                can always be undone.
+              </p>
+              {versions.length === 0 ? (
+                <p className="detail-help">No recorded changes yet.</p>
+              ) : (
+                <div className="version-list">
+                  {versions.map((version) => (
+                    <div className="version-row" key={version.id}>
+                      <div className="version-row-main">
+                        <b>Version {version.version}</b>
+                        <span>
+                          {version.status === 'rolled_back' ? 'Already undone · ' : ''}
+                          {new Date(version.created_at).toLocaleString()}
+                          {version.source === 'collie' || version.source === 'gardener'
+                            ? ` · by ${version.source === 'gardener' ? "Collie's gardener" : 'Collie'}`
+                            : ''}
+                        </span>
+                      </div>
+                      {version.status === 'applied' && (
+                        <button
+                          type="button"
+                          className="settings-button"
+                          disabled={undoingId === version.id}
+                          onClick={() => void undoVersion(version.id)}
+                        >
+                          <Undo2 size={13} /> {undoingId === version.id ? 'Undoing…' : 'Undo'}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
           </div>
           {notice && <p className="inline-notice" role="status">{notice}</p>}

@@ -19,6 +19,8 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
 from collie_core.db import CollieDB
 
 __all__ = ["ProfileStore", "PROFILE_KEYS"]
@@ -55,10 +57,33 @@ PROFILE_KEYS: dict[str, str] = {
 class ProfileStore:
     """Structured profile memory backed by SQLite, mirrored to MEMORY.md."""
 
-    def __init__(self, db: CollieDB, workspace: Path):
+    def __init__(
+        self, db: CollieDB, workspace: Path, version_store: Any = None
+    ) -> None:
         self.db = db
         self.workspace = workspace
         self.memory_file = workspace / "MEMORY.md"
+        self._version_store = version_store
+
+    # -- versioning (Gardener rollback rail) --------------------------------
+
+    def _snapshot_memory(self) -> None:
+        """Snapshot MEMORY.md before a regeneration; never breaks the write."""
+        if self._version_store is None:
+            return
+        try:
+            before = ""
+            if self.memory_file.exists():
+                before = self.memory_file.read_text(encoding="utf-8")
+            after = self.memory_markdown()
+            if before != after:
+                self._version_store.snapshot(
+                    "memory_profile", "MEMORY.md", before, after, source="user"
+                )
+        except Exception:
+            # Versioning is a rollback rail — a failure must never block a
+            # memory write the user asked for.
+            logger.exception("memory version snapshot failed (swallowed)")
 
     # -- profile facts -------------------------------------------------------
 
@@ -77,12 +102,14 @@ class ProfileStore:
             "add" if existing is None or existing == "" else "update",
             value,
         )
+        self._snapshot_memory()
         self.regenerate_memory_md()
 
     def delete(self, key: str) -> None:
         existing = self.db.get_profile(key, None)
         self.db.delete_profile(key)
         self._journal("fact", key, "delete", existing)
+        self._snapshot_memory()
         self.regenerate_memory_md()
 
     def all(self) -> dict[str, Any]:
@@ -99,6 +126,7 @@ class ProfileStore:
         else:
             person = self.db.add_person(name, **fields)
             self._journal("person", name, "add", fields)
+        self._snapshot_memory()
         self.regenerate_memory_md()
         return person  # type: ignore[return-value]
 
@@ -112,12 +140,14 @@ class ProfileStore:
         person = self.db.get_person(person_id) or {}
         self.db.update_person(person_id, **fields)
         self._journal("person", person.get("name") or person_id, "update", fields)
+        self._snapshot_memory()
         self.regenerate_memory_md()
 
     def delete_person(self, person_id: str) -> None:
         person = self.db.get_person(person_id) or {}
         self.db.delete_person(person_id)
         self._journal("person", person.get("name") or person_id, "delete", person)
+        self._snapshot_memory()
         self.regenerate_memory_md()
 
     def list_people(self) -> list[dict[str, Any]]:
@@ -128,6 +158,7 @@ class ProfileStore:
     def add_date(self, date: str, label: str, **kwargs: Any) -> dict[str, Any]:
         row = self.db.add_date(date, label, **kwargs)
         self._journal("date", label, "add", {"date": date, **kwargs})
+        self._snapshot_memory()
         self.regenerate_memory_md()
         return row
 
@@ -138,12 +169,14 @@ class ProfileStore:
         row = self.db.get_date(date_id) or {}
         self.db.update_date(date_id, **fields)
         self._journal("date", row.get("label") or date_id, "update", fields)
+        self._snapshot_memory()
         self.regenerate_memory_md()
 
     def delete_date(self, date_id: str) -> None:
         row = self.db.get_date(date_id) or {}
         self.db.delete_date(date_id)
         self._journal("date", row.get("label") or date_id, "delete", row)
+        self._snapshot_memory()
         self.regenerate_memory_md()
 
     # -- MEMORY.md generation --------------------------------------------------------

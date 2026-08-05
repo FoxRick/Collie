@@ -537,6 +537,31 @@ CREATE INDEX IF NOT EXISTS idx_memory_journal_created
     ON memory_journal(created_at DESC);
 """
 
+# Versioned artifact store (PR 2 of the Gardener Foundations plan): every
+# user-visible artifact edit (subagent files, VISION.md / AGENTS.md /
+# MEMORY.md, dream consolidations, Gardener applies) is snapshotted with a
+# before/after text pair + unified diff so any change can be rolled back
+# without clobbering newer owner edits. Complementary to the memory_journal
+# (which records per-key memory mutations) — this records full-file states.
+_SCHEMA_V14 = """
+CREATE TABLE IF NOT EXISTS artifact_versions (
+  id TEXT PRIMARY KEY,
+  artifact_type TEXT NOT NULL,      -- subagent|vision|agents|memory_profile|memory_dream|skill
+  artifact_key TEXT NOT NULL,       -- subagent filename | "VISION.md" | "AGENTS.md" | "MEMORY.md" | "memory/MEMORY.md"
+  version INTEGER NOT NULL,
+  before_text TEXT,
+  after_text TEXT,
+  diff_text TEXT,                   -- difflib.unified_diff
+  evidence_json TEXT,               -- Gardener trigger evidence (run ids, tool stats)
+  source TEXT NOT NULL DEFAULT 'user',  -- user|collie|gardener
+  status TEXT NOT NULL DEFAULT 'applied', -- applied|rolled_back
+  created_at TEXT NOT NULL,
+  UNIQUE(artifact_type, artifact_key, version)
+);
+CREATE INDEX IF NOT EXISTS idx_artifact_versions_type
+  ON artifact_versions(artifact_type, artifact_key, version DESC);
+"""
+
 # Ordered migrations: index 0 == schema version 1, etc.
 _MIGRATIONS: list[str] = [
     _SCHEMA_V1,
@@ -552,6 +577,7 @@ _MIGRATIONS: list[str] = [
     _SCHEMA_V11,
     _SCHEMA_V12,
     _SCHEMA_V13,
+    _SCHEMA_V14,
 ]
 
 
@@ -3480,6 +3506,99 @@ class CollieDB:
             for row in rows
         ]
 
+    # -- artifact versions (Gardener rollback rail) ---------------------------------------------
+
+    def snapshot_artifact(
+        self,
+        artifact_type: str,
+        artifact_key: str,
+        before_text: str,
+        after_text: str,
+        diff_text: str,
+        evidence: Any = None,
+        source: str = "user",
+    ) -> dict[str, Any]:
+        """Append a version row for an artifact edit; returns the new row."""
+        with self._write_immediate() as conn:
+            row = conn.execute(
+                "SELECT MAX(version) AS v FROM artifact_versions "
+                "WHERE artifact_type = ? AND artifact_key = ?",
+                (artifact_type, artifact_key),
+            ).fetchone()
+            version = int(row["v"] or 0) + 1
+            version_id = new_id()
+            conn.execute(
+                "INSERT INTO artifact_versions (id, artifact_type, artifact_key, "
+                "version, before_text, after_text, diff_text, evidence_json, "
+                "source, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "
+                "'applied', ?)",
+                (
+                    version_id,
+                    artifact_type,
+                    artifact_key,
+                    version,
+                    before_text,
+                    after_text,
+                    diff_text,
+                    json.dumps(evidence, ensure_ascii=False) if evidence is not None else None,
+                    source,
+                    utc_now(),
+                ),
+            )
+            return {
+                "id": version_id,
+                "artifact_type": artifact_type,
+                "artifact_key": artifact_key,
+                "version": version,
+                "status": "applied",
+            }
+
+    def latest_artifact_version(
+        self, artifact_type: str, artifact_key: str
+    ) -> int:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT MAX(version) AS v FROM artifact_versions "
+                "WHERE artifact_type = ? AND artifact_key = ?",
+                (artifact_type, artifact_key),
+            ).fetchone()
+            return int(row["v"] or 0) if row else 0
+
+    def list_artifact_versions(
+        self,
+        artifact_type: str | None = None,
+        artifact_key: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """List artifact versions, most recent first, with optional filters."""
+        clauses: list[str] = []
+        params: list[Any] = []
+        if artifact_type:
+            clauses.append("artifact_type = ?")
+            params.append(artifact_type)
+        if artifact_key:
+            clauses.append("artifact_key = ?")
+            params.append(artifact_key)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(limit)
+        return self._rows(
+            f"SELECT * FROM artifact_versions {where} "
+            "ORDER BY created_at DESC, version DESC LIMIT ?",
+            tuple(params),
+        )
+
+    def get_artifact_version(self, version_id: str) -> dict[str, Any] | None:
+        return self._row(
+            "SELECT * FROM artifact_versions WHERE id = ?", (version_id,)
+        )
+
+    def mark_artifact_rolled_back(self, version_id: str) -> None:
+        with self._write() as conn:
+            conn.execute(
+                "UPDATE artifact_versions SET status = 'rolled_back' WHERE id = ?",
+                (version_id,),
+            )
+
     # -- data management ----------------------------------------------------------------------------
 
     def export_all(self) -> dict[str, Any]:
@@ -3525,6 +3644,12 @@ class CollieDB:
             "tool_events": self._rows(
                 "SELECT * FROM tool_events ORDER BY started_at"
             ),
+            "memory_journal": self._rows(
+                "SELECT * FROM memory_journal ORDER BY created_at"
+            ),
+            "artifact_versions": self._rows(
+                "SELECT * FROM artifact_versions ORDER BY created_at, version"
+            ),
             "approval_rules": self.list_approval_rules(),
             "approval_requests": self._rows(
                 "SELECT * FROM approval_requests ORDER BY requested_at"
@@ -3563,6 +3688,7 @@ class CollieDB:
                 "task_checklist_steps", "task_checklists", "conversation_review_gates",
                 "plan_change_requests", "run_task_state_revisions",
                 "tool_events", "turn_events",
+                "artifact_versions",
                 "run_steps",
                 "approval_requests", "approval_rules", "runs", "plans",
                 "messages", "conversations", "profile", "people", "important_dates",
