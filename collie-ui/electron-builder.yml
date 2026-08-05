@@ -35,6 +35,21 @@ linux:
   artifactName: Collie-${version}.${ext}
   category: Utility
   maintainer: Collie <hello@heycollie.com>
+# macOS: unsigned alpha builds (no Apple certificate yet — the CI workflow
+# disables identity discovery). build/icon.icns is generated on the mac
+# runner from build/icon.png (iconutil) so the branded portrait ships.
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+  artifactName: Collie-${version}-${arch}.${ext}
+  category: public.app-category.productivity
 publish:
   provider: github
   owner: FoxRick
