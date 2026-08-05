@@ -54,9 +54,10 @@ original setup are kept).
   (`collie-ui/scripts/generate-installer-header.cjs`).
 - `.github/workflows/installer-build.yml` - builds the Windows installer on a
   `windows-latest` runner whenever installer config or assets change; uploads
-  `Collie-Setup-<version>.exe` (+ `.blockmap`, `latest.yml`) as a workflow
-  artifact. The Linux VM cannot build the Windows target (wine + NSIS are
-  required), so CI is the verification path.
+  `Collie-Setup-<version>.exe` (+ `.blockmap`, `alpha.yml` - the updater
+  metadata for the alpha channel) as a workflow artifact. The Linux VM cannot
+  build the Windows target (wine + NSIS are required), so CI is the
+  verification path.
 
 ## Verification
 

@@ -58,5 +58,5 @@ jobs:
           path: |
             collie-ui/dist/Collie-Setup-*.exe
             collie-ui/dist/Collie-Setup-*.exe.blockmap
-            collie-ui/dist/latest.yml
+            collie-ui/dist/alpha.yml
           if-no-files-found: error
