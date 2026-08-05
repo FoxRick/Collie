@@ -23,8 +23,15 @@ win:
         - x64
   artifactName: Collie-Setup-${version}.exe
 nsis:
-  oneClick: true
+  # Friendly assisted wizard for nontechnical users: Welcome -> Install mode
+  # (per-user recommended, no admin prompt) -> Location (custom only) ->
+  # Shortcuts -> Progress -> Finish. Warm copy lives in build/installer.nsh.
+  oneClick: false
   perMachine: false
+  allowToChangeInstallationDirectory: true
+  installerLanguages:
+    - en_US
+  include: build/installer.nsh
   warningsAsErrors: false
 linux:
   icon: build/icon.png
