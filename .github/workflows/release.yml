@@ -182,7 +182,10 @@ jobs:
             collie-ui/dist/alpha-mac.yml
             collie-ui/dist/collie-build-provenance.json
             collie-ui/dist/collie-artifact-provenance.json
-            collie-ui/dist/SHA256SUMS.txt
+            # Note: the Windows job's dist/SHA256SUMS.txt is intentionally not
+            # uploaded — the release job regenerates one combined manifest over
+            # every platform artifact (a per-platform manifest would otherwise
+            # collide and break `sha256sum -c` on the attached file).
 
   release:
     name: Draft GitHub Release
@@ -202,6 +205,9 @@ jobs:
       - name: Generate combined SHA256SUMS.txt
         run: |
           cd artifacts
+          # No per-platform manifest is uploaded, so every file here is a
+          # release artifact; the manifest itself is excluded from its own
+          # glob (shell expands * before the redirect writes the file).
           sha256sum * > SHA256SUMS.txt
           echo "--- SHA256SUMS.txt ---"
           cat SHA256SUMS.txt
