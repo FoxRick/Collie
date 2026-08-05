@@ -48,7 +48,9 @@ export function apiKeyProviderCandidate(input: ApiKeyProviderInput): ProviderCan
     protocol,
     api_base: input.baseUrl?.trim() || null,
     secret_name: connectionName,
-    api_key: input.apiKey.trim()
+    // Omit the key entirely for keyless local endpoints — the core rejects
+    // empty-string keys, and "no key" must mean "no api_key field".
+    api_key: input.apiKey?.trim() || undefined
   }
 }
 
