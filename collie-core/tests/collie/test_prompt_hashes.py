@@ -85,7 +85,7 @@ def _build_db_at_version(path: Path, version: int) -> None:
 def test_v12_adds_hash_columns_on_fresh_db(tmp_path: Path) -> None:
     db = CollieDB(tmp_path / "collie.db")
     try:
-        assert db.schema_version == 13
+        assert db.schema_version == 14
         columns = {
             row["name"]
             for row in db._rows("PRAGMA table_info(turn_events)")
@@ -109,7 +109,7 @@ def test_old_rows_null_hashes(tmp_path: Path) -> None:
 
     upgraded = CollieDB(path)
     try:
-        assert upgraded.schema_version == 13
+        assert upgraded.schema_version == 14
         rows = upgraded.list_turn_events()
         assert len(rows) == 1
         assert rows[0]["prompt_hash"] is None

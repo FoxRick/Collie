@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Check, X, FileText, Sparkles } from 'lucide-react'
+import { Check, Undo2, X, FileText, Sparkles } from 'lucide-react'
 import { collieClient } from '../../lib/ipc'
+import DiffView from './DiffView'
 
 interface Props {
   data: Record<string, unknown>
@@ -15,6 +16,8 @@ export function mergeSuggestion(existing: string, suggestion: string): string {
   return `${current}\n\n${trimmed}\n`
 }
 
+type Status = 'pending' | 'checking' | 'saving' | 'saved' | 'dismissed'
+
 export default function SuggestionCard({ data }: Props): React.JSX.Element {
   const file = String(data.file || '')
   const label = String(data.label || '')
@@ -22,7 +25,11 @@ export default function SuggestionCard({ data }: Props): React.JSX.Element {
   const reasoning = String(data.reasoning || '')
   const fileName = file || 'AGENTS.md'
 
-  const [status, setStatus] = useState<'pending' | 'checking' | 'saving' | 'saved' | 'dismissed'>('checking')
+  const [status, setStatus] = useState<Status>('checking')
+  const [busy, setBusy] = useState(false)
+  const [versionId, setVersionId] = useState<string | null>(null)
+  const [diffText, setDiffText] = useState<string | null>(null)
+  const [undoNotice, setUndoNotice] = useState('')
 
   const isPersonality = file === 'VISION.md'
   const Icon = isPersonality ? Sparkles : FileText
@@ -42,8 +49,10 @@ export default function SuggestionCard({ data }: Props): React.JSX.Element {
     return () => { cancelled = true }
   }, [fileName, suggestion])
 
-  const handleApprove = async () => {
+  const handleApprove = async (): Promise<void> => {
     setStatus('saving')
+    setBusy(true)
+    setUndoNotice('')
     try {
       const { content } = await collieClient.readFile(fileName)
       if (content.trim() === suggestion.trim()) {
@@ -53,14 +62,35 @@ export default function SuggestionCard({ data }: Props): React.JSX.Element {
       // Merge, never overwrite: the target file may hold user-authored
       // content the suggestion must not destroy.
       const applied = mergeSuggestion(content, suggestion)
-      await collieClient.writeFile(fileName, applied)
+      const result = await collieClient.writeFile(fileName, applied)
+      setVersionId(result.version_id ?? null)
+      setDiffText(result.diff_text ?? null)
       setStatus('saved')
     } catch {
       setStatus('pending')
+    } finally {
+      setBusy(false)
     }
   }
 
-  const handleDismiss = () => {
+  const handleUndo = async (): Promise<void> => {
+    if (!versionId) return
+    setBusy(true)
+    try {
+      await collieClient.rollbackArtifact(versionId)
+      setVersionId(null)
+      setDiffText(null)
+      setUndoNotice('Undone — the change was rolled back.')
+      setStatus('pending')
+    } catch (error) {
+      setUndoNotice(error instanceof Error ? error.message : 'I could not undo that change.')
+      setStatus('saved')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleDismiss = (): void => {
     setStatus('dismissed')
   }
 
@@ -76,6 +106,20 @@ export default function SuggestionCard({ data }: Props): React.JSX.Element {
           <span className="suggestion-card-label">Applied to {label}</span>
         </div>
         <p className="suggestion-card-text">{reasoning}</p>
+        {diffText && <DiffView diff={diffText} label="See what changed" />}
+        {undoNotice && <p className="suggestion-card-text">{undoNotice}</p>}
+        {versionId && (
+          <div className="suggestion-card-actions">
+            <button
+              type="button"
+              className="suggestion-btn undo"
+              onClick={() => void handleUndo()}
+              disabled={busy}
+            >
+              <Undo2 size={14} /> {busy ? 'Undoing…' : 'Undo'}
+            </button>
+          </div>
+        )}
       </div>
     )
   }
@@ -108,10 +152,10 @@ export default function SuggestionCard({ data }: Props): React.JSX.Element {
       <div className="suggestion-card-actions">
         <button
           className="suggestion-btn approve"
-          onClick={handleApprove}
+          onClick={() => void handleApprove()}
           disabled={status === 'saving'}
         >
-          {status === 'saving' ? 'Applying\u2026' : 'Approve edit'}
+          {status === 'saving' ? 'Applying…' : 'Approve edit'}
         </button>
         <button
           className="suggestion-btn dismiss"
