@@ -79,8 +79,8 @@ account required:
   OpenAI-compatible providers, or
 - **Use a local model** such as Ollama.
 
-Collie validates the connection and tells you what it found — *"Connected —
-using DeepSeek"* — and you can change models anytime from the chat.
+Collie validates the connection and tells you what it found — *"DeepSeek
+connected and selected."* — and you can change models anytime from the chat.
 
 ### 3. Just talk
 
@@ -134,9 +134,10 @@ Public releases and announcements go through [heycollie.com](https://heycollie.c
 first; the active product decisions live in [docs/product/](docs/product/).
 Honest status of what's next:
 
-- **Planned, not shipped:** *Gardener* — a self-improvement mode that proposes
+- **Shipped (alpha):** *Gardener* — a self-improvement mode that proposes
   better instructions and cleaner memory, always as a reviewable, reversible
-  change ([spec](docs/product/features/agent-system.md)).
+  change ([foundations](docs/engineering/architecture/gardener-foundations.md),
+  [spec](docs/product/features/agent-system.md)); no sandbox replay yet.
 - **In progress:** Google and Microsoft service bundles (awaiting Collie-owned
   OAuth app registrations), the installer pipeline, and the Windows release
   itself.
