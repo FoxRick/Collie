@@ -26,10 +26,12 @@
 !include "nsDialogs.nsh"
 
 ; ---- Warm branding: small header image on every page (left side) ----
+; NOTE: backslash separators are required - makensis's File command does not
+; glob paths containing forward slashes on Windows.
 !define MUI_HEADERIMAGE
-!define MUI_HEADERIMAGE_BITMAP "${BUILD_RESOURCES_DIR}/installer-header.bmp"
+!define MUI_HEADERIMAGE_BITMAP "${BUILD_RESOURCES_DIR}\installer-header.bmp"
 !define MUI_HEADERIMAGE_BITMAP_NOSTRETCH
-!define MUI_HEADERIMAGE_UNBITMAP "${BUILD_RESOURCES_DIR}/installer-header.bmp"
+!define MUI_HEADERIMAGE_UNBITMAP "${BUILD_RESOURCES_DIR}\installer-header.bmp"
 !define MUI_HEADERIMAGE_UNBITMAP_NOSTRETCH
 
 ; Shared page state
