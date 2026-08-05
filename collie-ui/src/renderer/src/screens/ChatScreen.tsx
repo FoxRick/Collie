@@ -45,6 +45,8 @@ interface Props {
   activeView: AppView
   onNavigate: (view: AppView) => void
   onRedoOnboarding: () => void
+  /** True right after first connect: open the starter conversation, no empty state. */
+  autoOpenStarter?: boolean
 }
 
 interface TaskTiming {
@@ -124,7 +126,8 @@ function loadRecentProjects(): string[] {
 export default function ChatScreen({
   activeView,
   onNavigate,
-  onRedoOnboarding
+  onRedoOnboarding,
+  autoOpenStarter = false
 }: Props): React.JSX.Element {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -804,6 +807,29 @@ export default function ChatScreen({
     void openConversation(null)
   }, [onNavigate, openConversation])
 
+  /** Open (or create, once) the getting-started conversation with its greeting. */
+  const getStarted = useCallback(async () => {
+    onNavigate('chat')
+    try {
+      const { conversation } = await collieClient.getStarterConversation(
+        activeIdRef.current
+      )
+      await openConversation(conversation.id)
+      void refreshConversations()
+    } catch {
+      // Core may still be starting — the sidebar lists the conversation once ready.
+    }
+  }, [onNavigate, openConversation, refreshConversations])
+
+  // After first connect: straight into the starter conversation, never an
+  // empty state. Runs once (the prop stays true across remounts of the shell).
+  const starterOpenedRef = useRef(false)
+  useEffect(() => {
+    if (!autoOpenStarter || starterOpenedRef.current) return
+    starterOpenedRef.current = true
+    void getStarted()
+  }, [autoOpenStarter, getStarted])
+
   const addProject = useCallback(async () => {
     try {
       const path = await window.collie.pickProjectFolder()
@@ -933,7 +959,11 @@ export default function ChatScreen({
       />
       {activeView === 'settings' ? (
         <main className="settings-workspace min-w-0 flex-1 overflow-hidden">
-          <SettingsScreen onRedoOnboarding={onRedoOnboarding} onNavigate={onNavigate} />
+          <SettingsScreen
+            onRedoOnboarding={onRedoOnboarding}
+            onNavigate={onNavigate}
+            onGetStarted={() => void getStarted()}
+          />
         </main>
       ) : activeView === 'agents' ? (
         <AgentsScreen />
@@ -1026,6 +1056,7 @@ export default function ChatScreen({
               onTranscribe={async (audio) => (await collieClient.transcribe(audio)).text}
               commandCatalog={commandCatalog}
               taskProgress={activeTask && !isTaskTerminal(activeTask) ? activeTask : null}
+              autofocus={autoOpenStarter}
             />
           </div>
         </div>

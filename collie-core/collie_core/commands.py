@@ -34,7 +34,18 @@ class CommandSpec:
 
 
 CORE_COMMANDS: tuple[CommandSpec, ...] = (
-    CommandSpec("start", "Show the Collie command menu", "/start", "Help"),
+    CommandSpec(
+        "start",
+        "Open the getting-started chat (desktop) / show commands",
+        "/start",
+        "Help",
+    ),
+    CommandSpec(
+        "get-started",
+        "Open the getting-started chat",
+        "/get-started",
+        "Help",
+    ),
     CommandSpec("new", "Start a fresh conversation", "/new", "Session"),
     CommandSpec("compact", "Summarize older context and keep recent turns", "/compact", "Session"),
     CommandSpec("status", "Show model, context, and active helpers", "/status", "Session"),
@@ -175,7 +186,22 @@ class CommandController:
                 "content": f"I don't know /{command} yet. Try /help to see what I can do.",
             }
 
-        if command in {"help", "commands", "start"}:
+        if command == "start" and origin == "desktop":
+            # Desktop /start reopens the starter conversation (idempotent).
+            return {"handled": True, "starter_conversation": True, "content": ""}
+
+        if command == "get-started":
+            if origin != "desktop":
+                lines = ["Getting started lives in the Collie desktop app. "
+                         "Here are my commands instead:"]
+                for item in CORE_COMMANDS:
+                    if item.name == "help":
+                        continue
+                    lines.append(f"- `{item.usage}` — {item.description}")
+                return {"handled": True, "content": "\n".join(lines)}
+            return {"handled": True, "starter_conversation": True, "content": ""}
+
+        if command in {"help", "commands"} or (command == "start" and origin != "desktop"):
             lines = ["Here are my commands:"]
             for item in CORE_COMMANDS:
                 if item.name == "help":
