@@ -28,8 +28,9 @@ are not part of this public source tree.
 ### Python core: `collie-core/`
 
 - `collie_core/` owns storage, settings, memory, permissions, plans, tools,
-  connectors, agents, routines, messengers, pet control, IPC, telemetry
-  (run records), runtime composition, and the internal headless engine
+  connectors, agents, routines, messengers, pet control, IPC, provider
+  onboarding (catalogue + key validation), telemetry (run records),
+  runtime composition, and the internal headless engine
   mode (`collie_core/headless.py` — one task, one JSON result document,
   exit; an engineering-only benchmark entry, not a user-facing CLI).
 - **Self-improvement stack** (Gardener Foundations, architecture:

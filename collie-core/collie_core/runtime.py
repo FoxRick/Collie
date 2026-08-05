@@ -548,6 +548,9 @@ class CollieRuntime:
 
     async def _configure_provider_candidate(self, candidate: dict[str, Any]) -> dict[str, Any]:
         """Validate, activate, and verify one provider candidate transactionally."""
+        from collie_core.catalog import CatalogueStore
+        from collie_core.providers.validation import probe_api_key
+
         async with self._configure_lock:
             try:
                 normalized = self._validated_provider_candidate(candidate)
@@ -575,6 +578,17 @@ class CollieRuntime:
             try:
                 if supplied_key is not None:
                     collie_settings.set_api_key(secret_name, supplied_key)
+                # Catalogue providers arrive without an endpoint or model:
+                # Collie fills protocol/base URL/default model (the strategy
+                # doc's rule — never make a normie pick an endpoint).
+                catalogue = CatalogueStore()
+                runtime_name = str(normalized.get("runtime_name") or "")
+                catalogue_entry = catalogue.get_provider(runtime_name)
+                if catalogue_entry is not None:
+                    if not normalized.get("api_base"):
+                        normalized["api_base"] = catalogue_entry.get("api_base")
+                    if not normalized.get("model"):
+                        normalized["model"] = catalogue_entry.get("default_model")
                 provider = self.db.configure_provider_candidate_record(**normalized)
                 configured = await self._configure_locked(
                     probe_api_base=normalized.get("api_base")
@@ -589,6 +603,61 @@ class CollieRuntime:
                 rollback = await self._restore_provider_snapshot_locked(transaction)
                 return {"configured": False, "error": str(error), **rollback}
 
+            # Key validation: a tiny read-only request with the user's key.
+            # The probe is the authority — prefix hints are only suggestions.
+            # On a definitive failure the whole transaction rolls back so a
+            # bad key never leaves the app half-configured.
+            key_for_probe = supplied_key if supplied_key is not None else previous_key
+            probe: dict[str, Any] = {}
+            if key_for_probe and (
+                catalogue_entry is not None or normalized.get("api_base")
+            ):
+                probe = await probe_api_key(
+                    provider_id=runtime_name or secret_name,
+                    api_key=str(key_for_probe),
+                    api_base=normalized.get("api_base"),
+                    protocol=str(normalized.get("protocol") or "openai"),
+                    model=normalized.get("model"),
+                    catalogue=catalogue,
+                )
+                if not probe.get("ok"):
+                    error_kind = str(probe.get("error") or "invalid")
+                    # Catalogue providers use known-good endpoints: any probe
+                    # failure is meaningful. Custom endpoints are an advanced
+                    # escape hatch — only a definitive auth rejection (401/403)
+                    # is treated as a failure there.
+                    hard_fail = (
+                        error_kind == "auth"
+                        or (catalogue_entry is not None and error_kind != "invalid")
+                    )
+                    if not hard_fail:
+                        logger.info(
+                            "Connect probe inconclusive for {} ({}) — continuing",
+                            runtime_name,
+                            error_kind,
+                        )
+                    else:
+                        rollback = await self._restore_provider_snapshot_locked(transaction)
+                        if error_kind == "auth":
+                            message = (
+                                "That key didn't work. Double-check it, or get help here → "
+                                "https://heycollie.com/get-started"
+                            )
+                        elif error_kind == "network":
+                            message = (
+                                "I couldn't reach that provider to check the key. "
+                                "Check your connection and try again."
+                            )
+                        else:
+                            message = "That provider didn't accept the key. Double-check it and try again."
+                        return {
+                            "configured": False,
+                            "validated": False,
+                            "error": message,
+                            "error_kind": error_kind,
+                            **rollback,
+                        }
+
             self._provider_config_generation += 1
             transaction_id = uuid.uuid4().hex
             transaction["generation"] = self._provider_config_generation
@@ -596,11 +665,17 @@ class CollieRuntime:
             while len(self._provider_rollbacks) > 16:
                 oldest = next(iter(self._provider_rollbacks))
                 self._provider_rollbacks.pop(oldest, None)
-            return {
+            result: dict[str, Any] = {
                 "provider": provider,
                 **configured,
                 "transaction_id": transaction_id,
             }
+            if key_for_probe and probe.get("ok"):
+                result["validated"] = True
+                result["model_label"] = probe.get("model_label") or (
+                    configured.get("model") or normalized.get("model")
+                )
+            return result
 
     async def _finalize_provider_candidate(self, transaction_id: str) -> dict[str, Any]:
         """Forget a successful candidate's compensating rollback snapshot."""

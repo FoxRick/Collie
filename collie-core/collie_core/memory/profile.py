@@ -41,6 +41,7 @@ def _md_value(value: Any) -> str:
 
 # Known profile keys shown in Settings → Memory with friendly labels.
 PROFILE_KEYS: dict[str, str] = {
+    "name": "Name",
     "dietary": "Food & allergies",
     "wake_time": "Wakes up",
     "sleep_time": "Goes to sleep",

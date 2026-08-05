@@ -264,6 +264,8 @@ interface Props {
   onTranscribe: (audio: string) => Promise<string>
   commandCatalog?: CommandCatalog
   taskProgress?: TaskState | null
+  /** Focus the composer once on mount (fresh onboarding straight into chat). */
+  autofocus?: boolean
 }
 
 export default function ChatInput({
@@ -289,7 +291,8 @@ export default function ChatInput({
   onTypingChange,
   onTranscribe,
   commandCatalog,
-  taskProgress
+  taskProgress,
+  autofocus = false
 }: Props): React.JSX.Element {
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState<AttachmentDraft[]>([])
@@ -358,6 +361,15 @@ export default function ChatInput({
     onTypingChangeRef.current?.(true)
     requestAnimationFrame(() => textareaRef.current?.focus())
   }, [])
+
+  useEffect(() => {
+    if (!autofocus) return
+    // Short delay: the shell may still be settling after connect.
+    const timer = window.setTimeout(() => {
+      textareaRef.current?.focus()
+    }, 200)
+    return () => window.clearTimeout(timer)
+  }, [autofocus])
 
   useEffect(() => {
     if (text || steering) return

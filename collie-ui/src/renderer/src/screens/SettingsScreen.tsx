@@ -98,6 +98,8 @@ interface Props {
   initialTab?: Tab
   onRedoOnboarding?: () => void
   onNavigate?: (view: AppView) => void
+  /** Open the getting-started conversation (greeting + first chat). */
+  onGetStarted?: () => void
 }
 
 export function clearAllDataNotice(result: ClearAllDataResult): string {
@@ -143,7 +145,8 @@ const TAB_COPY: Record<Tab, { title: string; description: string }> = {
 export default function SettingsScreen({
   initialTab = 'models',
   onRedoOnboarding,
-  onNavigate
+  onNavigate,
+  onGetStarted
 }: Props): React.JSX.Element {
   const [tab, setTab] = useState<Tab>(initialTab)
   const [status, setStatus] = useState<RuntimeStatus>({})
@@ -275,19 +278,37 @@ export default function SettingsScreen({
         return <UpdateTab />
       case 'onboarding':
         return (
-          <section className="settings-card onboarding-card">
-            <div className="settings-card-icon"><RotateCcw size={19} /></div>
-            <div>
-              <h3>Run setup again</h3>
-              <p>
-                Revisit provider sign-in and connection choices. Your chats, memories, and
-                existing settings stay intact.
-              </p>
-            </div>
-            <button className="settings-button is-primary" onClick={onRedoOnboarding}>
-              Start onboarding
-            </button>
-          </section>
+          <div className="flex flex-col gap-4">
+            <section className="settings-card onboarding-card">
+              <div className="settings-card-icon"><RotateCcw size={19} /></div>
+              <div>
+                <h3>Getting started</h3>
+                <p>
+                  Reopen the welcome chat — the one where Collie asks your name.
+                  It picks up right where you left off.
+                </p>
+              </div>
+              <button
+                className="settings-button is-primary"
+                onClick={() => onGetStarted?.()}
+              >
+                Getting started
+              </button>
+            </section>
+            <section className="settings-card onboarding-card">
+              <div className="settings-card-icon"><RotateCcw size={19} /></div>
+              <div>
+                <h3>Run setup again</h3>
+                <p>
+                  Revisit provider sign-in and connection choices. Your chats, memories, and
+                  existing settings stay intact.
+                </p>
+              </div>
+              <button className="settings-button is-primary" onClick={onRedoOnboarding}>
+                Start onboarding
+              </button>
+            </section>
+          </div>
         )
       case 'safety':
         return <SafetyApprovalsTab />

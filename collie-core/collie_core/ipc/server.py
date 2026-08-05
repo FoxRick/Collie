@@ -59,6 +59,10 @@ from websockets.asyncio.server import ServerConnection, serve
 
 from collie_core.db import CollieDB, collie_home
 from collie_core.ipc.thinking import phrase_for_state, thinking_state_for_tool
+from collie_core.onboarding import (
+    capture_starter_name,
+    ensure_starter_conversation,
+)
 from collie_core.permissions.classifier import classify_tool
 from collie_core.permissions.models import Risk
 from collie_core.providers.storage import legacy_oauth_data_root
@@ -479,6 +483,80 @@ class CollieIPCServer:
         if self._command_catalog is None:
             return {"commands": [], "agents": [], "skills": []}
         return self._command_catalog()
+
+    # -- provider catalogue (models.dev snapshot) --------------------------------------
+
+    def _catalogue(self) -> Any:
+        from collie_core.catalog import CatalogueStore
+
+        return CatalogueStore(settings=self.db)
+
+    async def _cmd_get_provider_catalogue(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
+        catalogue = self._catalogue()
+        return {
+            "providers": catalogue.providers(),
+            "snapshot": catalogue.snapshot_metadata(),
+            "refresh": catalogue.refresh_state(),
+        }
+
+    async def _cmd_refresh_provider_catalogue(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
+        catalogue = self._catalogue()
+        return await catalogue.refresh(url=frame.get("url") or None)
+
+    async def _cmd_rollback_provider_catalogue(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
+        catalogue = self._catalogue()
+        return catalogue.rollback()
+
+    # -- connect-time validation helpers ------------------------------------------------
+
+    async def _cmd_detect_provider_for_key(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
+        from collie_core.providers.validation import detect_provider_for_key
+
+        api_key = str(frame.get("api_key") or "")
+        if not api_key:
+            return {"detected": False, "provider_id": None, "reason": "empty_key"}
+        return await detect_provider_for_key(api_key, catalogue=self._catalogue())
+
+    async def _cmd_detect_models(self, connection: ServerConnection, frame: dict) -> dict:
+        from collie_core.providers.validation import detect_models_for_base_url
+
+        return await detect_models_for_base_url(
+            str(frame.get("api_base") or ""),
+            protocol=str(frame.get("protocol") or "openai"),
+            api_key=str(frame.get("api_key") or "") or None,
+        )
+
+    async def _cmd_detect_local_models(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
+        from collie_core.providers.validation import detect_local_ollama
+
+        return await detect_local_ollama()
+
+    # -- starter conversation -------------------------------------------------------------
+
+    async def _cmd_get_starter_conversation(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
+        result = ensure_starter_conversation(
+            self.db,
+            reuse_conversation_id=str(frame.get("conversation_id") or "") or None,
+        )
+        if result.get("greeting") is not None:
+            await self.broadcast({
+                "type": "message",
+                "conversation_id": result["conversation"]["id"],
+                "message": result["greeting"],
+            })
+        return {"conversation": result["conversation"], "greeted": result["greeted"]}
 
     async def _cmd_transcribe(self, connection: ServerConnection, frame: dict) -> dict:
         """Turn a renderer-captured WAV into English text without a cloud service."""
@@ -2550,11 +2628,43 @@ class CollieIPCServer:
                     "message": assistant_msg,
                 })
                 return
+            if command_result and command_result.get("starter_conversation"):
+                # /get-started (and desktop /start): open/seed the starter
+                # conversation. An empty conversation created for this frame
+                # becomes the starter; the command text is a control
+                # instruction and is never persisted as a chat bubble.
+                starter = ensure_starter_conversation(
+                    self.db,
+                    reuse_conversation_id=conv_id if created_conversation else None,
+                )
+                starter_conv_id = str(starter["conversation"]["id"])
+                if starter.get("greeting") is not None:
+                    await self.broadcast({
+                        "type": "message",
+                        "conversation_id": starter_conv_id,
+                        "message": starter["greeting"],
+                    })
+                await self._send(connection, {
+                    "type": "ok",
+                    "id": frame.get("id"),
+                    "data": {
+                        "conversation_id": starter_conv_id,
+                        "command_handled": True,
+                        "starter_conversation": True,
+                    },
+                })
+                return
             if command_result and not command_result.get("handled"):
                 agent_content = str(command_result.get("forward_prompt") or content)
                 raw_message_metadata = command_result.get("message_metadata")
                 if isinstance(raw_message_metadata, dict):
                     message_metadata = dict(raw_message_metadata)
+
+        # First real reply in the starter thread: remember the user's name
+        # (approval-free ProfileStore write; whatever they said, or nothing).
+        # Commands never count as a name.
+        if command_result is None:
+            capture_starter_name(self.db, self._profile_store, conv_id, content)
 
         user_msg = self.db.add_message(
             conv_id,
