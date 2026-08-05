@@ -11,6 +11,8 @@ mutable local `dist/` output must never be represented as one.
 - `release-artifact-validation.md` documents the repeatable artifact checks
   required before an installer can be published.
 - `asset-provenance.md` records branding and third-party mark boundaries.
+- `installer-ux.md` describes the Windows setup wizard (page flow, per-user
+  no-admin choice, voice rules) and how to build it.
 
 Release status must be stated from verified source and artifacts, not from a
 local build directory.
