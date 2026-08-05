@@ -1,0 +1,62 @@
+name: installer-build
+
+on:
+  pull_request:
+    paths:
+      - collie-ui/electron-builder.yml
+      - collie-ui/build/**
+      - collie-ui/scripts/stage-core.cjs
+      - collie-ui/scripts/electron-builder-before-pack.cjs
+      - collie-ui/scripts/build-provenance.cjs
+      - .github/workflows/installer-build.yml
+  workflow_dispatch:
+
+jobs:
+  windows-installer:
+    name: Windows NSIS installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: collie-ui/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install UI dependencies
+        working-directory: collie-ui
+        run: npm ci
+
+      - name: Build renderer and main process
+        working-directory: collie-ui
+        run: npm run build
+
+      - name: Create core virtual environment (staging source for the bundle)
+        working-directory: collie-core
+        run: |
+          python -m venv .venv
+          .venv\Scripts\python -m pip install --upgrade pip
+          .venv\Scripts\python -m pip install -e .
+
+      - name: Stage bundled Python core and MCP runtime
+        working-directory: collie-ui
+        run: npm run stage:core
+
+      - name: Build NSIS installer (assisted wizard)
+        working-directory: collie-ui
+        run: npx electron-builder --win nsis --x64 --publish never
+
+      - name: Upload installer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: collie-windows-installer
+          path: |
+            collie-ui/dist/Collie-Setup-*.exe
+            collie-ui/dist/Collie-Setup-*.exe.blockmap
+            collie-ui/dist/alpha.yml
+          if-no-files-found: error
