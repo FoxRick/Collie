@@ -31,6 +31,7 @@ coverage/
 # (worktrees commonly symlink node_modules to the main checkout; the release
 # provenance gate requires a clean tree and would otherwise refuse to build).
 node_modules
+.venv
 **/node_modules/
 dist/
 out/

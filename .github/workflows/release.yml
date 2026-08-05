@@ -84,6 +84,14 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
+      - name: Ensure the managed standalone Python is installed
+        # setup-uv only guarantees the version is *available*; on some
+        # runners the activated venv is built from the setup-python
+        # interpreter and no managed python lands in the uv install dir.
+        # An explicit install makes the staged runtime deterministic.
+        if: matrix.standalone
+        run: uv python install ${{ matrix.python }}
+
       - name: Point COLLIE_PYTHON_HOME at the staged runtime
         shell: bash
         run: |
@@ -91,7 +99,7 @@ jobs:
             # uv-managed pythons are python-build-standalone installs with
             # the portable bin/ + lib/python3.x layout stage-core.cjs expects.
             PBS_DIR=$(uv python dir)
-            DIR=$(ls -d "$PBS_DIR"/cpython-${{ matrix.python }}.* 2>/dev/null | head -1)
+            DIR=$(ls -d "$PBS_DIR"/cpython-${{ matrix.python }}.* 2>/dev/null | head -1 || true)
             if [ -z "$DIR" ] || [ ! -x "$DIR/bin/python3" ]; then
               echo "::error::python-build-standalone ${{ matrix.python }} not found under $PBS_DIR"
               exit 1
