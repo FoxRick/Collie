@@ -33,7 +33,7 @@
 !define MUI_HEADERIMAGE_UNBITMAP_NOSTRETCH
 
 ; Shared page state
-Var InstallMode                  ; "recommended" | "custom" | "" (update/silent)
+Var CollieInstallMode           ; "recommended" | "custom" | "" (update/silent)
 Var InstallModeDialog
 Var InstallModeRecommendedRadio
 Var InstallModeCustomRadio
@@ -77,9 +77,9 @@ Var DesktopShortcutCheckbox
   Function InstallModePageLeave
     ${NSD_GetState} $InstallModeRecommendedRadio $0
     ${If} $0 == ${BST_CHECKED}
-      StrCpy $InstallMode "recommended"
+      StrCpy $CollieInstallMode "recommended"
     ${Else}
-      StrCpy $InstallMode "custom"
+      StrCpy $CollieInstallMode "custom"
     ${EndIf}
   FunctionEnd
 
@@ -96,7 +96,7 @@ Var DesktopShortcutCheckbox
 !define MUI_DIRECTORYPAGE_TEXT_DESTINATION "Collie's folder"
 
 Function DirectoryPageShow
-  ${ifNot} $InstallMode == "custom"
+  ${ifNot} $CollieInstallMode == "custom"
     Abort
   ${endif}
 FunctionEnd
