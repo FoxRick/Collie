@@ -1,10 +1,11 @@
 name: Release
 
 # Tag-triggered installer pipeline: builds the Windows NSIS installer,
-# macOS dmg+zip, and Linux AppImage entirely on GitHub-hosted runners — no
-# human build machine required. Artifacts are attached to a DRAFT GitHub
-# Release (tag must be pushed by a maintainer; the release stays draft so a
-# human publishes it after the documented release checks).
+# macOS dmg+zip (arm64 for alpha), and Linux AppImage entirely on
+# GitHub-hosted runners — no human build machine required. Artifacts are
+# attached to a DRAFT GitHub Release (tag must be pushed by a maintainer;
+# the release stays draft so a human publishes it after the documented
+# release checks).
 #
 # Signing notes (alpha):
 #  - Windows: the installer is unsigned (no code-signing cert); SmartScreen
@@ -160,17 +161,20 @@ jobs:
         with:
           name: collie-${{ matrix.os }}
           if-no-files-found: error
+          # upload-artifact resolves paths from the repo root (GITHUB_WORKSPACE),
+          # not the job's working-directory — the electron-builder output lives
+          # under collie-ui/dist/.
           path: |
-            dist/Collie-Setup-*.exe*
-            dist/alpha.yml
-            dist/Collie-*.AppImage*
-            dist/alpha-linux.yml
-            dist/Collie-*.dmg*
-            dist/Collie-*.zip*
-            dist/alpha-mac.yml
-            dist/collie-build-provenance.json
-            dist/collie-artifact-provenance.json
-            dist/SHA256SUMS.txt
+            collie-ui/dist/Collie-Setup-*.exe*
+            collie-ui/dist/alpha.yml
+            collie-ui/dist/Collie-*.AppImage*
+            collie-ui/dist/alpha-linux.yml
+            collie-ui/dist/Collie-*.dmg*
+            collie-ui/dist/Collie-*.zip*
+            collie-ui/dist/alpha-mac.yml
+            collie-ui/dist/collie-build-provenance.json
+            collie-ui/dist/collie-artifact-provenance.json
+            collie-ui/dist/SHA256SUMS.txt
 
   release:
     name: Draft GitHub Release
@@ -210,7 +214,9 @@ jobs:
             ### Artifacts
             - **Windows x64**: `Collie-Setup-<version>.exe` (NSIS, one-click)
               + `.blockmap` + `alpha.yml`
-            - **macOS**: `.dmg` + `.zip` for arm64 and x64 (electron-updater)
+            - **macOS (arm64)**: `.dmg` + `.zip` (electron-updater). x64/Intel
+              builds are a follow-up — they need a per-arch staged Python
+              runtime, not yet implemented.
             - **Linux x64**: `.AppImage`
 
             `SHA256SUMS.txt` covers every attached artifact. The Windows

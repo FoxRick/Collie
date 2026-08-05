@@ -12,7 +12,8 @@ mutable local `dist/` output must never be represented as one.
 
 Tag-triggered CI (`.github/workflows/release.yml`, tags `v*`) builds the
 installers on GitHub-hosted runners — Windows NSIS x64, macOS dmg/zip
-(arm64 + x64, unsigned for alpha), and Linux AppImage x64 — and attaches them
+(arm64 only for alpha; the staged Python runtime is native-arm64, so Intel
+x64 bundles are a follow-up), and Linux AppImage x64 — and attaches them
 to a draft GitHub Release with `SHA256SUMS.txt`. Test-on-push CI
 (`.github/workflows/ci.yml`) runs the collie-core pytest + ruff gates and the
 collie-ui typecheck/vitest/build gates on every push and pull request.
