@@ -33,6 +33,32 @@ are not part of this public source tree.
   runtime composition, and the internal headless engine
   mode (`collie_core/headless.py` — one task, one JSON result document,
   exit; an engineering-only benchmark entry, not a user-facing CLI).
+- **Self-improvement stack** (Gardener Foundations, architecture:
+  `docs/engineering/architecture/gardener-foundations.md`):
+  - `collie_core/versions.py` — `VersionStore`: every user-visible artifact
+    edit (subagent files, `VISION.md`/`AGENTS.md`/`MEMORY.md`, dream
+    consolidations, Gardener applies) is snapshotted into the
+    `artifact_versions` table (schema V14) with a before/after text pair +
+    unified diff; one-action rollback that never clobbers newer owner
+    edits. Wired into `SubagentLoader`, `ProfileStore`, IPC `write_file`
+    (workspace artifacts), Dream, and Gardener applies.
+  - `collie_core/memory/dream.py` — `run_dream()`: bounded, read-only
+    consolidation of nanobot's long-term `memory/MEMORY.md` (vendored
+    Dream machinery: cursor, prompt builder, session pruning); versioned
+    as `memory_dream`, undoable in Settings → Memory.
+  - `collie_core/gardener/` — the self-improvement loop:
+    `evidence.py` (read-only telemetry queries: repeated tool failures,
+    repeated workflows, stopped turns, memory bloat), `propose.py`
+    (bounded subagent turn + deterministic validation: allowlisted
+    artifact types only, keyword gate against permissions/settings/
+    secrets/connectors, size budgets), `runner.py` (`run_gardener` +
+    `apply_suggestion` through the versioned rollback rail).
+  - Triggers: built-in automations (`memory_maintenance` Sun 09:00,
+    `gardener` Sun 10:00, seeded once, disabled by default) + manual IPC
+    (`run_dream`, `run_gardener`) from Settings → Memory → "Collie's
+    self-review". Review cards (`gardener_suggestion`) render in chat with
+    Approve/Dismiss/Undo.
+
 - `nanobot/` contains the adapted upstream engine. Changes should remain
   surgical and preserve third-party attribution.
 - `tests/` contains Python unit, integration, IPC, safety, and end-to-end

@@ -20,7 +20,11 @@ from collie_core.db import CollieDB, utc_now
 from collie_core.routines.models import Schedule
 from collie_core.routines.schedule import next_occurrence
 
-__all__ = ["AutomationScheduler", "seed_builtin_automations"]
+__all__ = [
+    "AutomationScheduler",
+    "seed_builtin_automations",
+    "seed_gardener_automations",
+]
 
 BUILTIN_AUTOMATIONS = [
     {
@@ -136,6 +140,62 @@ def seed_builtin_automations(db: CollieDB) -> None:
     db.set_setting("automations.builtins_seeded", True)
 
 
+# Gardener-family built-ins (PR 3 + PR 4 of the Gardener Foundations plan).
+# Seeded under their own flag so installs that already ran
+# ``seed_builtin_automations`` still get them — and, like all built-ins,
+# a user deletion is never resurrected.
+GARDENER_AUTOMATIONS = [
+    {
+        "id": "collie-memory-maintenance",
+        "name": "Memory maintenance",
+        "description": "Weekly memory consolidation (Dream)",
+        "schedule": "Sun 09:00",
+        "action_type": "memory_maintenance",
+        "action_config": {
+            "kind": "dream",
+            "prompt": "",
+        },
+        "enabled": False,
+        "delivery_channels": ["in_app"],
+    },
+    {
+        "id": "collie-gardener-suggestions",
+        "name": "Improvement suggestions",
+        "description": "Weekly improvement suggestions from run records",
+        "schedule": "Sun 10:00",
+        "action_type": "gardener",
+        "action_config": {
+            "kind": "gardener",
+            "prompt": "",
+        },
+        "enabled": False,
+        "delivery_channels": ["in_app"],
+    },
+]
+
+
+def seed_gardener_automations(db: CollieDB) -> None:
+    """Seed the Gardener automations once (never resurrect deletions)."""
+    if db.get_setting("automations.gardener_seeded", False):
+        return
+    existing = {a["id"] for a in db.list_automations()}
+    for auto in GARDENER_AUTOMATIONS:
+        if auto["id"] in existing:
+            continue
+        db.add_automation(
+            auto["name"],
+            automation_id=auto["id"],
+            description=auto["description"],
+            schedule=auto["schedule"],
+            action_type=auto["action_type"],
+            action_config=auto["action_config"],
+            enabled=bool(auto.get("enabled", False)),
+            delivery_channels=auto["delivery_channels"],
+        )
+        logger.info("Seeded automation: {}", auto["name"])
+    db.set_setting("automations.gardener_seeded", True)
+
+
 def _match_schedule(schedule_str: str, now: datetime) -> bool:
     """Check if ``now`` matches a schedule string.
 
@@ -184,6 +244,7 @@ class AutomationScheduler:
 
     async def start(self) -> None:
         seed_builtin_automations(self.db)
+        seed_gardener_automations(self.db)
         stale_before = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(
             timespec="seconds"
         )

@@ -336,6 +336,38 @@ export interface ToolEvent {
   finished_at?: string | null
 }
 
+/** One snapshotted artifact edit (PR 2 versioned rollback rail). */
+export interface ArtifactVersion {
+  id: string
+  artifact_type: string
+  artifact_key: string
+  version: number
+  before_text?: string | null
+  after_text?: string | null
+  diff_text?: string | null
+  evidence_json?: string | null
+  source: string
+  status: string
+  created_at: string
+}
+
+export interface RollbackArtifactResult {
+  rolled_back: boolean
+  version_id: string
+  artifact_type: string
+  artifact_key: string
+  version: number
+}
+
+/** One validated Gardener suggestion (proposed artifact change). */
+export interface GardenerSuggestion {
+  artifact_type: 'subagent' | 'agents' | 'vision' | 'memory_dream'
+  artifact_key: string
+  proposed_text: string
+  rationale: string
+  evidence_ids: string[]
+}
+
 /** A user-facing progress snapshot. It deliberately excludes tool traffic and model reasoning. */
 export interface TaskStep {
   key: string
@@ -656,6 +688,58 @@ export class CollieClient {
     return this.command('get_tool_events', opts ?? {})
   }
 
+  listVersions(opts?: {
+    artifact_type?: string
+    artifact_key?: string
+    limit?: number
+  }): Promise<{ versions: ArtifactVersion[] }> {
+    return this.command('list_versions', opts ?? {})
+  }
+
+  rollbackArtifact(versionId: string): Promise<RollbackArtifactResult> {
+    return this.command('rollback_artifact', { version_id: versionId })
+  }
+
+  /** Manual trigger: run one Dream consolidation pass (Settings -> Memory). */
+  runDream(): Promise<{
+    changed: boolean
+    reason?: string
+    version_id?: string | null
+    diff?: string
+    cursor?: string
+    message?: string
+  }> {
+    return this.command('run_dream', {})
+  }
+
+  /** Past Dream consolidations (memory_dream versions), newest first. */
+  getDreamHistory(): Promise<{ versions: ArtifactVersion[] }> {
+    return this.command('get_dream_history', {})
+  }
+
+  /** Manual trigger: run one Gardener pass (evidence -> suggestions). */
+  runGardener(): Promise<{
+    suggestions: GardenerSuggestion[]
+    rejected?: Array<{ reason: string; artifact_type: string; artifact_key: string }>
+    message?: string
+  }> {
+    return this.command('run_gardener', {})
+  }
+
+  /** Approve one suggestion: re-validated, applied, versioned (undoable). */
+  applyGardenerSuggestion(
+    suggestion: GardenerSuggestion
+  ): Promise<{
+    applied: boolean
+    no_change?: boolean
+    version_id?: string | null
+    diff_text?: string
+    artifact_type: string
+    artifact_key: string
+  }> {
+    return this.command('apply_gardener_suggestion', { suggestion })
+  }
+
   stopConversation(
     conversationId: string
   ): Promise<{
@@ -834,7 +918,10 @@ export class CollieClient {
     return this.command('read_file', { path })
   }
 
-  writeFile(path: string, content: string): Promise<{ saved: boolean }> {
+  writeFile(
+    path: string,
+    content: string
+  ): Promise<{ saved: boolean; version_id?: string | null; diff_text?: string | null }> {
     return this.command('write_file', { path, content })
   }
 

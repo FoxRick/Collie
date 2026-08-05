@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import inspect
+import json
 import os
 import sys
 import urllib.parse
@@ -63,7 +64,12 @@ class CollieRuntime:
         set_config_path(collie_home() / "config.json")
         self.workspace = collie_settings.ensure_workspace()
         bind_suggest_workspace(self.workspace)
-        self.profile = ProfileStore(self.db, self.workspace)
+        from collie_core.versions import VersionStore
+
+        self.versions = VersionStore(self.db)
+        self.profile = ProfileStore(
+            self.db, self.workspace, version_store=self.versions
+        )
         self.profile.regenerate_memory_md()
         bind_profile_store(self.profile)
         bind_reminders_db(self.db)
@@ -142,6 +148,8 @@ class CollieRuntime:
             conversation_deleter=self.delete_conversation_sessions,
             on_set_approval_preset=self.permission_evaluator.set_local_write_preset,
             token=ipc_token,
+            dream_runner=self._run_dream_manual,
+            gardener_runner=self._run_gardener_manual,
         )
         self.approvals = ApprovalBroker(
             self.db, self.permission_evaluator, self.ipc.broadcast
@@ -804,18 +812,24 @@ class CollieRuntime:
                 action_config = _json.loads(action_config)
             except (TypeError, ValueError):
                 action_config = {}
+        action_type = str(auto.get("action_type") or "")
+
+        # Gardener-family automations run their own bounded pipelines
+        # instead of a free-form prompt turn.
+        if action_type == "memory_maintenance":
+            await self._run_memory_maintenance(auto)
+            return
+        if action_type == "gardener":
+            await self._run_gardener(auto)
+            return
+
         prompt = ""
         if isinstance(action_config, dict):
             prompt = str(action_config.get("prompt") or "")
         if not prompt:
             return
 
-        conv_key = f"automations.{auto_id}.conversation_id"
-        conv_id = str(self.db.get_setting(conv_key, "") or "")
-        if not conv_id or self.db.get_conversation(conv_id) is None:
-            conv = self.db.create_conversation(title=f"🔔 {name}")
-            conv_id = conv["id"]
-            self.db.set_setting(conv_key, conv_id)
+        conv_id = self._automation_conversation_id(auto)
 
         outbound = await self.loop.process_direct(
             prompt,
@@ -859,6 +873,150 @@ class CollieRuntime:
         targets.update(self.messengers.automation_targets())
         for target in sorted(targets):
             await self.messengers.deliver(target, f"🔔 {name}\n\n{content}")
+
+    # -- Gardener-family automation pipelines ------------------------------------
+
+    def _automation_conversation_id(self, auto: dict[str, Any]) -> str:
+        """Resolve (or create) the per-automation 🔔 conversation."""
+        auto_id = str(auto.get("id") or "")
+        name = str(auto.get("name") or "Automation")
+        conv_key = f"automations.{auto_id}.conversation_id"
+        conv_id = str(self.db.get_setting(conv_key, "") or "")
+        if not conv_id or self.db.get_conversation(conv_id) is None:
+            conv = self.db.create_conversation(title=f"🔔 {name}")
+            conv_id = conv["id"]
+            self.db.set_setting(conv_key, conv_id)
+        return conv_id
+
+    async def _announce_automation_result(
+        self, auto: dict[str, Any], conv_id: str, content: str
+    ) -> None:
+        """Persist + broadcast + fan out an automation result message."""
+        auto_id = str(auto.get("id") or "")
+        name = str(auto.get("name") or "Automation")
+        if not content:
+            return
+        assistant = self.db.add_message(conv_id, "assistant", content)
+        await self.ipc.broadcast({
+            "type": "message", "conversation_id": conv_id, "message": assistant,
+        })
+        await self.ipc.broadcast({
+            "type": "automation",
+            "automation_id": auto_id,
+            "name": name,
+            "conversation_id": conv_id,
+            "content": content,
+        })
+        deliveries = auto.get("delivery_channels")
+        if isinstance(deliveries, str):
+            try:
+                deliveries = json.loads(deliveries)
+            except (TypeError, ValueError):
+                deliveries = []
+        targets = {
+            str(d) for d in (deliveries or [])
+            if str(d) in self.messengers.channels
+        }
+        targets.update(self.messengers.automation_targets())
+        for target in sorted(targets):
+            await self.messengers.deliver(target, f"🔔 {name}\n\n{content}")
+
+    async def _run_dream_manual(self) -> dict[str, Any]:
+        """Manual 'Review now' trigger (Settings -> Memory)."""
+        if self.loop is None:
+            result = await self._configure()
+            if not result.get("configured"):
+                return {
+                    "changed": False,
+                    "reason": "not_configured",
+                    "message": "I need a model provider set up before I can review my memory.",
+                }
+        from collie_core.memory.dream import run_dream
+
+        return await run_dream(
+            workspace=self.workspace,
+            db=self.db,
+            loop=self.loop,
+            version_store=self.versions,
+        )
+
+    async def _run_gardener_manual(self) -> dict[str, Any]:
+        """Manual 'Suggest improvements' trigger (Settings -> Memory).
+
+        Runs the same pipeline as the weekly automation and publishes the
+        review cards into the 🔔 conversation, so a manual run has the same
+        review surface as the scheduled one.
+        """
+        auto = {
+            "id": "collie-gardener-suggestions",
+            "name": "Improvement suggestions",
+            "delivery_channels": ["in_app"],
+        }
+        return await self._run_gardener(auto) or {}
+
+    async def _run_memory_maintenance(self, auto: dict[str, Any]) -> None:
+        """Weekly Dream pass: consolidate long-term memory, versioned + undoable."""
+        if self.loop is None:
+            result = await self._configure()
+            if not result.get("configured"):
+                logger.info("Memory maintenance skipped — no provider configured yet")
+                return
+        from collie_core.memory.dream import run_dream
+
+        conv_id = self._automation_conversation_id(auto)
+        outcome = await run_dream(
+            workspace=self.workspace,
+            db=self.db,
+            loop=self.loop,
+            version_store=self.versions,
+        )
+        content = str(outcome.get("message") or "Memory maintenance ran.")
+        if outcome.get("changed"):
+            content += (
+                "\n\nChanged my long-term memory file. You can review the diff "
+                "and undo it in Settings → Memory → History."
+            )
+        await self._announce_automation_result(auto, conv_id, content)
+
+    async def _run_gardener(self, auto: dict[str, Any]) -> dict[str, Any] | None:
+        """Weekly Gardener pass: evidence → suggestions → review cards."""
+        if self.loop is None:
+            result = await self._configure()
+            if not result.get("configured"):
+                logger.info("Gardener skipped — no provider configured yet")
+                return None
+        from collie_core.gardener.runner import run_gardener
+
+        conv_id = self._automation_conversation_id(auto)
+        outcome = await run_gardener(
+            workspace=self.workspace,
+            db=self.db,
+            loop=self.loop,
+            version_store=self.versions,
+        )
+        content = str(outcome.get("message") or "Gardener ran.")
+        suggestions = outcome.get("suggestions") or []
+        if suggestions:
+            card = self.db.add_message(
+                conv_id,
+                "assistant",
+                content,
+                card_type="gardener_suggestion",
+                card_data={"suggestions": suggestions},
+            )
+            await self.ipc.broadcast({
+                "type": "message", "conversation_id": conv_id, "message": card,
+            })
+            await self.ipc.broadcast({
+                "type": "automation",
+                "automation_id": str(auto.get("id") or ""),
+                "name": str(auto.get("name") or "Automation"),
+                "conversation_id": conv_id,
+                "content": content,
+            })
+            return outcome
+        await self._announce_automation_result(auto, conv_id, content)
+        return outcome
 
     async def _shutdown_loop(self) -> None:
         await self.messengers.stop()

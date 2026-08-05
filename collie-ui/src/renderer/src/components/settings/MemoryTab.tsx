@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Check, Pencil, Plus, Trash2, X } from 'lucide-react'
-import { collieClient } from '../../lib/ipc'
+import { Check, History, Pencil, Plus, Sparkles, Trash2, Undo2, X } from 'lucide-react'
+import { collieClient, type ArtifactVersion } from '../../lib/ipc'
+import DiffView from '../cards/DiffView'
 
 interface Props {
   onNotice: (msg: string) => void
@@ -76,6 +77,26 @@ export default function MemoryTab({ onNotice }: Props): React.JSX.Element {
     label: '',
     recurring: 0
   })
+  const [versions, setVersions] = useState<ArtifactVersion[]>([])
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [undoingId, setUndoingId] = useState<string | null>(null)
+  const [reviewBusy, setReviewBusy] = useState<'dream' | 'gardener' | null>(null)
+  const [reviewMsg, setReviewMsg] = useState('')
+
+  const refreshHistory = useCallback(async (): Promise<void> => {
+    try {
+      const [profile, dream] = await Promise.all([
+        collieClient.listVersions({ artifact_type: 'memory_profile', limit: 50 }),
+        collieClient.listVersions({ artifact_type: 'memory_dream', limit: 50 })
+      ])
+      const merged = [...profile.versions, ...dream.versions].sort((a, b) =>
+        b.created_at.localeCompare(a.created_at)
+      )
+      setVersions(merged)
+    } catch {
+      setVersions([])
+    }
+  }, [])
 
   const refresh = useCallback(async () => {
     const [pData, ppl, dateData] = await Promise.all([
@@ -86,7 +107,53 @@ export default function MemoryTab({ onNotice }: Props): React.JSX.Element {
     setProfile(pData.profile || {})
     setPeople(ppl.people || [])
     setDates(dateData.dates || [])
-  }, [])
+    await refreshHistory()
+  }, [refreshHistory])
+
+  const undoVersion = async (versionId: string): Promise<void> => {
+    setUndoingId(versionId)
+    try {
+      await collieClient.rollbackArtifact(versionId)
+      await refreshHistory()
+      onNotice('Undone — the earlier version is back.')
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : 'I could not undo that change.')
+    } finally {
+      setUndoingId(null)
+    }
+  }
+
+  const runSelfReview = async (kind: 'dream' | 'gardener'): Promise<void> => {
+    setReviewBusy(kind)
+    setReviewMsg('')
+    try {
+      const outcome =
+        kind === 'dream'
+          ? await collieClient.runDream()
+          : await collieClient.runGardener()
+      const message =
+        outcome.message ??
+        (kind === 'dream'
+          ? 'Memory review done.'
+          : 'Improvement suggestions are ready — check the chat for the review cards.')
+      setReviewMsg(message)
+      if (kind === 'dream') await refreshHistory()
+      onNotice(message)
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'That review could not run right now.'
+      setReviewMsg(message)
+      onNotice(message)
+    } finally {
+      setReviewBusy(null)
+    }
+  }
+
+  const versionLabel = (version: ArtifactVersion): string => {
+    if (version.artifact_type === 'memory_dream') return "Collie's weekly memory review"
+    if (version.source === 'gardener') return "Collie's improvement suggestions"
+    return 'Your memory edit'
+  }
 
   useEffect(() => {
     void refresh().catch(() => undefined).finally(() => setLoading(false))
@@ -577,6 +644,89 @@ export default function MemoryTab({ onNotice }: Props): React.JSX.Element {
           )}
         </>
       )}
+
+      <section className="memory-section">
+        <h3><Sparkles size={14} /> Collie's self-review</h3>
+        <p className="memory-note">
+          Run a memory review (tidies long-term memory, undoable) or ask for
+          improvement suggestions from recent run records. Suggestions appear
+          as review cards in the 🔔 conversation.
+        </p>
+        <div className="memory-toolbar">
+          <button
+            type="button"
+            className="settings-button"
+            disabled={reviewBusy !== null}
+            onClick={() => void runSelfReview('dream')}
+          >
+            <History size={13} />{' '}
+            {reviewBusy === 'dream' ? 'Reviewing…' : 'Review memory now'}
+          </button>
+          <button
+            type="button"
+            className="settings-button"
+            disabled={reviewBusy !== null}
+            onClick={() => void runSelfReview('gardener')}
+          >
+            <Sparkles size={13} />{' '}
+            {reviewBusy === 'gardener' ? 'Thinking…' : 'Suggest improvements'}
+          </button>
+        </div>
+        {reviewMsg && <p className="memory-note">{reviewMsg}</p>}
+      </section>
+
+      <section className="memory-section">
+        <h3><History size={14} /> History</h3>
+        <p className="memory-note">
+          Every memory change is snapshotted — edits, Collie's weekly memory reviews,
+          and improvement suggestions — so anything can be undone.
+        </p>
+        <div className="memory-toolbar">
+          <button
+            type="button"
+            className="settings-button"
+            onClick={() => setHistoryOpen((current) => !current)}
+            aria-expanded={historyOpen}
+          >
+            {historyOpen ? 'Hide history' : `Show history (${versions.length})`}
+          </button>
+        </div>
+        {historyOpen && (
+          versions.length === 0 ? (
+            <p className="memory-note">No changes recorded yet.</p>
+          ) : (
+            <div className="version-list">
+              {versions.map((version) => (
+                <div className="version-row" key={version.id}>
+                  <div className="version-row-main">
+                    <b>{versionLabel(version)}</b>
+                    <span>
+                      {version.status === 'rolled_back' ? 'Already undone · ' : ''}
+                      {new Date(version.created_at).toLocaleString()}
+                    </span>
+                    {version.diff_text && (
+                      <DiffView
+                        diff={version.diff_text}
+                        label={`Version ${version.version} — see what changed`}
+                      />
+                    )}
+                  </div>
+                  {version.status === 'applied' && (
+                    <button
+                      type="button"
+                      className="settings-button"
+                      disabled={undoingId === version.id}
+                      onClick={() => void undoVersion(version.id)}
+                    >
+                      <Undo2 size={13} /> {undoingId === version.id ? 'Undoing…' : 'Undo'}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )
+        )}
+      </section>
     </div>
   )
 }
