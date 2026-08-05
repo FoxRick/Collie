@@ -82,7 +82,6 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           python-version: ${{ matrix.python }}
-          python-install-dir: ${{ runner.temp }}/pbs-python
 
       - name: Point COLLIE_PYTHON_HOME at the staged runtime
         shell: bash
@@ -90,7 +89,12 @@ jobs:
           if [ "${{ matrix.standalone }}" = "true" ]; then
             # uv-managed pythons are python-build-standalone installs with
             # the portable bin/ + lib/python3.x layout stage-core.cjs expects.
-            DIR=$(ls -d "$RUNNER_TEMP"/pbs-python/cpython-${{ matrix.python }}.* | head -1)
+            PBS_DIR=$(uv python dir)
+            DIR=$(ls -d "$PBS_DIR"/cpython-${{ matrix.python }}.* 2>/dev/null | head -1)
+            if [ -z "$DIR" ] || [ ! -x "$DIR/bin/python3" ]; then
+              echo "::error::python-build-standalone ${{ matrix.python }} not found under $PBS_DIR"
+              exit 1
+            fi
             echo "COLLIE_PYTHON_HOME=$DIR" >> "$GITHUB_ENV"
           else
             # Windows: full setup-python install (python.exe, python312.dll,
