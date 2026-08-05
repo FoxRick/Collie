@@ -158,10 +158,12 @@ jobs:
           if-no-files-found: error
           path: |
             dist/Collie-Setup-*.exe*
+            dist/alpha.yml
             dist/Collie-*.AppImage*
+            dist/alpha-linux.yml
             dist/Collie-*.dmg*
             dist/Collie-*.zip*
-            dist/*.yml
+            dist/alpha-mac.yml
             dist/collie-build-provenance.json
             dist/collie-artifact-provenance.json
             dist/SHA256SUMS.txt
