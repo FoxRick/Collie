@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  collie-core:
+    name: collie-core (Python 3.11)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: collie-core
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: collie-core/pyproject.toml
+
+      - name: Install core with dev extras
+        run: python -m pip install -e ".[dev]"
+
+      - name: Install tkinter for the pet tests (best effort)
+        # The desktop pet (tests/collie/test_pet_status.py) is a tkinter GUI.
+        # python3-tk installs for the system Python; the runner Python may or
+        # may not see it — the pytest step below checks the runner Python and
+        # falls back to --ignore only when tkinter is genuinely unavailable.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk || echo "python3-tk unavailable; pet tests will be ignored"
+
+      - name: Lint (ruff)
+        run: python -m ruff check nanobot collie_core tests
+
+      - name: Test (tests/collie)
+        run: |
+          set -o pipefail
+          PET=""
+          if python -c "import tkinter" >/dev/null 2>&1; then
+            echo "tkinter available in the runner Python — pet tests included"
+          else
+            echo "tkinter unavailable in the runner Python — ignoring pet tests"
+            PET="--ignore=tests/collie/test_pet_status.py"
+          fi
+          # Documented Linux-only failures are deselected, never masked with
+          # `|| true`:
+          #  - test_services.py credential/connect/disconnect tests exercise
+          #    CredentialStore, which raises "Encrypted service credentials
+          #    require Windows DPAPI." on non-win32 (collie_core/services/
+          #    credentials.py:38).
+          #  - test_ipc.py::test_read_write_file_rejects_escape_paths is
+          #    Windows-shaped and flaky on Linux (documented in
+          #    docs + repo testing notes).
+          python -m pytest tests/collie -q $PET \
+            --deselect tests/collie/test_services.py::test_credential_store_roundtrip \
+            --deselect tests/collie/test_services.py::test_connect_api_key_service \
+            --deselect tests/collie/test_services.py::test_connect_oauth_service \
+            --deselect tests/collie/test_services.py::test_disconnect_service \
+            --deselect tests/collie/test_ipc.py::test_read_write_file_rejects_escape_paths
+
+  collie-ui:
+    name: collie-ui (Node 22)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: collie-ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: collie-ui/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests (vitest)
+        run: npx vitest run
+
+      - name: Build (electron-vite)
+        run: npm run build

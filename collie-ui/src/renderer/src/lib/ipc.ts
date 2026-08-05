@@ -90,9 +90,30 @@ export interface ProviderCandidateResult {
   configured: boolean
   model?: string
   error?: string
+  error_kind?: string
+  validated?: boolean
+  model_label?: string
   rolled_back?: boolean
   rollback_error?: string | null
   transaction_id?: string
+}
+
+export interface CatalogueProviderModel {
+  id: string
+  name: string
+}
+
+export interface CatalogueProvider {
+  id: string
+  name: string
+  auth_type: string
+  protocol: 'openai' | 'anthropic'
+  api_base?: string | null
+  default_model?: string | null
+  key_prefixes: string[]
+  tested: boolean
+  help_url?: string | null
+  models: CatalogueProviderModel[]
 }
 
 export interface RuntimeStatus {
@@ -313,6 +334,38 @@ export interface ToolEvent {
   latency_ms?: number | null
   started_at: string
   finished_at?: string | null
+}
+
+/** One snapshotted artifact edit (PR 2 versioned rollback rail). */
+export interface ArtifactVersion {
+  id: string
+  artifact_type: string
+  artifact_key: string
+  version: number
+  before_text?: string | null
+  after_text?: string | null
+  diff_text?: string | null
+  evidence_json?: string | null
+  source: string
+  status: string
+  created_at: string
+}
+
+export interface RollbackArtifactResult {
+  rolled_back: boolean
+  version_id: string
+  artifact_type: string
+  artifact_key: string
+  version: number
+}
+
+/** One validated Gardener suggestion (proposed artifact change). */
+export interface GardenerSuggestion {
+  artifact_type: 'subagent' | 'agents' | 'vision' | 'memory_dream'
+  artifact_key: string
+  proposed_text: string
+  rationale: string
+  evidence_ids: string[]
 }
 
 /** A user-facing progress snapshot. It deliberately excludes tool traffic and model reasoning. */
@@ -635,6 +688,58 @@ export class CollieClient {
     return this.command('get_tool_events', opts ?? {})
   }
 
+  listVersions(opts?: {
+    artifact_type?: string
+    artifact_key?: string
+    limit?: number
+  }): Promise<{ versions: ArtifactVersion[] }> {
+    return this.command('list_versions', opts ?? {})
+  }
+
+  rollbackArtifact(versionId: string): Promise<RollbackArtifactResult> {
+    return this.command('rollback_artifact', { version_id: versionId })
+  }
+
+  /** Manual trigger: run one Dream consolidation pass (Settings -> Memory). */
+  runDream(): Promise<{
+    changed: boolean
+    reason?: string
+    version_id?: string | null
+    diff?: string
+    cursor?: string
+    message?: string
+  }> {
+    return this.command('run_dream', {})
+  }
+
+  /** Past Dream consolidations (memory_dream versions), newest first. */
+  getDreamHistory(): Promise<{ versions: ArtifactVersion[] }> {
+    return this.command('get_dream_history', {})
+  }
+
+  /** Manual trigger: run one Gardener pass (evidence -> suggestions). */
+  runGardener(): Promise<{
+    suggestions: GardenerSuggestion[]
+    rejected?: Array<{ reason: string; artifact_type: string; artifact_key: string }>
+    message?: string
+  }> {
+    return this.command('run_gardener', {})
+  }
+
+  /** Approve one suggestion: re-validated, applied, versioned (undoable). */
+  applyGardenerSuggestion(
+    suggestion: GardenerSuggestion
+  ): Promise<{
+    applied: boolean
+    no_change?: boolean
+    version_id?: string | null
+    diff_text?: string
+    artifact_type: string
+    artifact_key: string
+  }> {
+    return this.command('apply_gardener_suggestion', { suggestion })
+  }
+
   stopConversation(
     conversationId: string
   ): Promise<{
@@ -651,6 +756,74 @@ export class CollieClient {
 
   newConversation(title = 'New chat'): Promise<Conversation> {
     return this.command('new_conversation', { title })
+  }
+
+  getStarterConversation(conversationId?: string | null): Promise<{
+    conversation: Conversation
+    greeted: boolean
+  }> {
+    return this.command('get_starter_conversation', {
+      conversation_id: conversationId ?? ''
+    })
+  }
+
+  getProviderCatalogue(): Promise<{
+    providers: CatalogueProvider[]
+    snapshot: {
+      schema_version?: number
+      generated_at?: string
+      source_url?: string
+      source_sha256?: string
+      source_providers_count?: number
+    }
+    refresh: {
+      available: boolean
+      version?: string
+      sha256?: string
+      refreshed_at?: string
+    }
+  }> {
+    return this.command('get_provider_catalogue')
+  }
+
+  refreshProviderCatalogue(url?: string): Promise<{
+    refreshed: boolean
+    error?: string
+    version?: string
+    sha256?: string
+    refreshed_at?: string
+    providers_count?: number
+  }> {
+    return this.command('refresh_provider_catalogue', { url })
+  }
+
+  rollbackProviderCatalogue(): Promise<{ rolled_back: boolean; error?: string }> {
+    return this.command('rollback_provider_catalogue')
+  }
+
+  detectProviderForKey(apiKey: string): Promise<{
+    detected: boolean
+    provider_id: string | null
+    reason?: string
+    candidates?: string[]
+  }> {
+    return this.command('detect_provider_for_key', { api_key: apiKey })
+  }
+
+  detectModels(
+    apiBase: string,
+    protocol: 'openai' | 'anthropic' = 'openai',
+    apiKey?: string
+  ): Promise<{ detected: boolean; error?: string | null; models: string[] }> {
+    return this.command('detect_models', {
+      api_base: apiBase,
+      protocol,
+      api_key: apiKey
+    })
+  }
+
+  detectLocalModels(): Promise<{ available: boolean; models: string[] }> {
+    return this.command('detect_local_models')
   }
 
   renameConversation(conversationId: string, title: string): Promise<unknown> {
@@ -745,7 +918,10 @@ export class CollieClient {
     return this.command('read_file', { path })
   }
 
-  writeFile(path: string, content: string): Promise<{ saved: boolean }> {
+  writeFile(
+    path: string,
+    content: string
+  ): Promise<{ saved: boolean; version_id?: string | null; diff_text?: string | null }> {
     return this.command('write_file', { path, content })
   }
 

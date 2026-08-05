@@ -223,11 +223,15 @@ function stagePython(pythonHome) {
     stagePythonWindows(pythonHome)
     return
   }
-  if (process.platform === 'linux') {
+  if (process.platform === 'linux' || process.platform === 'darwin') {
+    // Both unix targets use the same python-build-standalone install layout
+    // (bin/python3 + lib/python3.x + bundled Tcl/Tk). macOS standalone
+    // builds ship libpython3.11.dylib under lib/ — copied by the same
+    // whole-lib tree logic.
     stagePythonLinux(pythonHome)
     return
   }
-  fail('The installer staging script currently supports the Windows NSIS and Linux AppImage packages only.')
+  fail('The installer staging script currently supports the Windows NSIS, Linux AppImage, and macOS dmg/zip packages only.')
 }
 
 function verifyPortableBundle() {
@@ -253,13 +257,13 @@ function stageMcpRuntime() {
     }
     return stageMcpRuntimeWindows()
   }
-  if (process.platform === 'linux') {
-    if (process.arch !== 'x64') {
-      fail(`The alpha supports x64 only; this build is ${process.arch}.`)
+  if (process.platform === 'linux' || process.platform === 'darwin') {
+    if (process.arch !== 'x64' && process.arch !== 'arm64') {
+      fail(`The packaged MCP runtime supports x64 and arm64; this build is ${process.arch}.`)
     }
     return stageMcpRuntimeLinux()
   }
-  fail('The packaged MCP runtime currently supports Windows x64 and Linux x64 only.')
+  fail('The packaged MCP runtime currently supports Windows x64, Linux x64, and macOS x64/arm64 only.')
 }
 
 function stageMcpRuntimeWindows() {

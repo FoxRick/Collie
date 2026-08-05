@@ -59,6 +59,10 @@ from websockets.asyncio.server import ServerConnection, serve
 
 from collie_core.db import CollieDB, collie_home
 from collie_core.ipc.thinking import phrase_for_state, thinking_state_for_tool
+from collie_core.onboarding import (
+    capture_starter_name,
+    ensure_starter_conversation,
+)
 from collie_core.permissions.classifier import classify_tool
 from collie_core.permissions.models import Risk
 from collie_core.providers.storage import legacy_oauth_data_root
@@ -201,6 +205,8 @@ class CollieIPCServer:
         on_set_approval_preset: Callable[[str], None] | None = None,
         legacy_oauth_root: Path | None = None,
         token: str | None = None,
+        dream_runner: Callable[[], Awaitable[dict[str, Any]]] | None = None,
+        gardener_runner: Callable[[], Awaitable[dict[str, Any]]] | None = None,
     ) -> None:
         self.db = db
         self.host = host
@@ -232,6 +238,8 @@ class CollieIPCServer:
         self._on_set_approval_preset = on_set_approval_preset
         self._legacy_oauth_root = Path(legacy_oauth_root or legacy_oauth_data_root())
         self._token = token
+        self._dream_runner = dream_runner
+        self._gardener_runner = gardener_runner
         self._clients: set[ServerConnection] = set()
         self._server: Any = None
         self._chat_tasks: dict[str, asyncio.Task] = {}
@@ -475,6 +483,80 @@ class CollieIPCServer:
         if self._command_catalog is None:
             return {"commands": [], "agents": [], "skills": []}
         return self._command_catalog()
+
+    # -- provider catalogue (models.dev snapshot) --------------------------------------
+
+    def _catalogue(self) -> Any:
+        from collie_core.catalog import CatalogueStore
+
+        return CatalogueStore(settings=self.db)
+
+    async def _cmd_get_provider_catalogue(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
+        catalogue = self._catalogue()
+        return {
+            "providers": catalogue.providers(),
+            "snapshot": catalogue.snapshot_metadata(),
+            "refresh": catalogue.refresh_state(),
+        }
+
+    async def _cmd_refresh_provider_catalogue(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
+        catalogue = self._catalogue()
+        return await catalogue.refresh(url=frame.get("url") or None)
+
+    async def _cmd_rollback_provider_catalogue(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
+        catalogue = self._catalogue()
+        return catalogue.rollback()
+
+    # -- connect-time validation helpers ------------------------------------------------
+
+    async def _cmd_detect_provider_for_key(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
+        from collie_core.providers.validation import detect_provider_for_key
+
+        api_key = str(frame.get("api_key") or "")
+        if not api_key:
+            return {"detected": False, "provider_id": None, "reason": "empty_key"}
+        return await detect_provider_for_key(api_key, catalogue=self._catalogue())
+
+    async def _cmd_detect_models(self, connection: ServerConnection, frame: dict) -> dict:
+        from collie_core.providers.validation import detect_models_for_base_url
+
+        return await detect_models_for_base_url(
+            str(frame.get("api_base") or ""),
+            protocol=str(frame.get("protocol") or "openai"),
+            api_key=str(frame.get("api_key") or "") or None,
+        )
+
+    async def _cmd_detect_local_models(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
+        from collie_core.providers.validation import detect_local_ollama
+
+        return await detect_local_ollama()
+
+    # -- starter conversation -------------------------------------------------------------
+
+    async def _cmd_get_starter_conversation(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
+        result = ensure_starter_conversation(
+            self.db,
+            reuse_conversation_id=str(frame.get("conversation_id") or "") or None,
+        )
+        if result.get("greeting") is not None:
+            await self.broadcast({
+                "type": "message",
+                "conversation_id": result["conversation"]["id"],
+                "message": result["greeting"],
+            })
+        return {"conversation": result["conversation"], "greeted": result["greeted"]}
 
     async def _cmd_transcribe(self, connection: ServerConnection, frame: dict) -> dict:
         """Turn a renderer-captured WAV into English text without a cloud service."""
@@ -1185,6 +1267,52 @@ class CollieIPCServer:
             limit = 50
         return {"entries": self.db.list_memory_journal(limit=max(1, min(limit, 500)))}
 
+    async def _cmd_run_dream(self, connection: ServerConnection, frame: dict) -> dict:
+        """Manual trigger: run one Dream consolidation pass now."""
+        if self._dream_runner is None:
+            raise ValueError("The memory review isn't available right now.")
+        outcome = await self._dream_runner()
+        return dict(outcome or {})
+
+    async def _cmd_get_dream_history(self, connection: ServerConnection, frame: dict) -> dict:
+        """Past Dream consolidations (memory_dream versions), newest first."""
+        versions = await asyncio.to_thread(
+            self.db.list_artifact_versions,
+            artifact_type="memory_dream",
+            limit=50,
+        )
+        return {"versions": versions}
+
+    async def _cmd_run_gardener(self, connection: ServerConnection, frame: dict) -> dict:
+        """Manual trigger: run one Gardener pass (evidence → suggestions)."""
+        if self._gardener_runner is None:
+            raise ValueError("The improvement suggestions aren't available right now.")
+        outcome = await self._gardener_runner()
+        return dict(outcome or {})
+
+    async def _cmd_apply_gardener_suggestion(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
+        """Approve one suggestion: re-validate, apply, version (undoable)."""
+        from collie_core.gardener.propose import ProposalValidationError
+        from collie_core.gardener.runner import apply_suggestion
+        from collie_core.versions import VersionStore
+
+        suggestion = frame.get("suggestion")
+        if not isinstance(suggestion, dict):
+            raise ValueError("A suggestion is required to approve.")
+        try:
+            result = await asyncio.to_thread(
+                apply_suggestion,
+                workspace=collie_home() / "workspace",
+                suggestion=suggestion,
+                version_store=VersionStore(self.db),
+                subagent_loader=self._subagent_loader,
+            )
+        except ProposalValidationError as exc:
+            raise ValueError(str(exc)) from exc
+        return result
+
     def _memory(self) -> Any:
         if self._profile_store is None:
             raise ValueError("memory is not available")
@@ -1440,8 +1568,117 @@ class CollieIPCServer:
         file_path = self._resolve_workspace_path(str(frame.get("path") or ""))
         content = str(frame.get("content") or "")
         file_path.parent.mkdir(parents=True, exist_ok=True)
+        before = file_path.read_text(encoding="utf-8") if file_path.exists() else ""
+        artifact = self._classify_workspace_artifact(file_path)
+        version_id: str | None = None
+        diff_text: str | None = None
+        if artifact is not None and before != content:
+            from collie_core.versions import VersionStore, make_diff
+
+            version_id = VersionStore(self.db).snapshot(
+                artifact[0], artifact[1], before, content, source="user"
+            )
+            if version_id is not None:
+                diff_text = make_diff(before, content, artifact[1])
         file_path.write_text(content, encoding="utf-8")
-        return {"saved": True}
+        return {
+            "saved": True,
+            "version_id": version_id,
+            "diff_text": diff_text,
+        }
+
+    def _classify_workspace_artifact(self, file_path: Path) -> tuple[str, str] | None:
+        """Map a workspace file to a versioned artifact type, if it is one."""
+        workspace = Path(os.path.normpath(collie_home() / "workspace"))
+        try:
+            rel = file_path.relative_to(workspace)
+        except ValueError:
+            return None
+        parts = rel.parts
+        if parts == ("VISION.md",):
+            return ("vision", "VISION.md")
+        if parts == ("AGENTS.md",):
+            return ("agents", "AGENTS.md")
+        if parts == ("MEMORY.md",):
+            return ("memory_profile", "MEMORY.md")
+        if parts == ("memory", "MEMORY.md"):
+            return ("memory_dream", "MEMORY.md")
+        if len(parts) == 2 and parts[0] == "subagents" and parts[1].endswith(".md"):
+            return ("subagent", parts[1])
+        return None
+
+    def _artifact_target(self, artifact_type: str, key: str) -> Path:
+        """Resolve an artifact type+key to its workspace path (strict)."""
+        if not key or "/" in key or "\\" in key or key in (".", ".."):
+            raise ValueError("Invalid artifact key")
+        workspace = Path(os.path.normpath(collie_home() / "workspace"))
+        if artifact_type == "subagent":
+            target = workspace / "subagents" / key
+        elif artifact_type == "memory_dream":
+            target = workspace / "memory" / key
+        elif artifact_type in ("vision", "agents", "memory_profile", "skill"):
+            target = workspace / key
+        else:
+            raise ValueError(f"Unknown artifact type: {artifact_type}")
+        if not target.is_relative_to(workspace):
+            raise ValueError("Invalid artifact path")
+        return target
+
+    async def _cmd_list_versions(self, connection: ServerConnection, frame: dict) -> dict:
+        """List artifact versions (most recent first) — read-only rollback rail."""
+        artifact_type = str(frame.get("artifact_type") or "") or None
+        artifact_key = str(frame.get("artifact_key") or "") or None
+        limit = frame.get("limit")
+        try:
+            limit = int(limit) if limit is not None else 100
+        except (TypeError, ValueError):
+            limit = 100
+        versions = await asyncio.to_thread(
+            self.db.list_artifact_versions,
+            artifact_type=artifact_type,
+            artifact_key=artifact_key,
+            limit=max(1, min(limit, 500)),
+        )
+        return {"versions": versions}
+
+    async def _cmd_rollback_artifact(self, connection: ServerConnection, frame: dict) -> dict:
+        """Undo one artifact version (no-clobber guarded) and re-sync state."""
+        from collie_core.versions import VersionConflictError, VersionStore
+
+        version_id = str(frame.get("version_id") or "")
+        row = self.db.get_artifact_version(version_id)
+        if row is None:
+            raise ValueError("I can't find that change — it may have been cleaned up.")
+        artifact_type = str(row["artifact_type"])
+        key = str(row["artifact_key"])
+        target = self._artifact_target(artifact_type, key)
+        current = target.read_text(encoding="utf-8") if target.exists() else ""
+        try:
+            result = VersionStore(self.db).rollback(
+                artifact_type,
+                key,
+                to_version=int(row["version"]),
+                current_text=current,
+            )
+        except VersionConflictError as exc:
+            raise ValueError(str(exc)) from exc
+        restored = result["restored_text"]
+        if restored:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(restored, encoding="utf-8")
+        elif target.exists():
+            target.unlink()
+        # A subagent rollback also restores the database row (or renames it
+        # back): the loader reconciles disk -> DB.
+        if artifact_type == "subagent" and self._subagent_loader is not None:
+            await asyncio.to_thread(self._subagent_loader.sync)
+        return {
+            "rolled_back": True,
+            "version_id": result["version_id"],
+            "artifact_type": artifact_type,
+            "artifact_key": key,
+            "version": result["version"],
+        }
 
     async def _cmd_list_automations(self, connection: ServerConnection, frame: dict) -> dict:
         return {"automations": self.db.list_automations()}
@@ -2391,11 +2628,43 @@ class CollieIPCServer:
                     "message": assistant_msg,
                 })
                 return
+            if command_result and command_result.get("starter_conversation"):
+                # /get-started (and desktop /start): open/seed the starter
+                # conversation. An empty conversation created for this frame
+                # becomes the starter; the command text is a control
+                # instruction and is never persisted as a chat bubble.
+                starter = ensure_starter_conversation(
+                    self.db,
+                    reuse_conversation_id=conv_id if created_conversation else None,
+                )
+                starter_conv_id = str(starter["conversation"]["id"])
+                if starter.get("greeting") is not None:
+                    await self.broadcast({
+                        "type": "message",
+                        "conversation_id": starter_conv_id,
+                        "message": starter["greeting"],
+                    })
+                await self._send(connection, {
+                    "type": "ok",
+                    "id": frame.get("id"),
+                    "data": {
+                        "conversation_id": starter_conv_id,
+                        "command_handled": True,
+                        "starter_conversation": True,
+                    },
+                })
+                return
             if command_result and not command_result.get("handled"):
                 agent_content = str(command_result.get("forward_prompt") or content)
                 raw_message_metadata = command_result.get("message_metadata")
                 if isinstance(raw_message_metadata, dict):
                     message_metadata = dict(raw_message_metadata)
+
+        # First real reply in the starter thread: remember the user's name
+        # (approval-free ProfileStore write; whatever they said, or nothing).
+        # Commands never count as a name.
+        if command_result is None:
+            capture_starter_name(self.db, self._profile_store, conv_id, content)
 
         user_msg = self.db.add_message(
             conv_id,

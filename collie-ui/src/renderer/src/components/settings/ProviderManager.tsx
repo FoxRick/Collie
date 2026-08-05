@@ -52,12 +52,50 @@ export default function ProviderManager({
   const [busyOAuth, setBusyOAuth] = useState<string | null>(null)
   const [busyAction, setBusyAction] = useState('')
   const [secretProviders, setSecretProviders] = useState<string[]>([])
+  const [catalogueUpdatedAt, setCatalogueUpdatedAt] = useState<string>('')
+  const [catalogueBusy, setCatalogueBusy] = useState(false)
   const oauthAttemptRef = useRef(0)
 
   useEffect(() => {
     if (typeof window.collie?.listSecrets !== 'function') return
     void window.collie.listSecrets().then(setSecretProviders).catch(() => undefined)
   }, [status.providers])
+
+  useEffect(() => {
+    void collieClient
+      .getProviderCatalogue()
+      .then((data) => setCatalogueUpdatedAt(data.refresh?.refreshed_at || ''))
+      .catch(() => undefined)
+  }, [])
+
+  const checkCatalogue = useCallback(async (): Promise<void> => {
+    setCatalogueBusy(true)
+    try {
+      const result = await collieClient.refreshProviderCatalogue()
+      if (result.refreshed) {
+        onNotice(`Provider catalogue updated — ${result.providers_count} providers.`)
+        setCatalogueUpdatedAt(result.refreshed_at || '')
+      } else {
+        onNotice(result.error || 'Catalogue check came back empty — I kept the bundled one.')
+      }
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : 'I could not check the catalogue right now.')
+    } finally {
+      setCatalogueBusy(false)
+    }
+  }, [onNotice])
+
+  function catalogueAge(): string {
+    if (!catalogueUpdatedAt) return ''
+    const updated = new Date(catalogueUpdatedAt).getTime()
+    if (Number.isNaN(updated)) return ''
+    const minutes = Math.max(1, Math.round((Date.now() - updated) / 60_000))
+    if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'}`
+    const hours = Math.round(minutes / 60)
+    if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'}`
+    const days = Math.round(hours / 24)
+    return `${days} day${days === 1 ? '' : 's'}`
+  }
 
   const providers = [...(status.providers || [])]
   const currentAuth = String(settings['provider.auth'] || '')
@@ -249,6 +287,19 @@ export default function ProviderManager({
           <Plus size={14} /> Add provider
         </button>
       </div>
+      <p className="provider-catalogue-line">
+        {catalogueAge()
+          ? `Provider catalogue updated ${catalogueAge()} ago.`
+          : 'Using the bundled provider catalogue.'}{' '}
+        <button
+          type="button"
+          className="catalogue-check"
+          disabled={catalogueBusy}
+          onClick={() => void checkCatalogue()}
+        >
+          {catalogueBusy ? 'Checking…' : 'Check for updates'}
+        </button>
+      </p>
 
       <div className="provider-list">
         {providers.map((item) => (

@@ -52,6 +52,7 @@ const LOGOS: Record<string, string> = {
   dropbox: dropboxLogo,
   figma: figmaLogo,
   gemini: geminiLogo,
+  google: geminiLogo,
   github: githubLogo,
   gmail: gmailLogo,
   'google-calendar': googleCalendarLogo,

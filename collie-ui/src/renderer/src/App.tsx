@@ -14,6 +14,7 @@ export default function App(): React.JSX.Element {
   const [screen, setScreen] = useState<Screen>('loading')
   const [view, setView] = useState<AppView>('chat')
   const [replayingOnboarding, setReplayingOnboarding] = useState(false)
+  const [autoOpenStarter, setAutoOpenStarter] = useState(false)
   const [offlineMessage, setOfflineMessage] = useState('')
   const t = useT()
 
@@ -151,6 +152,8 @@ export default function App(): React.JSX.Element {
         onDone={() => {
           setScreen('app')
           setReplayingOnboarding(false)
+          // Straight to chat: ChatScreen opens the starter conversation.
+          setAutoOpenStarter(true)
         }}
         onCancel={replayingOnboarding ? () => {
           setScreen('app')
@@ -164,6 +167,7 @@ export default function App(): React.JSX.Element {
     <ChatScreen
       activeView={view}
       onNavigate={setView}
+      autoOpenStarter={autoOpenStarter}
       onRedoOnboarding={() => {
         setReplayingOnboarding(true)
         setScreen('welcome')

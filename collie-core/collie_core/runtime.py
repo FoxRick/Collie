@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import inspect
+import json
 import os
 import sys
 import urllib.parse
@@ -63,7 +64,12 @@ class CollieRuntime:
         set_config_path(collie_home() / "config.json")
         self.workspace = collie_settings.ensure_workspace()
         bind_suggest_workspace(self.workspace)
-        self.profile = ProfileStore(self.db, self.workspace)
+        from collie_core.versions import VersionStore
+
+        self.versions = VersionStore(self.db)
+        self.profile = ProfileStore(
+            self.db, self.workspace, version_store=self.versions
+        )
         self.profile.regenerate_memory_md()
         bind_profile_store(self.profile)
         bind_reminders_db(self.db)
@@ -142,6 +148,8 @@ class CollieRuntime:
             conversation_deleter=self.delete_conversation_sessions,
             on_set_approval_preset=self.permission_evaluator.set_local_write_preset,
             token=ipc_token,
+            dream_runner=self._run_dream_manual,
+            gardener_runner=self._run_gardener_manual,
         )
         self.approvals = ApprovalBroker(
             self.db, self.permission_evaluator, self.ipc.broadcast
@@ -540,6 +548,9 @@ class CollieRuntime:
 
     async def _configure_provider_candidate(self, candidate: dict[str, Any]) -> dict[str, Any]:
         """Validate, activate, and verify one provider candidate transactionally."""
+        from collie_core.catalog import CatalogueStore
+        from collie_core.providers.validation import probe_api_key
+
         async with self._configure_lock:
             try:
                 normalized = self._validated_provider_candidate(candidate)
@@ -567,6 +578,17 @@ class CollieRuntime:
             try:
                 if supplied_key is not None:
                     collie_settings.set_api_key(secret_name, supplied_key)
+                # Catalogue providers arrive without an endpoint or model:
+                # Collie fills protocol/base URL/default model (the strategy
+                # doc's rule — never make a normie pick an endpoint).
+                catalogue = CatalogueStore()
+                runtime_name = str(normalized.get("runtime_name") or "")
+                catalogue_entry = catalogue.get_provider(runtime_name)
+                if catalogue_entry is not None:
+                    if not normalized.get("api_base"):
+                        normalized["api_base"] = catalogue_entry.get("api_base")
+                    if not normalized.get("model"):
+                        normalized["model"] = catalogue_entry.get("default_model")
                 provider = self.db.configure_provider_candidate_record(**normalized)
                 configured = await self._configure_locked(
                     probe_api_base=normalized.get("api_base")
@@ -581,6 +603,61 @@ class CollieRuntime:
                 rollback = await self._restore_provider_snapshot_locked(transaction)
                 return {"configured": False, "error": str(error), **rollback}
 
+            # Key validation: a tiny read-only request with the user's key.
+            # The probe is the authority — prefix hints are only suggestions.
+            # On a definitive failure the whole transaction rolls back so a
+            # bad key never leaves the app half-configured.
+            key_for_probe = supplied_key if supplied_key is not None else previous_key
+            probe: dict[str, Any] = {}
+            if key_for_probe and (
+                catalogue_entry is not None or normalized.get("api_base")
+            ):
+                probe = await probe_api_key(
+                    provider_id=runtime_name or secret_name,
+                    api_key=str(key_for_probe),
+                    api_base=normalized.get("api_base"),
+                    protocol=str(normalized.get("protocol") or "openai"),
+                    model=normalized.get("model"),
+                    catalogue=catalogue,
+                )
+                if not probe.get("ok"):
+                    error_kind = str(probe.get("error") or "invalid")
+                    # Catalogue providers use known-good endpoints: any probe
+                    # failure is meaningful. Custom endpoints are an advanced
+                    # escape hatch — only a definitive auth rejection (401/403)
+                    # is treated as a failure there.
+                    hard_fail = (
+                        error_kind == "auth"
+                        or (catalogue_entry is not None and error_kind != "invalid")
+                    )
+                    if not hard_fail:
+                        logger.info(
+                            "Connect probe inconclusive for {} ({}) — continuing",
+                            runtime_name,
+                            error_kind,
+                        )
+                    else:
+                        rollback = await self._restore_provider_snapshot_locked(transaction)
+                        if error_kind == "auth":
+                            message = (
+                                "That key didn't work. Double-check it, or get help here → "
+                                "https://heycollie.com/get-started"
+                            )
+                        elif error_kind == "network":
+                            message = (
+                                "I couldn't reach that provider to check the key. "
+                                "Check your connection and try again."
+                            )
+                        else:
+                            message = "That provider didn't accept the key. Double-check it and try again."
+                        return {
+                            "configured": False,
+                            "validated": False,
+                            "error": message,
+                            "error_kind": error_kind,
+                            **rollback,
+                        }
+
             self._provider_config_generation += 1
             transaction_id = uuid.uuid4().hex
             transaction["generation"] = self._provider_config_generation
@@ -588,11 +665,17 @@ class CollieRuntime:
             while len(self._provider_rollbacks) > 16:
                 oldest = next(iter(self._provider_rollbacks))
                 self._provider_rollbacks.pop(oldest, None)
-            return {
+            result: dict[str, Any] = {
                 "provider": provider,
                 **configured,
                 "transaction_id": transaction_id,
             }
+            if key_for_probe and probe.get("ok"):
+                result["validated"] = True
+                result["model_label"] = probe.get("model_label") or (
+                    configured.get("model") or normalized.get("model")
+                )
+            return result
 
     async def _finalize_provider_candidate(self, transaction_id: str) -> dict[str, Any]:
         """Forget a successful candidate's compensating rollback snapshot."""
@@ -729,18 +812,24 @@ class CollieRuntime:
                 action_config = _json.loads(action_config)
             except (TypeError, ValueError):
                 action_config = {}
+        action_type = str(auto.get("action_type") or "")
+
+        # Gardener-family automations run their own bounded pipelines
+        # instead of a free-form prompt turn.
+        if action_type == "memory_maintenance":
+            await self._run_memory_maintenance(auto)
+            return
+        if action_type == "gardener":
+            await self._run_gardener(auto)
+            return
+
         prompt = ""
         if isinstance(action_config, dict):
             prompt = str(action_config.get("prompt") or "")
         if not prompt:
             return
 
-        conv_key = f"automations.{auto_id}.conversation_id"
-        conv_id = str(self.db.get_setting(conv_key, "") or "")
-        if not conv_id or self.db.get_conversation(conv_id) is None:
-            conv = self.db.create_conversation(title=f"🔔 {name}")
-            conv_id = conv["id"]
-            self.db.set_setting(conv_key, conv_id)
+        conv_id = self._automation_conversation_id(auto)
 
         outbound = await self.loop.process_direct(
             prompt,
@@ -784,6 +873,150 @@ class CollieRuntime:
         targets.update(self.messengers.automation_targets())
         for target in sorted(targets):
             await self.messengers.deliver(target, f"🔔 {name}\n\n{content}")
+
+    # -- Gardener-family automation pipelines ------------------------------------
+
+    def _automation_conversation_id(self, auto: dict[str, Any]) -> str:
+        """Resolve (or create) the per-automation 🔔 conversation."""
+        auto_id = str(auto.get("id") or "")
+        name = str(auto.get("name") or "Automation")
+        conv_key = f"automations.{auto_id}.conversation_id"
+        conv_id = str(self.db.get_setting(conv_key, "") or "")
+        if not conv_id or self.db.get_conversation(conv_id) is None:
+            conv = self.db.create_conversation(title=f"🔔 {name}")
+            conv_id = conv["id"]
+            self.db.set_setting(conv_key, conv_id)
+        return conv_id
+
+    async def _announce_automation_result(
+        self, auto: dict[str, Any], conv_id: str, content: str
+    ) -> None:
+        """Persist + broadcast + fan out an automation result message."""
+        auto_id = str(auto.get("id") or "")
+        name = str(auto.get("name") or "Automation")
+        if not content:
+            return
+        assistant = self.db.add_message(conv_id, "assistant", content)
+        await self.ipc.broadcast({
+            "type": "message", "conversation_id": conv_id, "message": assistant,
+        })
+        await self.ipc.broadcast({
+            "type": "automation",
+            "automation_id": auto_id,
+            "name": name,
+            "conversation_id": conv_id,
+            "content": content,
+        })
+        deliveries = auto.get("delivery_channels")
+        if isinstance(deliveries, str):
+            try:
+                deliveries = json.loads(deliveries)
+            except (TypeError, ValueError):
+                deliveries = []
+        targets = {
+            str(d) for d in (deliveries or [])
+            if str(d) in self.messengers.channels
+        }
+        targets.update(self.messengers.automation_targets())
+        for target in sorted(targets):
+            await self.messengers.deliver(target, f"🔔 {name}\n\n{content}")
+
+    async def _run_dream_manual(self) -> dict[str, Any]:
+        """Manual 'Review now' trigger (Settings -> Memory)."""
+        if self.loop is None:
+            result = await self._configure()
+            if not result.get("configured"):
+                return {
+                    "changed": False,
+                    "reason": "not_configured",
+                    "message": "I need a model provider set up before I can review my memory.",
+                }
+        from collie_core.memory.dream import run_dream
+
+        return await run_dream(
+            workspace=self.workspace,
+            db=self.db,
+            loop=self.loop,
+            version_store=self.versions,
+        )
+
+    async def _run_gardener_manual(self) -> dict[str, Any]:
+        """Manual 'Suggest improvements' trigger (Settings -> Memory).
+
+        Runs the same pipeline as the weekly automation and publishes the
+        review cards into the 🔔 conversation, so a manual run has the same
+        review surface as the scheduled one.
+        """
+        auto = {
+            "id": "collie-gardener-suggestions",
+            "name": "Improvement suggestions",
+            "delivery_channels": ["in_app"],
+        }
+        return await self._run_gardener(auto) or {}
+
+    async def _run_memory_maintenance(self, auto: dict[str, Any]) -> None:
+        """Weekly Dream pass: consolidate long-term memory, versioned + undoable."""
+        if self.loop is None:
+            result = await self._configure()
+            if not result.get("configured"):
+                logger.info("Memory maintenance skipped — no provider configured yet")
+                return
+        from collie_core.memory.dream import run_dream
+
+        conv_id = self._automation_conversation_id(auto)
+        outcome = await run_dream(
+            workspace=self.workspace,
+            db=self.db,
+            loop=self.loop,
+            version_store=self.versions,
+        )
+        content = str(outcome.get("message") or "Memory maintenance ran.")
+        if outcome.get("changed"):
+            content += (
+                "\n\nChanged my long-term memory file. You can review the diff "
+                "and undo it in Settings → Memory → History."
+            )
+        await self._announce_automation_result(auto, conv_id, content)
+
+    async def _run_gardener(self, auto: dict[str, Any]) -> dict[str, Any] | None:
+        """Weekly Gardener pass: evidence → suggestions → review cards."""
+        if self.loop is None:
+            result = await self._configure()
+            if not result.get("configured"):
+                logger.info("Gardener skipped — no provider configured yet")
+                return None
+        from collie_core.gardener.runner import run_gardener
+
+        conv_id = self._automation_conversation_id(auto)
+        outcome = await run_gardener(
+            workspace=self.workspace,
+            db=self.db,
+            loop=self.loop,
+            version_store=self.versions,
+        )
+        content = str(outcome.get("message") or "Gardener ran.")
+        suggestions = outcome.get("suggestions") or []
+        if suggestions:
+            card = self.db.add_message(
+                conv_id,
+                "assistant",
+                content,
+                card_type="gardener_suggestion",
+                card_data={"suggestions": suggestions},
+            )
+            await self.ipc.broadcast({
+                "type": "message", "conversation_id": conv_id, "message": card,
+            })
+            await self.ipc.broadcast({
+                "type": "automation",
+                "automation_id": str(auto.get("id") or ""),
+                "name": str(auto.get("name") or "Automation"),
+                "conversation_id": conv_id,
+                "content": content,
+            })
+            return outcome
+        await self._announce_automation_result(auto, conv_id, content)
+        return outcome
 
     async def _shutdown_loop(self) -> None:
         await self.messengers.stop()

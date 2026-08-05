@@ -10,6 +10,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "brand-icon:generate": "electron scripts/generate-brand-icon.cjs",
+    "installer-header:generate": "electron scripts/generate-installer-header.cjs",
     "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json",
     "start": "electron-vite preview",
     "stage:core": "node scripts/stage-core.cjs",

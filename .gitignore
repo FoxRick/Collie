@@ -27,7 +27,11 @@ collie-core/.tmp-pytest-audit/
 coverage/
 
 # Generic dependency, database, and runtime output
-node_modules/
+# No trailing slash: matches real directories AND symlinked node_modules
+# (worktrees commonly symlink node_modules to the main checkout; the release
+# provenance gate requires a clean tree and would otherwise refuse to build).
+node_modules
+.venv
 **/node_modules/
 dist/
 out/
