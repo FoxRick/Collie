@@ -226,7 +226,7 @@ jobs:
             runners — no human build machine.
 
             ### Artifacts
-            - **Windows x64**: `Collie-Setup-<version>.exe` (NSIS, one-click)
+            - **Windows x64**: `Collie-Setup-<version>.exe` (NSIS, assisted setup wizard)
               + `.blockmap` + `alpha.yml`
             - **macOS (arm64)**: `.dmg` + `.zip` (electron-updater). x64/Intel
               builds are a follow-up — they need a per-arch staged Python
