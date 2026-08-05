@@ -1,5 +1,7 @@
 # Collie
 
+[![CI](https://github.com/FoxRick/Collie/actions/workflows/ci.yml/badge.svg)](https://github.com/FoxRick/Collie/actions/workflows/ci.yml)
+
 Collie is a local-first, chat-first Windows AI assistant for nontechnical
 users. It helps people turn plain-English requests into understandable,
 reviewable work while keeping meaningful actions under their control.

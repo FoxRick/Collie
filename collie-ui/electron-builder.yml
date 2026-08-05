@@ -35,6 +35,23 @@ linux:
   artifactName: Collie-${version}.${ext}
   category: Utility
   maintainer: Collie <hello@heycollie.com>
+# macOS: unsigned alpha builds (no Apple certificate yet — the CI workflow
+# disables identity discovery). build/icon.icns is generated on the mac
+# runner from build/icon.png (iconutil) so the branded portrait ships.
+# arch: arm64 only — the CI macos runner stages a native-arm64 Python
+# runtime, and an x64 .app carrying arm64 python/site-packages would not
+# run on Intel Macs. x64/universal2 needs per-arch staged runtimes
+# (follow-up, tracked in docs/operations/release).
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+    - target: zip
+      arch:
+        - arm64
+  artifactName: Collie-${version}-${arch}.${ext}
+  category: public.app-category.productivity
 publish:
   provider: github
   owner: FoxRick

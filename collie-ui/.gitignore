@@ -2,4 +2,7 @@
 out/
 dist/
 .electron-bundle/
+# Generated on macOS runners (iconutil) from build/icon.png; the release
+# provenance gate requires a clean tree, so it must stay untracked.
+build/icon.icns
 *.log
