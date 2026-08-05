@@ -251,3 +251,67 @@ async def test_concurrent_candidates_are_serialized(
     assert runtime.db.default_provider()["id"] == "api-second"
     await runtime._finalize_provider_candidate(first["transaction_id"])
     await runtime._finalize_provider_candidate(second["transaction_id"])
+
+
+@pytest.mark.asyncio
+async def test_probe_auth_failure_rolls_back_with_warm_error_copy(
+    runtime: CollieRuntime,
+) -> None:
+    """P2 wiring seam: a 401 from the connect probe must roll back and show
+    the warm "That key didn't work" copy, not a network-style error."""
+    from aiohttp import web
+
+    # Seed a working provider WITH an api_base: the real rebuild path
+    # validates it (nanobot provider factory), unlike the mocked-path tests
+    # that use _seed_working_provider()'s api_base=None.
+    runtime.db.configure_provider_candidate_record(
+        "api-old-provider",
+        name="old-provider",
+        auth_type="api-key",
+        model="old-model",
+        runtime_name="old-provider",
+        protocol="openai",
+        api_base="http://127.0.0.1:9/v1",
+        secret_name="old-provider",
+    )
+    collie_settings.set_api_key("old-provider", "old-secret")
+    runtime.loop = object()
+    old = runtime.db.get_provider("api-old-provider")
+
+    async def models(request: web.Request) -> web.Response:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    async def chat(request: web.Request) -> web.Response:
+        return web.json_response({"error": "unauthorized"}, status=401)
+
+    app = web.Application()
+    app.router.add_get("/v1/models", models)
+    app.router.add_post("/v1/chat/completions", chat)
+    runner = web.AppRunner(app)
+    await runner.setup()
+
+    import socket
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = int(sock.getsockname()[1])
+    site = web.TCPSite(runner, "127.0.0.1", port)
+    await site.start()
+    api_base = f"http://127.0.0.1:{port}/v1"
+
+    try:
+        result = await runtime._configure_provider_candidate(
+            _candidate("probe-fail", key="sk-wrong", model="deepseek-v4-flash", api_base=api_base)
+        )
+    finally:
+        await runner.cleanup()
+
+    assert result["configured"] is False
+    assert result["validated"] is False
+    assert result["error_kind"] == "auth"
+    assert "That key didn't work" in result["error"]
+    assert "get-started" in result["error"]
+    assert result["rolled_back"] is True
+    assert runtime.db.default_provider()["id"] == old["id"]
+    assert runtime.db.get_provider("api-probe-fail") is None
+    assert collie_settings.get_api_key("probe-fail") is None
