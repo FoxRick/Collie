@@ -134,6 +134,7 @@ export default function ChatScreen({
   const [activeId, setActiveId] = useState<string | null>(null)
   const [messages, setMessages] = useState<CollieMessage[]>([])
   const [streamText, setStreamText] = useState('')
+  const [streaming, setStreaming] = useState(false)
   const [thinkingMap, setThinkingMap] = useState<Record<string, ThinkingState>>({})
   const [errorText, setErrorText] = useState('')
   const [planChangeNotice, setPlanChangeNotice] = useState('')
@@ -303,6 +304,7 @@ export default function ChatScreen({
     const token = ++loadTokenRef.current
     setActiveId(id)
     setStreamText('')
+    setStreaming(false)
     setErrorText('')
     setPlanChangeNotice('')
     setPortraitThinking(null)
@@ -373,6 +375,7 @@ export default function ChatScreen({
           void refreshCommandCatalog()
           void refreshApprovalPreset()
           setThinkingMap({})
+          setStreaming(false)
           if (current) {
             collieClient
               .getMessages(current)
@@ -428,6 +431,7 @@ export default function ChatScreen({
           const key = event.conversation_id || current
           if (!key) break
           const terminal = ['done', 'idle', 'error'].includes(event.state)
+          if (key === current) setStreaming(!terminal)
           setTaskTimings((previous) => {
             const existing = previous[key]
             if (terminal) {
@@ -467,6 +471,7 @@ export default function ChatScreen({
         case 'delta':
           if (event.conversation_id === current) {
             streamRef.current = mergeStreamDelta(streamRef.current, event.text)
+            setStreaming(true)
             scheduleStreamReveal()
           }
           break
@@ -496,6 +501,9 @@ export default function ChatScreen({
           }
           if (msg.role === 'assistant' && isCurrentConversationEvent(msg.conversation_id, current)) {
             pendingAssistantRef.current = msg
+            // The turn's final text is reserved and revealed in the
+            // transcript — the live stream card hands over to it.
+            setStreaming(false)
             // A mid-turn steer delivers the superseded answer as its own
             // message; the follow-up response then covers only the tail of
             // the accumulated stream. Reveal that bubble from scratch instead
@@ -562,6 +570,7 @@ export default function ChatScreen({
             stopStreamReveal()
             streamRef.current = ''
             streamDisplayRef.current = ''
+            setStreaming(false)
             const pending = pendingAssistantRef.current
             pendingAssistantRef.current = null
             if (pending) {
@@ -666,6 +675,7 @@ export default function ChatScreen({
         phrase: 'Thinking through your task…',
         pet_animation: 'working'
       })
+      setStreaming(true)
       try {
         const { conversation_id, command_handled } = await collieClient.chat(
           activeIdRef.current,
@@ -989,7 +999,7 @@ export default function ChatScreen({
           </div>
         </header>
         <div className="conversation-panel">
-          <MessageList messages={messages} streamText={streamText} cardPreview={cardPreview} />
+          <MessageList messages={messages} streamText={streamText} streaming={streaming} cardPreview={cardPreview} />
           <RememberPill conversationId={activeId} />
         {errorText && (
           <div className="mx-4 mb-2 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"

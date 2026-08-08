@@ -7,13 +7,14 @@ import { stableMarkdownStreamText, visibleStreamText } from '../lib/stream'
 interface Props {
   messages: CollieMessage[]
   streamText: string
+  streaming?: boolean
   cardPreview?: { card_type: string; card_data: Record<string, unknown> } | null
 }
 
 // Long conversations render in windows so the DOM stays light (Step 49).
 const WINDOW_SIZE = 100
 
-export default function MessageList({ messages, streamText, cardPreview }: Props): React.JSX.Element {
+export default function MessageList({ messages, streamText, streaming = false, cardPreview }: Props): React.JSX.Element {
   const endRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const shouldFollowRef = useRef(true)
@@ -76,7 +77,16 @@ export default function MessageList({ messages, streamText, cardPreview }: Props
             taskState={msg.task_state}
           />
         ))}
-        {visibleStream && <MessageBubble role="assistant" content={visibleStream} cardType={cardPreview?.card_type ?? null} cardData={cardPreview?.card_data ?? null} settled={false} />}
+        {(visibleStream || streaming) && (
+          <MessageBubble
+            role="assistant"
+            content={visibleStream}
+            streaming={streaming}
+            settled={false}
+            cardType={cardPreview?.card_type ?? null}
+            cardData={cardPreview?.card_data ?? null}
+          />
+        )}
         <div ref={endRef} />
       </div>
     </div>

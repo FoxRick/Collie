@@ -21,6 +21,12 @@ interface Props {
   taskState?: TaskState | null
 }
 
+// While an answer is streaming, the assistant card shows a quiet skeleton
+// frame (placeholder lines) so the chat never looks stalled. As soon as the
+// streamed text crosses this length the placeholder lines fade out and the
+// stream keeps filling the same card — the frame itself never disappears.
+const STREAM_SKELETON_MAX_CHARS = 48
+
 const PREVIEWABLE_IMAGE_TYPES = new Set([
   'image/png',
   'image/jpeg',
@@ -41,6 +47,8 @@ function MessageBubble({ role, content, streaming, settled = true, cardType, car
   const isUser = role === 'user'
   const visibleContent = isUser ? content : visibleStreamText(content)
   const takeaway = useMemo(() => buildTakeawayDigest(content), [content])
+  const writing = Boolean(streaming && !isUser)
+  const skeletonActive = writing && visibleContent.trim().length < STREAM_SKELETON_MAX_CHARS
 
   const closePreview = useCallback((): void => {
     setPreview(null)
@@ -67,7 +75,8 @@ function MessageBubble({ role, content, streaming, settled = true, cardType, car
     >
       <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
         <div
-          className="message-bubble max-w-[80%] whitespace-pre-wrap px-4 py-3 text-[15px] leading-relaxed"
+          className={`message-bubble max-w-[80%] whitespace-pre-wrap px-4 py-3 text-[15px] leading-relaxed ${writing ? 'message-bubble--writing' : ''}`}
+          aria-busy={writing || undefined}
         >
           {attachments && attachments.length > 0 && (
             <div className="message-attachments">
@@ -96,12 +105,25 @@ function MessageBubble({ role, content, streaming, settled = true, cardType, car
               })}
             </div>
           )}
-          {visibleContent && (
-            isUser || streaming
-              ? <span className="whitespace-pre-wrap">{visibleContent}</span>
-              : <MarkdownContent content={visibleContent} />
+          {visibleContent ? (
+            <div className="message-content">
+              {isUser ? (
+                <span className="whitespace-pre-wrap">{visibleContent}</span>
+              ) : (
+                <MarkdownContent content={visibleContent} />
+              )}
+            </div>
+          ) : null}
+          {writing && (
+            <div
+              className={`collie-skeleton ${skeletonActive ? 'collie-skeleton--active' : 'collie-skeleton--settled'}`}
+              aria-hidden="true"
+            >
+              <span className="collie-skeleton-line" />
+              <span className="collie-skeleton-line" />
+              <span className="collie-skeleton-line" />
+            </div>
           )}
-          {streaming && <span className="collie-thinking">▍</span>}
         </div>
       </div>
       {!isUser && cardType && cardData && (

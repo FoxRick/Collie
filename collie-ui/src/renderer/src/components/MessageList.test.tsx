@@ -47,4 +47,42 @@ describe('MessageList streaming output', () => {
 
     act(() => root.unmount())
   })
+
+  it('holds the writing frame on the live bubble before the first token arrives', () => {
+    const container = document.createElement('div')
+    const root = createRoot(container)
+
+    act(() => root.render(<MessageList messages={[]} streamText="" streaming />))
+    expect(container.querySelector('.collie-skeleton--active')).not.toBeNull()
+    expect(container.querySelector('.message-bubble')?.getAttribute('aria-busy')).toBe('true')
+
+    act(() => root.unmount())
+  })
+
+  it('streams the first tokens into the same live bubble without a gap', () => {
+    const container = document.createElement('div')
+    const root = createRoot(container)
+
+    act(() => root.render(<MessageList messages={[]} streamText="" streaming />))
+    const bubble = container.querySelector('.message-bubble')
+
+    act(() => root.render(<MessageList messages={[]} streamText="Hello there" streaming />))
+    expect(container.querySelector('.message-bubble')).toBe(bubble)
+    expect(container.textContent).toContain('Hello there')
+
+    act(() => root.unmount())
+  })
+
+  it('leaves no frame behind once the live stream ends', () => {
+    const container = document.createElement('div')
+    const root = createRoot(container)
+
+    act(() => root.render(<MessageList messages={[]} streamText="Done" streaming />))
+    expect(container.querySelector('.collie-skeleton')).not.toBeNull()
+
+    act(() => root.render(<MessageList messages={[]} streamText="" />))
+    expect(container.querySelector('.collie-skeleton')).toBeNull()
+
+    act(() => root.unmount())
+  })
 })
