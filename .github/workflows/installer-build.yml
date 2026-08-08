@@ -8,6 +8,15 @@ on:
       - collie-ui/scripts/stage-core.cjs
       - collie-ui/scripts/electron-builder-before-pack.cjs
       - collie-ui/scripts/build-provenance.cjs
+      # Main-process/preload changes are the riskiest for packaging and the
+      # updater — any PR touching them must prove the real NSIS installer
+      # still builds on Windows.
+      - collie-ui/src/main/**
+      - collie-ui/src/preload/**
+      # Workflow changes can silently break the installer or release
+      # pipeline — qualify them against the real build too.
+      - .github/workflows/ci.yml
+      - .github/workflows/release.yml
       - .github/workflows/installer-build.yml
   workflow_dispatch:
 
@@ -31,6 +40,14 @@ jobs:
       - name: Install UI dependencies
         working-directory: collie-ui
         run: npm ci
+
+      - name: Typecheck
+        working-directory: collie-ui
+        run: npm run typecheck
+
+      - name: Unit tests (vitest)
+        working-directory: collie-ui
+        run: npx vitest run
 
       - name: Build renderer and main process
         working-directory: collie-ui
