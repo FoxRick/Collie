@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Ban, Check, CircleX } from 'lucide-react'
 import type { ActiveAgent, ThinkingState } from '../lib/ipc'
+import {
+  agentActivityLine,
+  agentElapsedMs,
+  agentOutcomeLabel,
+  agentPhaseLabel,
+  formatAgentElapsed,
+  isAgentSettled
+} from '../lib/agentActivity'
 import { quantizePortraitPointer } from './colliePortraitMotion'
 import {
   PORTRAIT_FRAME_DURATION,
@@ -13,30 +22,64 @@ import ColliePortraitFrame from './ColliePortraitFrame'
 
 const pawFront = new URL('../assets/portrait/paw-front-brand.webp', import.meta.url).href
 
+const MAX_WORKING_ROWS = 3
+const MAX_SETTLED_ROWS = 2
+/** How long a settled row stays visible next to the pet (ms). */
+const SETTLED_VISIBILITY_MS = 3 * 60_000
+
 interface Props {
   thinking: ThinkingState | null
   phrase: string
   elapsedLabel?: React.ReactNode
   isTyping: boolean
   activeAgents: ActiveAgent[]
+  /** Settled rows for this conversation (recent_agents), newest first. */
+  recentAgents?: ActiveAgent[]
 }
 
-const PHASE_LABELS: Record<string, string> = {
-  initializing: 'Getting ready',
-  awaiting_tools: 'Using tools',
-  tools_completed: 'Putting it together',
-  final_response: 'Wrapping up'
+function OutcomeIcon({ outcome }: { outcome: ActiveAgent['outcome'] }): React.JSX.Element {
+  if (outcome === 'error') return <CircleX size={12} className="agent-outcome-icon is-error" aria-hidden />
+  if (outcome === 'cancelled') return <Ban size={12} className="agent-outcome-icon is-cancelled" aria-hidden />
+  return <Check size={12} className="agent-outcome-icon is-ok" aria-hidden />
 }
 
-function conciseTask(agent: ActiveAgent): string {
-  const source = (
-    agent.task_description ||
-    PHASE_LABELS[agent.phase] ||
-    agent.phase ||
-    'Working'
-  ).replace(/\s+/g, ' ').trim()
-  const sentence = source.split(/(?<=[.!?])\s/)[0]
-  return sentence.length > 72 ? `${sentence.slice(0, 69).trimEnd()}…` : sentence
+/** One compact row: dog portrait, name + elapsed, one-line activity/status. */
+function AgentPopupRow({
+  agent,
+  now,
+  settled
+}: {
+  agent: ActiveAgent
+  now: number
+  settled: boolean
+}): React.JSX.Element {
+  const elapsed = agentElapsedMs(agent, now)
+  const elapsedLabel = elapsed !== null ? formatAgentElapsed(elapsed) : ''
+  return (
+    <span
+      className={settled ? 'portrait-agent-row is-settled' : 'portrait-agent-row'}
+      title={`${agent.name} · ${agentPhaseLabel(agent)}`}
+    >
+      <AgentAvatar identity={agent.id || agent.name} name={agent.name} size={34} />
+      <b>
+        {agent.name}
+        <em className="portrait-agent-elapsed">{elapsedLabel}</em>
+      </b>
+      <small>
+        {settled ? (
+          <>
+            <OutcomeIcon outcome={agent.outcome} />
+            {agentOutcomeLabel(agent.outcome)}
+          </>
+        ) : (
+          <>
+            <span className="agent-live-dot" aria-hidden />
+            {agentActivityLine(agent)}
+          </>
+        )}
+      </small>
+    </span>
+  )
 }
 
 export default function InteractiveColliePortrait({
@@ -44,11 +87,13 @@ export default function InteractiveColliePortrait({
   phrase,
   elapsedLabel,
   isTyping,
-  activeAgents
+  activeAgents,
+  recentAgents = []
 }: Props): React.JSX.Element {
   const [pointerTarget, setPointerTarget] = useState<number | null>(null)
   const [copyIndex, setCopyIndex] = useState(0)
   const [frameIndex, setFrameIndex] = useState(0)
+  const [now, setNow] = useState(Date.now)
   const { state, pawVisible, paused, reducedMotion, gazeDirection, triggerReaction } = useColliePortraitState(
     thinking,
     isTyping,
@@ -96,6 +141,16 @@ export default function InteractiveColliePortrait({
     return () => window.clearInterval(timer)
   }, [frames.length, paused, reducedMotion, state])
 
+  // One 1 s tick so agent rows' elapsed labels stay live without re-rendering
+  // the whole chat screen; freezes as soon as nothing is shown.
+  const showWorking = activeAgents.length > 0
+  const showSettled = recentAgents.length > 0
+  useEffect(() => {
+    if (!showWorking && !showSettled) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [showWorking, showSettled])
+
   function handlePointerMove(event: React.PointerEvent<HTMLDivElement>): void {
     const bounds = event.currentTarget.getBoundingClientRect()
     const x = (event.clientX - bounds.left - bounds.width / 2) / (bounds.width / 2)
@@ -110,6 +165,18 @@ export default function InteractiveColliePortrait({
   }
 
   const status = copyPool[copyIndex] || 'Ready when you are.'
+
+  const workingRows = activeAgents.slice(0, MAX_WORKING_ROWS)
+  const overflowCount = activeAgents.length - workingRows.length
+  const settledRows = recentAgents
+    .filter((agent) => isAgentSettled(agent))
+    .filter((agent) => {
+      // Settled rows age out next to the pet: once the chat stops polling,
+      // the last snapshot would otherwise linger forever.
+      const ended = agent.ended_at_ms
+      return typeof ended === 'number' && now - ended < SETTLED_VISIBILITY_MS
+    })
+    .slice(0, MAX_SETTLED_ROWS)
 
   return (
     <section
@@ -147,14 +214,21 @@ export default function InteractiveColliePortrait({
         <span key={status}>{status}</span>
         {elapsedLabel ? <small>{elapsedLabel}</small> : null}
       </div>
-      {activeAgents.length > 0 && (
-        <div className="portrait-agent-list" aria-label={`${activeAgents.length} supporting agents`}>
-          {activeAgents.slice(0, 3).map((agent) => (
-            <span key={agent.id} title={`${agent.name} · ${agent.phase}`}>
-              <AgentAvatar identity={agent.id || agent.name} name={agent.name} size={34} />
-              <b>{agent.name}</b>
-              <small>{conciseTask(agent)}</small>
+      {(showWorking || showSettled) && (
+        <div
+          className="portrait-agent-list"
+          aria-label={`${activeAgents.length} agents working, ${settledRows.length} recently finished`}
+        >
+          {workingRows.map((agent) => (
+            <AgentPopupRow key={`w-${agent.id}`} agent={agent} now={now} settled={false} />
+          ))}
+          {overflowCount > 0 && (
+            <span className="portrait-agent-overflow" aria-hidden>
+              +{overflowCount} more
             </span>
+          )}
+          {settledRows.map((agent) => (
+            <AgentPopupRow key={`s-${agent.id}`} agent={agent} now={now} settled />
           ))}
         </div>
       )}

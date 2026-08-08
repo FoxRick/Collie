@@ -53,12 +53,19 @@ export interface ThinkingState {
   conversation_id?: string
 }
 
+export type SubagentOutcome = 'ok' | 'error' | 'cancelled'
+
 export interface ActiveAgent {
   id: string
   name: string
   phase: string
   task_description?: string
   conversation_id: string
+  /** Wall-clock epoch ms (monotonic on the core converted for the UI). */
+  started_at_ms?: number
+  /** Present only on settled rows (recent activity). */
+  ended_at_ms?: number
+  outcome?: SubagentOutcome
 }
 
 export interface ProviderInfo {
@@ -122,6 +129,8 @@ export interface RuntimeStatus {
   workspace?: string
   providers?: ProviderInfo[]
   active_agents?: ActiveAgent[]
+  /** Settled subagent rows (outcome + ended_at_ms), newest first. */
+  recent_agents?: ActiveAgent[]
 }
 
 export interface ClearDataWarning {
@@ -836,6 +845,14 @@ export class CollieClient {
 
   getStatus(timeoutMs = 120_000): Promise<RuntimeStatus> {
     return this.command('get_status', {}, timeoutMs)
+  }
+
+  /** Lightweight roster for poll-heavy surfaces (Agents tab live section). */
+  getSubagentActivity(timeoutMs = 30_000): Promise<{
+    active_agents: ActiveAgent[]
+    recent_agents: ActiveAgent[]
+  }> {
+    return this.command('get_subagent_activity', {}, timeoutMs)
   }
 
   getSettings(): Promise<{ settings: Record<string, unknown> }> {

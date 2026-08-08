@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, Bot, Eye, History, Plus, Shapes, Sparkles, Trash2, Undo2, Zap, X } from 'lucide-react'
-import { collieClient, type ArtifactVersion, type CollieSkill, type Subagent, type SubagentStarter } from '../lib/ipc'
+import { collieClient, type ActiveAgent, type ArtifactVersion, type CollieSkill, type Subagent, type SubagentStarter } from '../lib/ipc'
 import AgentAvatar from '../components/AgentAvatar'
+import SubagentRoster from '../components/SubagentRoster'
 
 function summarizeDescription(description: string): string {
   const clean = description.replace(/\s+/g, ' ').trim()
@@ -41,6 +42,8 @@ export default function AgentsScreen(): React.JSX.Element {
   const [category, setCategory] = useState<AgentCategory>('All')
   const [versions, setVersions] = useState<ArtifactVersion[]>([])
   const [undoingId, setUndoingId] = useState<string | null>(null)
+  const [activeAgents, setActiveAgents] = useState<ActiveAgent[]>([])
+  const [recentAgents, setRecentAgents] = useState<ActiveAgent[]>([])
 
   const selected = useMemo(
     () => agents.find((agent) => agent.id === selectedId) ?? null,
@@ -72,6 +75,29 @@ export default function AgentsScreen(): React.JSX.Element {
 
   useEffect(() => {
     void refresh()
+  }, [])
+
+  // Live roster: light 2 s poll of the subagent activity feed while this
+  // screen is mounted. Stops on unmount; nothing is persisted client-side.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has('preview')) return
+    let cancelled = false
+    const poll = async (): Promise<void> => {
+      try {
+        const activity = await collieClient.getSubagentActivity()
+        if (cancelled) return
+        setActiveAgents(activity.active_agents)
+        setRecentAgents(activity.recent_agents)
+      } catch {
+        // The local core may be starting; keep the last known roster.
+      }
+    }
+    void poll()
+    const timer = window.setInterval(() => void poll(), 2000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
   }, [])
 
   useEffect(() => {
@@ -364,6 +390,7 @@ export default function AgentsScreen(): React.JSX.Element {
 
       <div className="section-scroll">
         {notice && <p className="inline-notice" role="status">{notice}</p>}
+        <SubagentRoster active={activeAgents} recent={recentAgents} />
         <div className="catalog-filters" aria-label="Filter agents by category">
           {AGENT_CATEGORIES.map((item) => (
             <button

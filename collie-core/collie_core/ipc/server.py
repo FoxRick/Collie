@@ -5,6 +5,7 @@ Localhost-only JSON protocol between the Electron shell and the Python core.
 Client -> server commands (JSON objects; ``type`` + optional ``id``):
 - ``ping``                     -> ``pong``
 - ``get_status``               -> core status (provider, model, counts)
+- ``get_subagent_activity``    -> live + recently settled subagent roster only
 - ``transcribe``               -> local English microphone dictation
 - ``chat``                     -> start an agent turn; streams events back
 - ``stop``                     -> note a stop request for a conversation
@@ -478,6 +479,23 @@ class CollieIPCServer:
         if self._status_provider is not None:
             status.update(self._status_provider())
         return status
+
+    async def _cmd_get_subagent_activity(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
+        """Lightweight subagent roster for poll-heavy surfaces (Agents tab).
+
+        Returns only the live + recently settled subagent rows instead of the
+        full status payload (conversation/provider/usage lists), so a 2 s
+        roster poll stays cheap.
+        """
+        if self._status_provider is None:
+            return {"active_agents": [], "recent_agents": []}
+        status = self._status_provider()
+        return {
+            "active_agents": status.get("active_agents") or [],
+            "recent_agents": status.get("recent_agents") or [],
+        }
 
     async def _cmd_list_commands(self, connection: ServerConnection, frame: dict) -> dict:
         if self._command_catalog is None:
