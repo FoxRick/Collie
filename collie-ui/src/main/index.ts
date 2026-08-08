@@ -29,12 +29,7 @@ import {
   isTrustedRendererUrl,
   shouldAllowAudioPermission
 } from './renderer-security'
-import {
-  INITIAL_RENDERER_RECOVERY_STATE,
-  isRecoverableRendererReason,
-  planRendererRecovery,
-  type RendererRecoveryState
-} from './renderer-recovery'
+import { RendererRecoverySupervisor } from './renderer-recovery'
 
 // A detached dev terminal can close stdout while Electron is still running.
 // Treat that transport failure as harmless instead of surfacing an app error dialog.
@@ -59,7 +54,27 @@ if (isolatedUserData) app.setPath('userData', isolatedUserData)
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let quitting = false
-let rendererRecovery: RendererRecoveryState = INITIAL_RENDERER_RECOVERY_STATE
+const rendererRecoverySupervisor = new RendererRecoverySupervisor({
+  reloadWindow: () => {
+    // Re-check app state before acting: the timer may have outlived a quit
+    // or the window it was scheduled for may have been replaced.
+    if (quitting) return
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.reload()
+    }
+  },
+  scheduleReload: (fn, delayMs) => setTimeout(fn, delayMs),
+  cancelReload: (handle) => {
+    if (handle) clearTimeout(handle as NodeJS.Timeout)
+  },
+  showDialog: () => {
+    dialog.showErrorBox(
+      'Collie needs a restart',
+      'The window crashed several times in a row. Please quit and reopen Collie — your chats and work are safe.'
+    )
+  },
+  now: Date.now
+})
 let updateCheckTimer: NodeJS.Timeout | null = null
 const activeWork = new ActiveWorkTracker()
 const updates = new UpdateController(
@@ -134,6 +149,9 @@ function appIconPath(): string {
 }
 
 function createWindow(): void {
+  // A pending reload belongs to the previous window (if any); a replacement
+  // window must never be reloaded by a stale timer from its predecessor.
+  rendererRecoverySupervisor.cancelPendingReload()
   const iconPath = appIconPath()
   mainWindow = new BrowserWindow({
     width: 1120,
@@ -182,24 +200,7 @@ function createWindow(): void {
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     console.error('[window] render-process-gone reason:', details.reason, 'exitCode:', details.exitCode)
     if (quitting) return
-    const plan = planRendererRecovery(rendererRecovery, Date.now(), details.reason)
-    if (!plan) {
-      // A genuine crash with the reload budget exhausted: a reload would just
-      // loop. The Python core is untouched, so a full restart loses nothing.
-      if (isRecoverableRendererReason(details.reason)) {
-        dialog.showErrorBox(
-          'Collie needs a restart',
-          'The window crashed several times in a row. Please quit and reopen Collie — your chats and work are safe.'
-        )
-      }
-      return
-    }
-    rendererRecovery = plan.next
-    setTimeout(() => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.reload()
-      }
-    }, plan.delayMs)
+    rendererRecoverySupervisor.renderProcessGone(details.reason)
   })
   mainWindow.on('focus', () => {
     // Returning to the app is an acknowledgement that the user reviewed
@@ -213,6 +214,8 @@ function createWindow(): void {
       e.preventDefault()
       mainWindow?.hide()
     }
+    // A hidden or closing window must not be reloaded by a pending timer.
+    rendererRecoverySupervisor.cancelPendingReload()
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -474,6 +477,8 @@ app.whenReady().then(async () => {
 
 app.on('before-quit', () => {
   quitting = true
+  // A pending reload must not fire after the app has started quitting.
+  rendererRecoverySupervisor.cancelPendingReload()
   if (updateCheckTimer) {
     clearTimeout(updateCheckTimer)
     updateCheckTimer = null
