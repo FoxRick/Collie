@@ -14,9 +14,15 @@ Tag-triggered CI (`.github/workflows/release.yml`, tags `v*`) builds the
 installers on GitHub-hosted runners — Windows NSIS x64, macOS dmg/zip
 (arm64 only for alpha; the staged Python runtime is native-arm64, so Intel
 x64 bundles are a follow-up), and Linux AppImage x64 — and attaches them
-to a draft GitHub Release with `SHA256SUMS.txt`. Test-on-push CI
+to a draft GitHub Release with `SHA256SUMS.txt`. A `qualify` job gates the
+build: core pytest + ruff (with the coverage floor) and collie-ui
+typecheck/vitest run before any package is built, the Windows build job
+runs the full core suite on Python 3.12 (including the DPAPI/service tests
+deselected on Linux), and the staged packaged core is smoke-tested
+(`smoke:packaged-core`) before upload. Test-on-push CI
 (`.github/workflows/ci.yml`) runs the collie-core pytest + ruff gates and the
-collie-ui typecheck/vitest/build gates on every push and pull request.
+collie-ui typecheck/vitest/build gates on every push and pull request, on
+both Ubuntu (Python 3.11) and Windows (Python 3.12 — the supported runtime).
 
 Publishing a release still requires a maintainer to push the version tag and
 publish the draft. The draft must not be published until:
