@@ -30,6 +30,13 @@ import {
   shouldAllowAudioPermission
 } from './renderer-security'
 import { RendererRecoverySupervisor } from './renderer-recovery'
+import {
+  createCoreSettleMachine,
+  sampleCoreSettle,
+  DEFAULT_CORE_SETTLE_CONFIG,
+  type CoreSettleState
+} from './update-boot-settle'
+import { readUpdateBootRecord } from './update-boot-record'
 
 // A detached dev terminal can close stdout while Electron is still running.
 // Treat that transport failure as harmless instead of surfacing an app error dialog.
@@ -444,25 +451,30 @@ function clampActiveWork(snapshot: ActiveWorkSnapshot): ActiveWorkSnapshot {
  * Wait for the Python core to reach a settled state after spawnCore, so the
  * post-update boot verification can judge the new version honestly.
  *
- * A single 'failed' blip is NOT a verdict: the supervision respawns after
- * 3s, so a transient failure flips failed → starting → running. We only
- * resolve as failed when the state stays failed for a sustained period.
+ * The policy lives in update-boot-settle.ts (pure, unit-tested). When a
+ * pending update record matches the running version we require the core to
+ * stay `running` continuously for the probation window — a single ready
+ * message is NOT sustained health, and accepting a core that crashes seconds
+ * later would permanently clear the boot record and hide the notice. On a
+ * normal first boot there is no probation and the first `running` sample
+ * resolves immediately so startup is not delayed.
  */
-function waitForCoreSettle(timeoutMs = 60_000): Promise<'running' | 'failed'> {
+async function waitForCoreSettle(requireProbation: boolean): Promise<'running' | 'failed'> {
+  const config = DEFAULT_CORE_SETTLE_CONFIG
   return new Promise((resolve) => {
-    const started = Date.now()
-    let failedSince: number | null = null
+    let machine = createCoreSettleMachine(Date.now(), requireProbation)
     const poll = (): void => {
-      const state = coreState().state
-      if (state === 'running') return resolve('running')
-      if (state === 'failed') {
-        failedSince ??= Date.now()
-        if (Date.now() - failedSince >= 5_000) return resolve('failed')
-      } else {
-        failedSince = null
+      machine = sampleCoreSettle(
+        machine,
+        coreState().state as CoreSettleState,
+        Date.now(),
+        config
+      )
+      if (machine.verdict !== null) {
+        resolve(machine.verdict)
+        return
       }
-      if (Date.now() - started >= timeoutMs) return resolve('failed')
-      setTimeout(poll, 300)
+      setTimeout(poll, config.pollIntervalMs)
     }
     poll()
   })
@@ -495,8 +507,12 @@ app.whenReady().then(async () => {
   })
   await spawnCore(isDev)
   // If this boot was an update, verify the new version came up healthy
-  // before letting the update ledger treat it as last-known-good.
-  const coreHealthy = (await waitForCoreSettle()) === 'running'
+  // before letting the update ledger treat it as last-known-good. Probation
+  // (sustained running, not just a ready message) applies only when a
+  // pending update record matches the version that just started.
+  const bootRecord = readUpdateBootRecord(bootRecordPath)
+  const requireProbation = bootRecord?.pendingVersion === app.getVersion()
+  const coreHealthy = (await waitForCoreSettle(requireProbation)) === 'running'
   updates.evaluateBoot(coreHealthy)
   if (petEnabled()) spawnPet(isDev)
   // Let the window and local core settle before contacting the release channel.
