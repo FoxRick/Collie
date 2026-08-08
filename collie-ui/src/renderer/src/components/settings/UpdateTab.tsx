@@ -50,13 +50,14 @@ export default function UpdateTab(): React.JSX.Element {
     downloading: `Downloading Collie${version}… ${Math.round(status.percent ?? 0)}%`,
     ready: `Collie${version} is downloaded and ready to install.`,
     current: status.message || 'Collie is up to date.',
-    failed: status.message || 'The update check failed. Try again when you are online.'
+    failed: status.message || 'The update check failed. Try again when you are online.',
+    rollback: status.message || 'The last update did not start properly.'
   }
 
   return (
     <section className="settings-card settings-control-card">
       <div className="settings-card-icon">
-        {status.phase === 'failed' ? (
+        {status.phase === 'failed' || status.phase === 'rollback' ? (
           <TriangleAlert size={19} />
         ) : status.phase === 'current' ? (
           <CheckCircle2 size={19} />
@@ -75,7 +76,8 @@ export default function UpdateTab(): React.JSX.Element {
       <div className="flex flex-wrap gap-2">
         {(status.phase === 'idle' ||
           status.phase === 'current' ||
-          status.phase === 'failed') && (
+          status.phase === 'failed' ||
+          status.phase === 'rollback') && (
           <button
             className="settings-button"
             disabled={busy}

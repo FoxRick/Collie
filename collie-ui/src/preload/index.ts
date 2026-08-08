@@ -8,6 +8,7 @@ export type UpdatePhase =
   | 'ready'
   | 'current'
   | 'failed'
+  | 'rollback'
 
 export interface UpdateStatus {
   phase: UpdatePhase

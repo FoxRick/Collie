@@ -1,10 +1,14 @@
 import { EventEmitter } from 'events'
-import { describe, expect, it, vi } from 'vitest'
+import { mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   ActiveWorkTracker,
   UpdateController,
   type AutoUpdaterLike
 } from './updater-controller'
+import { readUpdateBootRecord, writeUpdateBootRecord } from './update-boot-record'
 
 class FakeUpdater extends EventEmitter implements AutoUpdaterLike {
   autoDownload = true
@@ -100,5 +104,87 @@ describe('UpdateController', () => {
     expect(controller.restartAndInstall()).toEqual({ installed: true, blockedBy: [] })
     expect(beforeInstall).toHaveBeenCalledOnce()
     expect(updater.quitAndInstall).toHaveBeenCalledWith(false, true)
+  })
+})
+
+describe('UpdateController boot verification', () => {
+  let dir: string
+  let bootRecordPath: string
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'collie-update-controller-'))
+    bootRecordPath = join(dir, 'update-boot-record.json')
+  })
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  function controllerFor(version: string): UpdateController {
+    const updater = new FakeUpdater()
+    const tracker = new ActiveWorkTracker()
+    tracker.update({ chats: 0, approvals: 0, routines: 0, externalActions: 0 })
+    return new UpdateController(updater, version, true, tracker, undefined, bootRecordPath)
+  }
+
+  it('records the pending install before quitting to install', () => {
+    const updater = new FakeUpdater()
+    const tracker = new ActiveWorkTracker()
+    tracker.update({ chats: 0, approvals: 0, routines: 0, externalActions: 0 })
+    const controller = new UpdateController(
+      updater,
+      '0.1.0-alpha.4',
+      true,
+      tracker,
+      undefined,
+      bootRecordPath
+    )
+    updater.emit('update-downloaded', { version: '0.1.0-alpha.5' })
+
+    expect(controller.restartAndInstall().installed).toBe(true)
+    expect(readUpdateBootRecord(bootRecordPath)).toMatchObject({
+      pendingVersion: '0.1.0-alpha.5',
+      previousVersion: '0.1.0-alpha.4'
+    })
+  })
+
+  it('accepts the update when the pending version boots healthy', () => {
+    const controller = controllerFor('0.1.0-alpha.5')
+    writeUpdateBootRecord(bootRecordPath, {
+      pendingVersion: '0.1.0-alpha.5',
+      previousVersion: '0.1.0-alpha.4',
+      lastGoodVersion: '0.1.0-alpha.4',
+      updatedAt: '2026-08-08T00:00:00.000Z'
+    })
+
+    controller.evaluateBoot(true)
+    expect(controller.getStatus().phase).toBe('current')
+    expect(readUpdateBootRecord(bootRecordPath)).toMatchObject({
+      pendingVersion: null,
+      previousVersion: null,
+      lastGoodVersion: '0.1.0-alpha.5'
+    })
+  })
+
+  it('surfaces a rollback notice when the new version cannot start its core', () => {
+    const controller = controllerFor('0.1.0-alpha.5')
+    writeUpdateBootRecord(bootRecordPath, {
+      pendingVersion: '0.1.0-alpha.5',
+      previousVersion: '0.1.0-alpha.4',
+      lastGoodVersion: '0.1.0-alpha.4',
+      updatedAt: '2026-08-08T00:00:00.000Z'
+    })
+
+    controller.evaluateBoot(false)
+    const status = controller.getStatus()
+    expect(status.phase).toBe('rollback')
+    expect(status.message).toContain('did not start properly')
+    expect(readUpdateBootRecord(bootRecordPath)?.pendingVersion).toBe('0.1.0-alpha.5')
+  })
+
+  it('leaves status untouched when there is no boot record', () => {
+    const controller = controllerFor('0.1.0-alpha.5')
+    controller.evaluateBoot(false)
+    expect(controller.getStatus().phase).toBe('idle')
   })
 })

@@ -1,4 +1,11 @@
 import type { EventEmitter } from 'events'
+import {
+  emptyUpdateBootRecord,
+  evaluateUpdateBootRecord,
+  readUpdateBootRecord,
+  recordPendingUpdate,
+  writeUpdateBootRecord
+} from './update-boot-record'
 
 export type UpdatePhase =
   | 'idle'
@@ -8,6 +15,7 @@ export type UpdatePhase =
   | 'ready'
   | 'current'
   | 'failed'
+  | 'rollback'
 
 export interface UpdateStatus {
   phase: UpdatePhase
@@ -79,7 +87,8 @@ export class UpdateController {
     currentVersion: string,
     private readonly enabled: boolean,
     private readonly activeWork: ActiveWorkTracker,
-    private readonly beforeInstall: () => void = () => undefined
+    private readonly beforeInstall: () => void = () => undefined,
+    private readonly bootRecordPath: string | null = null
   ) {
     this.status = { phase: 'idle', currentVersion }
     updater.autoDownload = false
@@ -151,9 +160,56 @@ export class UpdateController {
     if (this.status.phase !== 'ready') return { installed: false, blockedBy: ['update not ready'] }
     const blockedBy = this.activeWork.blockers()
     if (blockedBy.length) return { installed: false, blockedBy }
+    this.recordPendingInstall()
     this.beforeInstall()
     this.updater.quitAndInstall(false, true)
     return { installed: true, blockedBy: [] }
+  }
+
+  /**
+   * Persist the pending install before the app quits, so the next boot can
+   * verify the new version actually came up healthy (see evaluateBoot).
+   */
+  private recordPendingInstall(): void {
+    if (!this.bootRecordPath) return
+    const pendingVersion = this.status.availableVersion
+    if (!pendingVersion) return
+    const current = readUpdateBootRecord(this.bootRecordPath) ?? emptyUpdateBootRecord()
+    writeUpdateBootRecord(
+      this.bootRecordPath,
+      recordPendingUpdate(current, this.status.currentVersion, pendingVersion)
+    )
+  }
+
+  /**
+   * Called once at startup after the Python core settles. Accepts a pending
+   * update whose version booted healthy; surfaces a rollback notice when the
+   * just-installed version could not start its core.
+   */
+  evaluateBoot(coreHealthy: boolean): UpdateStatus {
+    if (!this.bootRecordPath) return this.getStatus()
+    const record = readUpdateBootRecord(this.bootRecordPath)
+    if (!record) return this.getStatus()
+    const { evaluation, next } = evaluateUpdateBootRecord(
+      record,
+      this.status.currentVersion,
+      coreHealthy
+    )
+    if (evaluation.kind === 'accepted') {
+      writeUpdateBootRecord(this.bootRecordPath, next)
+      this.setStatus({
+        phase: 'current',
+        message: `Collie ${this.status.currentVersion} is up to date.`
+      })
+    } else if (evaluation.kind === 'rollback-needed') {
+      // Keep the record so the notice survives until the next accepted boot.
+      this.setStatus({
+        phase: 'rollback',
+        message:
+          'The last update did not start properly. Collie still trusts your previous version and kept its settings.'
+      })
+    }
+    return this.getStatus()
   }
 
   private setStatus(next: Omit<UpdateStatus, 'currentVersion'>): void {

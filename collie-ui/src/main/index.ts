@@ -51,6 +51,9 @@ const trustedRendererUrl = isDev && devRendererUrl
 const isolatedUserData = process.env.COLLIE_ELECTRON_USER_DATA?.trim()
 if (isolatedUserData) app.setPath('userData', isolatedUserData)
 
+// Durable record of "is an update pending / did the last one boot healthy".
+const bootRecordPath = join(app.getPath('userData'), 'update-boot-record.json')
+
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let quitting = false
@@ -84,7 +87,8 @@ const updates = new UpdateController(
   activeWork,
   () => {
     quitting = true
-  }
+  },
+  bootRecordPath
 )
 
 function sendPetCommand(command: string): boolean {
@@ -436,6 +440,24 @@ function clampActiveWork(snapshot: ActiveWorkSnapshot): ActiveWorkSnapshot {
   }
 }
 
+/**
+ * Wait for the Python core to reach a settled state after spawnCore, so the
+ * post-update boot verification can judge the new version honestly.
+ */
+function waitForCoreSettle(timeoutMs = 45_000): Promise<'running' | 'failed'> {
+  return new Promise((resolve) => {
+    const started = Date.now()
+    const poll = (): void => {
+      const state = coreState().state
+      if (state === 'running') return resolve('running')
+      if (state === 'failed') return resolve('failed')
+      if (Date.now() - started >= timeoutMs) return resolve('failed')
+      setTimeout(poll, 300)
+    }
+    poll()
+  })
+}
+
 function isActiveWorkSnapshot(value: unknown): value is ActiveWorkSnapshot {
   if (!value || typeof value !== 'object') return false
   const snapshot = value as Record<string, unknown>
@@ -462,6 +484,10 @@ app.whenReady().then(async () => {
     }
   })
   await spawnCore(isDev)
+  // If this boot was an update, verify the new version came up healthy
+  // before letting the update ledger treat it as last-known-good.
+  const coreHealthy = (await waitForCoreSettle()) === 'running'
+  updates.evaluateBoot(coreHealthy)
   if (petEnabled()) spawnPet(isDev)
   // Let the window and local core settle before contacting the release channel.
   updateCheckTimer = setTimeout(() => {
