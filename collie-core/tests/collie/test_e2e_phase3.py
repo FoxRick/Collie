@@ -12,6 +12,7 @@ import asyncio
 import json
 import socket
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import websockets
@@ -85,6 +86,24 @@ async def test_phase3_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     db.upsert_provider("custom", name="Test", auth_type="api_key", is_default=True)
 
     runtime = CollieRuntime(port=ipc_port, db=db)
+
+    # Never hit a real connector endpoint or spawn a browser OAuth flow: the
+    # connectors catalog marks todoist available=True with a live MCP URL
+    # (ai.todoist.net), so connect_service(todoist) would otherwise perform a
+    # REAL outbound connection — the MCP SDK answers the server's OAuth
+    # challenge by opening the browser and waiting 300s. That hangs on
+    # network-reachable runners (Windows CI) while "passing" on egress-
+    # blocked ones (Ubuntu CI) for the wrong reason. Fail the driver
+    # immediately instead, so the "broken connector errors" assertion is
+    # deterministic on every platform.
+    def _no_network_driver(definition):
+        def connect_and_probe(*args, **kwargs):
+            raise RuntimeError("network disabled in tests")
+
+        return SimpleNamespace(connect_and_probe=connect_and_probe)
+
+    monkeypatch.setattr(runtime.services, "_driver_factory", _no_network_driver)
+
     await runtime.ipc.start()
     try:
         async with websockets.connect(f"ws://127.0.0.1:{ipc_port}") as ws:
