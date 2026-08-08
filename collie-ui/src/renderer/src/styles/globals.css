@@ -1647,6 +1647,7 @@ button {
 .collie-dog--watching { animation: dog-happy 1.8s ease-in-out infinite; }
 
 .conversation-panel {
+  position: relative;
   display: flex;
   min-height: 0;
   flex: 1;
@@ -1657,6 +1658,48 @@ button {
   border-radius: 0 0 16px 16px;
   background: var(--card);
   box-shadow: var(--shadow-md);
+}
+
+/* Remember pill — the quiet "I'll remember that." whisper. Sits above the
+   composer, overlaying the bottom edge of the message list without moving
+   layout, and never intercepts clicks. */
+.remember-pill {
+  position: absolute;
+  bottom: 104px;
+  left: 50%;
+  z-index: 20;
+  transform: translateX(-50%);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(88%, 440px);
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+  box-shadow: var(--shadow-md);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 550;
+  animation: remember-pill-in var(--motion-smooth) ease-out;
+}
+
+@keyframes remember-pill-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .remember-pill {
+    animation: none;
+  }
 }
 
 .empty-chat {

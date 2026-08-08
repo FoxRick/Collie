@@ -16,6 +16,7 @@ import {
 } from '../lib/ipc'
 import Sidebar from '../components/Sidebar'
 import MessageList from '../components/MessageList'
+import RememberPill from '../components/RememberPill'
 import ChatInput from '../components/ChatInput'
 import CollieFace from '../components/CollieFace'
 import InteractiveColliePortrait from '../components/InteractiveColliePortrait'
@@ -989,6 +990,7 @@ export default function ChatScreen({
         </header>
         <div className="conversation-panel">
           <MessageList messages={messages} streamText={streamText} cardPreview={cardPreview} />
+          <RememberPill conversationId={activeId} />
         {errorText && (
           <div className="mx-4 mb-2 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
             style={{ borderColor: 'var(--collie-snoot)' }}>
