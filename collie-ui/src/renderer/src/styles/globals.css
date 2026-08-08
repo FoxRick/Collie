@@ -1783,6 +1783,66 @@ button {
   color: #fff;
 }
 
+/* Streaming answer frame: while the first tokens are on their way the
+   assistant card shows a quiet skeleton (placeholder lines). The frame
+   stays once text arrives — the stream fills the same card and the
+   placeholder lines fade out beneath it. */
+.message-row--assistant .message-bubble--writing {
+  position: relative;
+  min-height: 88px;
+  overflow: hidden;
+}
+
+.message-content {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+
+.collie-skeleton {
+  position: absolute;
+  z-index: 0;
+  top: 12px;
+  right: 16px;
+  left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  opacity: 0;
+  transition: opacity var(--motion-smooth) ease-out;
+  pointer-events: none;
+}
+
+.collie-skeleton--active {
+  opacity: 1;
+}
+
+.collie-skeleton-line {
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--line) 62%, transparent) 25%,
+    color-mix(in srgb, var(--line) 34%, transparent) 50%,
+    color-mix(in srgb, var(--line) 62%, transparent) 75%
+  );
+  background-size: 200% 100%;
+  animation: collie-skeleton-shimmer 1.8s linear infinite;
+}
+
+.collie-skeleton-line:nth-child(1) { width: 92%; }
+.collie-skeleton-line:nth-child(2) { width: 100%; }
+.collie-skeleton-line:nth-child(3) { width: 58%; }
+
+@keyframes collie-skeleton-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collie-skeleton-line { animation: none; }
+}
+
 .message-markdown { min-width: 0; overflow-wrap: anywhere; }
 .message-markdown > :first-child { margin-top: 0; }
 .message-markdown > :last-child { margin-bottom: 0; }
