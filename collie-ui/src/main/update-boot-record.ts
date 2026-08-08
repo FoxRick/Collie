@@ -5,8 +5,9 @@
  * re-read on the next boot: if the installed version matches the pending
  * one AND the Python core reaches `running`, the update is accepted and the
  * record clears. If the core fails, the previous version stays the
- * last-known-good one and the UI surfaces a rollback notice instead of
- * silently running a broken build.
+ * last-known-good one and the UI surfaces a failed-update recovery notice —
+ * this is detection, not an automatic rollback: nothing is reinstalled or
+ * restored, the user just learns the new version is unreliable.
  *
  * The record is deliberately small and tolerant: a missing or corrupt file
  * reads back as null and the app simply behaves as a normal first boot.
@@ -81,8 +82,9 @@ export type BootEvaluation =
  * Evaluate a boot record against the version that actually started.
  * - pendingVersion matches currentVersion and the core is healthy → accepted,
  *   record clears and the current version becomes last-known-good.
- * - pendingVersion matches but the core failed → rollback-needed; the record
- *   is kept so the UI can keep showing the notice.
+ * - pendingVersion matches but the core failed → rollback-needed (failed-update
+ *   detection); the record is kept so the UI can keep showing the recovery
+ *   notice until the user dismisses it or a later boot is accepted.
  * - anything else → noop (first boot, no pending install, or a manual
  *   reinstall of an old version — nothing to verify).
  */
