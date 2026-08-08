@@ -17,12 +17,24 @@ export type UpdatePhase =
   | 'failed'
   | 'rollback'
 
+/** The just-installed version whose core failed to boot healthy. */
+export interface FailedUpdateInfo {
+  pendingVersion: string | null
+  previousVersion: string | null
+}
+
 export interface UpdateStatus {
   phase: UpdatePhase
   currentVersion: string
   availableVersion?: string
   percent?: number
   message?: string
+  /**
+   * Non-null while a failed update needs the user's attention. Survives
+   * every phase transition (checks, downloads, errors) and is only cleared
+   * by an accepted boot or an explicit dismiss.
+   */
+  failedUpdate: FailedUpdateInfo | null
 }
 
 export interface ActiveWorkSnapshot {
@@ -79,7 +91,8 @@ export class ActiveWorkTracker {
 }
 
 export class UpdateController {
-  private status: UpdateStatus
+  private status: Omit<UpdateStatus, 'failedUpdate'>
+  private failedUpdate: FailedUpdateInfo | null = null
   private readonly listeners = new Set<(status: UpdateStatus) => void>()
 
   constructor(
@@ -119,7 +132,7 @@ export class UpdateController {
   }
 
   getStatus(): UpdateStatus {
-    return { ...this.status }
+    return { ...this.status, failedUpdate: this.failedUpdate }
   }
 
   onStatus(listener: (status: UpdateStatus) => void): () => void {
@@ -183,8 +196,9 @@ export class UpdateController {
 
   /**
    * Called once at startup after the Python core settles. Accepts a pending
-   * update whose version booted healthy; surfaces a rollback notice when the
-   * just-installed version could not start its core.
+   * update whose version booted healthy; surfaces a failed-update notice
+   * (detection + a recovery prompt — nothing is reinstalled automatically)
+   * when the just-installed version could not start its core.
    */
   evaluateBoot(coreHealthy: boolean): UpdateStatus {
     if (!this.bootRecordPath) return this.getStatus()
@@ -197,22 +211,52 @@ export class UpdateController {
     )
     if (evaluation.kind === 'accepted') {
       writeUpdateBootRecord(this.bootRecordPath, next)
+      this.failedUpdate = null
       this.setStatus({
         phase: 'current',
         message: `Collie ${this.status.currentVersion} is up to date.`
       })
     } else if (evaluation.kind === 'rollback-needed') {
-      // Keep the record so the notice survives until the next accepted boot.
+      // Keep the record so the notice survives until the next accepted boot
+      // or an explicit dismiss. Phase transitions never clear it.
+      this.failedUpdate = {
+        pendingVersion: record.pendingVersion,
+        previousVersion: record.previousVersion
+      }
       this.setStatus({
         phase: 'rollback',
         message:
-          'The last update did not start properly. Collie still trusts your previous version and kept its settings.'
+          'The last update did not start properly. Your chats and settings are safe, but this version may be unstable.'
       })
     }
     return this.getStatus()
   }
 
-  private setStatus(next: Omit<UpdateStatus, 'currentVersion'>): void {
+  /**
+   * The user acknowledged the failed update: clear the boot record's
+   * pending/previous versions (last-known-good stays untouched) and drop the
+   * failure state. The current version is kept as-is — nothing is restored.
+   */
+  dismissUpdateFailure(): UpdateStatus {
+    if (!this.failedUpdate) return this.getStatus()
+    if (this.bootRecordPath) {
+      const current = readUpdateBootRecord(this.bootRecordPath) ?? emptyUpdateBootRecord()
+      writeUpdateBootRecord(this.bootRecordPath, {
+        ...current,
+        pendingVersion: null,
+        previousVersion: null,
+        updatedAt: new Date().toISOString()
+      })
+    }
+    this.failedUpdate = null
+    this.setStatus({
+      phase: 'current',
+      message: 'Keeping this version. Your chats and settings stay as they are.'
+    })
+    return this.getStatus()
+  }
+
+  private setStatus(next: Omit<UpdateStatus, 'currentVersion' | 'failedUpdate'>): void {
     this.status = {
       currentVersion: this.status.currentVersion,
       availableVersion: next.availableVersion ?? this.status.availableVersion,

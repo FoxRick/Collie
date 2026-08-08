@@ -3,7 +3,14 @@ import { CheckCircle2, Download, RefreshCw, RotateCcw, TriangleAlert } from 'luc
 
 type RendererUpdateStatus = Awaited<ReturnType<Window['collie']['updateStatus']>>
 
-const INITIAL_STATUS: RendererUpdateStatus = { phase: 'idle', currentVersion: '' }
+const INITIAL_STATUS: RendererUpdateStatus = {
+  phase: 'idle',
+  currentVersion: '',
+  failedUpdate: null
+}
+
+const FAILED_UPDATE_COPY =
+  "The last update didn't start properly. Your chats and settings are safe, but this version may be unstable."
 
 export default function UpdateTab(): React.JSX.Element {
   const [status, setStatus] = useState<RendererUpdateStatus>(INITIAL_STATUS)
@@ -22,6 +29,18 @@ export default function UpdateTab(): React.JSX.Element {
       setStatus(await action())
     } catch {
       setStatus((current) => ({ ...current, phase: 'failed' }))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const dismiss = async (): Promise<void> => {
+    setBusy(true)
+    setNotice('')
+    try {
+      setStatus(await window.collie.dismissUpdateFailure())
+    } catch {
+      setNotice('The notice could not be dismissed. Try again in a moment.')
     } finally {
       setBusy(false)
     }
@@ -51,13 +70,13 @@ export default function UpdateTab(): React.JSX.Element {
     ready: `Collie${version} is downloaded and ready to install.`,
     current: status.message || 'Collie is up to date.',
     failed: status.message || 'The update check failed. Try again when you are online.',
-    rollback: status.message || 'The last update did not start properly.'
+    rollback: status.message || FAILED_UPDATE_COPY
   }
 
   return (
     <section className="settings-card settings-control-card">
       <div className="settings-card-icon">
-        {status.phase === 'failed' || status.phase === 'rollback' ? (
+        {status.failedUpdate || status.phase === 'failed' || status.phase === 'rollback' ? (
           <TriangleAlert size={19} />
         ) : status.phase === 'current' ? (
           <CheckCircle2 size={19} />
@@ -67,7 +86,21 @@ export default function UpdateTab(): React.JSX.Element {
       </div>
       <div>
         <h3>Collie updates</h3>
-        <p>{statusCopy[status.phase]}</p>
+        {status.failedUpdate ? (
+          <div className="update-failure-banner" role="alert">
+            <TriangleAlert size={16} className="update-failure-banner-icon" />
+            <p>{FAILED_UPDATE_COPY}</p>
+            <button
+              className="settings-button update-failure-banner-action"
+              disabled={busy}
+              onClick={() => void dismiss()}
+            >
+              Keep this version
+            </button>
+          </div>
+        ) : (
+          <p>{statusCopy[status.phase]}</p>
+        )}
         <p className="mt-2 text-sm" style={{ color: 'var(--collie-text-muted)' }}>
           Installed version: {status.currentVersion || 'development build'}
         </p>

@@ -428,6 +428,7 @@ function registerIpc(): void {
   handle('collie:check-for-update', () => updates.check())
   handle('collie:download-update', () => updates.download())
   handle('collie:restart-and-install-update', () => updates.restartAndInstall())
+  handle('collie:dismiss-update-failure', () => updates.dismissUpdateFailure())
   handle('collie:update-active-work', (snapshot: ActiveWorkSnapshot) => {
     if (!isActiveWorkSnapshot(snapshot)) return false
     activeWork.update(clampActiveWork(snapshot))
@@ -516,10 +517,10 @@ app.whenReady().then(async () => {
   updates.evaluateBoot(coreHealthy)
   if (petEnabled()) spawnPet(isDev)
   // Let the window and local core settle before contacting the release channel.
-  // A pending rollback notice keeps the stage: the user drives the next check.
+  // A pending failed-update notice keeps the stage: the user drives the next check.
   updateCheckTimer = setTimeout(() => {
     updateCheckTimer = null
-    if (updates.getStatus().phase !== 'rollback') {
+    if (!updates.getStatus().failedUpdate) {
       void updates.check()
     }
   }, 15_000)

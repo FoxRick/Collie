@@ -166,7 +166,7 @@ describe('UpdateController boot verification', () => {
     })
   })
 
-  it('surfaces a rollback notice when the new version cannot start its core', () => {
+  it('surfaces a failed-update notice when the new version cannot start its core', () => {
     const controller = controllerFor('0.1.0-alpha.5')
     writeUpdateBootRecord(bootRecordPath, {
       pendingVersion: '0.1.0-alpha.5',
@@ -179,7 +179,79 @@ describe('UpdateController boot verification', () => {
     const status = controller.getStatus()
     expect(status.phase).toBe('rollback')
     expect(status.message).toContain('did not start properly')
+    expect(status.failedUpdate).toEqual({
+      pendingVersion: '0.1.0-alpha.5',
+      previousVersion: '0.1.0-alpha.4'
+    })
     expect(readUpdateBootRecord(bootRecordPath)?.pendingVersion).toBe('0.1.0-alpha.5')
+  })
+
+  it('keeps failedUpdate when a manual check reports no new update', async () => {
+    const controller = controllerFor('0.1.0-alpha.5')
+    writeUpdateBootRecord(bootRecordPath, {
+      pendingVersion: '0.1.0-alpha.5',
+      previousVersion: '0.1.0-alpha.4',
+      lastGoodVersion: '0.1.0-alpha.4',
+      updatedAt: '2026-08-08T00:00:00.000Z'
+    })
+    controller.evaluateBoot(false)
+    expect(controller.getStatus().failedUpdate).not.toBeNull()
+
+    await controller.check()
+    const updater = (controller as unknown as { updater: FakeUpdater }).updater
+    updater.emit('update-not-available', { version: '0.1.0-alpha.5' })
+
+    const status = controller.getStatus()
+    expect(status.phase).toBe('current')
+    expect(status.failedUpdate).toEqual({
+      pendingVersion: '0.1.0-alpha.5',
+      previousVersion: '0.1.0-alpha.4'
+    })
+    // The unresolved boot record stays on disk for the next boot.
+    expect(readUpdateBootRecord(bootRecordPath)?.pendingVersion).toBe('0.1.0-alpha.5')
+  })
+
+  it('dismissUpdateFailure clears the record and the failure state, keeping lastGoodVersion', () => {
+    const controller = controllerFor('0.1.0-alpha.5')
+    writeUpdateBootRecord(bootRecordPath, {
+      pendingVersion: '0.1.0-alpha.5',
+      previousVersion: '0.1.0-alpha.4',
+      lastGoodVersion: '0.1.0-alpha.4',
+      updatedAt: '2026-08-08T00:00:00.000Z'
+    })
+    controller.evaluateBoot(false)
+    expect(controller.getStatus().failedUpdate).not.toBeNull()
+
+    const status = controller.dismissUpdateFailure()
+    expect(status.phase).toBe('current')
+    expect(status.failedUpdate).toBeNull()
+
+    const record = readUpdateBootRecord(bootRecordPath)
+    expect(record?.pendingVersion).toBeNull()
+    expect(record?.previousVersion).toBeNull()
+    expect(record?.lastGoodVersion).toBe('0.1.0-alpha.4')
+  })
+
+  it('clears failedUpdate when a later boot accepts the update', () => {
+    const controller = controllerFor('0.1.0-alpha.5')
+    writeUpdateBootRecord(bootRecordPath, {
+      pendingVersion: '0.1.0-alpha.5',
+      previousVersion: '0.1.0-alpha.4',
+      lastGoodVersion: '0.1.0-alpha.4',
+      updatedAt: '2026-08-08T00:00:00.000Z'
+    })
+    controller.evaluateBoot(false)
+    expect(controller.getStatus().failedUpdate).not.toBeNull()
+
+    controller.evaluateBoot(true)
+    const status = controller.getStatus()
+    expect(status.phase).toBe('current')
+    expect(status.failedUpdate).toBeNull()
+    expect(readUpdateBootRecord(bootRecordPath)).toMatchObject({
+      pendingVersion: null,
+      previousVersion: null,
+      lastGoodVersion: '0.1.0-alpha.5'
+    })
   })
 
   it('leaves status untouched when there is no boot record', () => {

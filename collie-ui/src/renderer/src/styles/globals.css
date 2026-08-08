@@ -639,6 +639,29 @@ button {
   font-size: 12px;
 }
 
+.update-failure-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid rgba(232, 145, 58, 0.28);
+  border-radius: 11px;
+  background: rgba(232, 145, 58, 0.1);
+  color: var(--grass-dark);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.update-failure-banner p { margin: 0; }
+
+.update-failure-banner-icon { flex-shrink: 0; margin-top: 1px; }
+
+.update-failure-banner .update-failure-banner-action {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 .agent-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));

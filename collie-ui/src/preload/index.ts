@@ -10,12 +10,18 @@ export type UpdatePhase =
   | 'failed'
   | 'rollback'
 
+export interface FailedUpdateInfo {
+  pendingVersion: string | null
+  previousVersion: string | null
+}
+
 export interface UpdateStatus {
   phase: UpdatePhase
   currentVersion: string
   availableVersion?: string
   percent?: number
   message?: string
+  failedUpdate: FailedUpdateInfo | null
 }
 
 export interface ActiveWorkSnapshot {
@@ -73,6 +79,8 @@ const api = {
     ipcRenderer.invoke('collie:download-update'),
   restartAndInstallUpdate: (): Promise<InstallResult> =>
     ipcRenderer.invoke('collie:restart-and-install-update'),
+  dismissUpdateFailure: (): Promise<UpdateStatus> =>
+    ipcRenderer.invoke('collie:dismiss-update-failure'),
   updateActiveWork: (snapshot: ActiveWorkSnapshot): Promise<boolean> =>
     ipcRenderer.invoke('collie:update-active-work', snapshot),
   onUpdateStatus: (listener: (status: UpdateStatus) => void): (() => void) => {
