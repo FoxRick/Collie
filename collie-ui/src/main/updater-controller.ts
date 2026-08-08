@@ -1,4 +1,11 @@
 import type { EventEmitter } from 'events'
+import {
+  emptyUpdateBootRecord,
+  evaluateUpdateBootRecord,
+  readUpdateBootRecord,
+  recordPendingUpdate,
+  writeUpdateBootRecord
+} from './update-boot-record'
 
 export type UpdatePhase =
   | 'idle'
@@ -8,6 +15,13 @@ export type UpdatePhase =
   | 'ready'
   | 'current'
   | 'failed'
+  | 'rollback'
+
+/** The just-installed version whose core failed to boot healthy. */
+export interface FailedUpdateInfo {
+  pendingVersion: string | null
+  previousVersion: string | null
+}
 
 export interface UpdateStatus {
   phase: UpdatePhase
@@ -15,6 +29,12 @@ export interface UpdateStatus {
   availableVersion?: string
   percent?: number
   message?: string
+  /**
+   * Non-null while a failed update needs the user's attention. Survives
+   * every phase transition (checks, downloads, errors) and is only cleared
+   * by an accepted boot or an explicit dismiss.
+   */
+  failedUpdate: FailedUpdateInfo | null
 }
 
 export interface ActiveWorkSnapshot {
@@ -71,7 +91,8 @@ export class ActiveWorkTracker {
 }
 
 export class UpdateController {
-  private status: UpdateStatus
+  private status: Omit<UpdateStatus, 'failedUpdate'>
+  private failedUpdate: FailedUpdateInfo | null = null
   private readonly listeners = new Set<(status: UpdateStatus) => void>()
 
   constructor(
@@ -79,7 +100,8 @@ export class UpdateController {
     currentVersion: string,
     private readonly enabled: boolean,
     private readonly activeWork: ActiveWorkTracker,
-    private readonly beforeInstall: () => void = () => undefined
+    private readonly beforeInstall: () => void = () => undefined,
+    private readonly bootRecordPath: string | null = null
   ) {
     this.status = { phase: 'idle', currentVersion }
     updater.autoDownload = false
@@ -110,7 +132,7 @@ export class UpdateController {
   }
 
   getStatus(): UpdateStatus {
-    return { ...this.status }
+    return { ...this.status, failedUpdate: this.failedUpdate }
   }
 
   onStatus(listener: (status: UpdateStatus) => void): () => void {
@@ -151,12 +173,90 @@ export class UpdateController {
     if (this.status.phase !== 'ready') return { installed: false, blockedBy: ['update not ready'] }
     const blockedBy = this.activeWork.blockers()
     if (blockedBy.length) return { installed: false, blockedBy }
+    this.recordPendingInstall()
     this.beforeInstall()
     this.updater.quitAndInstall(false, true)
     return { installed: true, blockedBy: [] }
   }
 
-  private setStatus(next: Omit<UpdateStatus, 'currentVersion'>): void {
+  /**
+   * Persist the pending install before the app quits, so the next boot can
+   * verify the new version actually came up healthy (see evaluateBoot).
+   */
+  private recordPendingInstall(): void {
+    if (!this.bootRecordPath) return
+    const pendingVersion = this.status.availableVersion
+    if (!pendingVersion) return
+    const current = readUpdateBootRecord(this.bootRecordPath) ?? emptyUpdateBootRecord()
+    writeUpdateBootRecord(
+      this.bootRecordPath,
+      recordPendingUpdate(current, this.status.currentVersion, pendingVersion)
+    )
+  }
+
+  /**
+   * Called once at startup after the Python core settles. Accepts a pending
+   * update whose version booted healthy; surfaces a failed-update notice
+   * (detection + a recovery prompt — nothing is reinstalled automatically)
+   * when the just-installed version could not start its core.
+   */
+  evaluateBoot(coreHealthy: boolean): UpdateStatus {
+    if (!this.bootRecordPath) return this.getStatus()
+    const record = readUpdateBootRecord(this.bootRecordPath)
+    if (!record) return this.getStatus()
+    const { evaluation, next } = evaluateUpdateBootRecord(
+      record,
+      this.status.currentVersion,
+      coreHealthy
+    )
+    if (evaluation.kind === 'accepted') {
+      writeUpdateBootRecord(this.bootRecordPath, next)
+      this.failedUpdate = null
+      this.setStatus({
+        phase: 'current',
+        message: `Collie ${this.status.currentVersion} is up to date.`
+      })
+    } else if (evaluation.kind === 'rollback-needed') {
+      // Keep the record so the notice survives until the next accepted boot
+      // or an explicit dismiss. Phase transitions never clear it.
+      this.failedUpdate = {
+        pendingVersion: record.pendingVersion,
+        previousVersion: record.previousVersion
+      }
+      this.setStatus({
+        phase: 'rollback',
+        message:
+          'The last update did not start properly. Your chats and settings are safe, but this version may be unstable.'
+      })
+    }
+    return this.getStatus()
+  }
+
+  /**
+   * The user acknowledged the failed update: clear the boot record's
+   * pending/previous versions (last-known-good stays untouched) and drop the
+   * failure state. The current version is kept as-is — nothing is restored.
+   */
+  dismissUpdateFailure(): UpdateStatus {
+    if (!this.failedUpdate) return this.getStatus()
+    if (this.bootRecordPath) {
+      const current = readUpdateBootRecord(this.bootRecordPath) ?? emptyUpdateBootRecord()
+      writeUpdateBootRecord(this.bootRecordPath, {
+        ...current,
+        pendingVersion: null,
+        previousVersion: null,
+        updatedAt: new Date().toISOString()
+      })
+    }
+    this.failedUpdate = null
+    this.setStatus({
+      phase: 'current',
+      message: 'Keeping this version. Your chats and settings stay as they are.'
+    })
+    return this.getStatus()
+  }
+
+  private setStatus(next: Omit<UpdateStatus, 'currentVersion' | 'failedUpdate'>): void {
     this.status = {
       currentVersion: this.status.currentVersion,
       availableVersion: next.availableVersion ?? this.status.availableVersion,

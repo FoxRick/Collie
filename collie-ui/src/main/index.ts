@@ -30,6 +30,13 @@ import {
   shouldAllowAudioPermission
 } from './renderer-security'
 import { RendererRecoverySupervisor } from './renderer-recovery'
+import {
+  createCoreSettleMachine,
+  sampleCoreSettle,
+  DEFAULT_CORE_SETTLE_CONFIG,
+  type CoreSettleState
+} from './update-boot-settle'
+import { readUpdateBootRecord } from './update-boot-record'
 
 // A detached dev terminal can close stdout while Electron is still running.
 // Treat that transport failure as harmless instead of surfacing an app error dialog.
@@ -50,6 +57,9 @@ const trustedRendererUrl = isDev && devRendererUrl
   : pathToFileURL(packagedRendererPath).href
 const isolatedUserData = process.env.COLLIE_ELECTRON_USER_DATA?.trim()
 if (isolatedUserData) app.setPath('userData', isolatedUserData)
+
+// Durable record of "is an update pending / did the last one boot healthy".
+const bootRecordPath = join(app.getPath('userData'), 'update-boot-record.json')
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -84,7 +94,8 @@ const updates = new UpdateController(
   activeWork,
   () => {
     quitting = true
-  }
+  },
+  bootRecordPath
 )
 
 function sendPetCommand(command: string): boolean {
@@ -417,6 +428,7 @@ function registerIpc(): void {
   handle('collie:check-for-update', () => updates.check())
   handle('collie:download-update', () => updates.download())
   handle('collie:restart-and-install-update', () => updates.restartAndInstall())
+  handle('collie:dismiss-update-failure', () => updates.dismissUpdateFailure())
   handle('collie:update-active-work', (snapshot: ActiveWorkSnapshot) => {
     if (!isActiveWorkSnapshot(snapshot)) return false
     activeWork.update(clampActiveWork(snapshot))
@@ -434,6 +446,39 @@ function clampActiveWork(snapshot: ActiveWorkSnapshot): ActiveWorkSnapshot {
     routines: cap(snapshot.routines),
     externalActions: cap(snapshot.externalActions)
   }
+}
+
+/**
+ * Wait for the Python core to reach a settled state after spawnCore, so the
+ * post-update boot verification can judge the new version honestly.
+ *
+ * The policy lives in update-boot-settle.ts (pure, unit-tested). When a
+ * pending update record matches the running version we require the core to
+ * stay `running` continuously for the probation window — a single ready
+ * message is NOT sustained health, and accepting a core that crashes seconds
+ * later would permanently clear the boot record and hide the notice. On a
+ * normal first boot there is no probation and the first `running` sample
+ * resolves immediately so startup is not delayed.
+ */
+async function waitForCoreSettle(requireProbation: boolean): Promise<'running' | 'failed'> {
+  const config = DEFAULT_CORE_SETTLE_CONFIG
+  return new Promise((resolve) => {
+    let machine = createCoreSettleMachine(Date.now(), requireProbation)
+    const poll = (): void => {
+      machine = sampleCoreSettle(
+        machine,
+        coreState().state as CoreSettleState,
+        Date.now(),
+        config
+      )
+      if (machine.verdict !== null) {
+        resolve(machine.verdict)
+        return
+      }
+      setTimeout(poll, config.pollIntervalMs)
+    }
+    poll()
+  })
 }
 
 function isActiveWorkSnapshot(value: unknown): value is ActiveWorkSnapshot {
@@ -462,11 +507,22 @@ app.whenReady().then(async () => {
     }
   })
   await spawnCore(isDev)
+  // If this boot was an update, verify the new version came up healthy
+  // before letting the update ledger treat it as last-known-good. Probation
+  // (sustained running, not just a ready message) applies only when a
+  // pending update record matches the version that just started.
+  const bootRecord = readUpdateBootRecord(bootRecordPath)
+  const requireProbation = bootRecord?.pendingVersion === app.getVersion()
+  const coreHealthy = (await waitForCoreSettle(requireProbation)) === 'running'
+  updates.evaluateBoot(coreHealthy)
   if (petEnabled()) spawnPet(isDev)
   // Let the window and local core settle before contacting the release channel.
+  // A pending failed-update notice keeps the stage: the user drives the next check.
   updateCheckTimer = setTimeout(() => {
     updateCheckTimer = null
-    void updates.check()
+    if (!updates.getStatus().failedUpdate) {
+      void updates.check()
+    }
   }, 15_000)
 
   app.on('activate', () => {
