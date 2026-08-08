@@ -193,10 +193,116 @@ class TestSettledRetention:
         assert status.outcome is None
         assert status.session_key is None
 
+    @pytest.mark.asyncio
+    async def test_retained_settled_records_are_lightweight_snapshots(
+        self, tmp_path
+    ) -> None:
+        """The bounded retention keeps a small immutable snapshot, not the
+        full live status: no tool_events / usage / error payloads survive."""
+        sm = _manager(tmp_path)
+        sm.runner.run = AsyncMock(return_value=AgentRunResult(
+            final_content="ok", messages=[], stop_reason="completed",
+            tool_events=[{"name": "read_file", "status": "ok", "detail": "x"}],
+        ))
+        with patch.object(sm, "_announce_result", new_callable=AsyncMock):
+            await sm.spawn(**_spawn_kwargs(
+                "collie:conv-1", "Do the thing", label="Trip Planner"
+            ))
+            await _drain(sm)
+
+        retained = list(sm._recent_statuses)
+        assert len(retained) == 1
+        snapshot = retained[0]
+        # Heavy live-state fields must not be retained.
+        assert not hasattr(snapshot, "tool_events")
+        assert not hasattr(snapshot, "usage")
+        assert not hasattr(snapshot, "error")
+        assert not hasattr(snapshot, "stop_reason")
+        assert not hasattr(snapshot, "iteration")
+        # Everything the roster needs is present and correct.
+        assert snapshot.session_key == "collie:conv-1"
+        assert snapshot.label == "Trip Planner"
+        assert snapshot.outcome == "ok"
+        assert snapshot.ended_at is not None
+        assert snapshot.ended_at >= snapshot.started_at
+
+
+# ---------------------------------------------------------------------------
+# All-session feed getters (SubagentManager)
+# ---------------------------------------------------------------------------
+
+
+class TestAllSessionGetters:
+    @pytest.mark.asyncio
+    async def test_get_running_statuses_covers_every_session(self, tmp_path) -> None:
+        sm = _manager(tmp_path)
+
+        async def _blocking(*args, **kwargs):
+            await asyncio.sleep(30)
+
+        sm.runner.run = AsyncMock(side_effect=_blocking)
+        with patch.object(sm, "_announce_result", new_callable=AsyncMock):
+            await sm.spawn(**_spawn_kwargs(
+                "collie:conv-1", "Plan trip", label="Trip Planner"
+            ))
+            await sm.spawn(**_spawn_kwargs(
+                "telegram:42", "Send note", label="Messenger Helper"
+            ))
+            await asyncio.sleep(0.05)
+
+        rows = sm.get_running_statuses()
+        assert len(rows) == 2
+        assert {row["session_key"] for row in rows} == {"collie:conv-1", "telegram:42"}
+        assert {row["name"] for row in rows} == {"Trip Planner", "Messenger Helper"}
+        # Clean up the still-running tasks.
+        for task in list(sm._running_tasks.values()):
+            task.cancel()
+        await _drain(sm)
+
+    @pytest.mark.asyncio
+    async def test_get_recent_statuses_covers_every_session_newest_first(
+        self, tmp_path
+    ) -> None:
+        sm = _manager(tmp_path)
+        sm.runner.run = AsyncMock(return_value=AgentRunResult(
+            final_content="ok", messages=[], stop_reason="completed",
+        ))
+        with patch.object(sm, "_announce_result", new_callable=AsyncMock):
+            await sm.spawn(**_spawn_kwargs("collie:conv-1", "First", label="A"))
+            await _drain(sm)
+            await asyncio.sleep(0.02)
+            await sm.spawn(**_spawn_kwargs("telegram:42", "Second", label="B"))
+            await _drain(sm)
+
+        rows = sm.get_recent_statuses()
+        assert [row["name"] for row in rows] == ["B", "A"]
+        assert {row["session_key"] for row in rows} == {"collie:conv-1", "telegram:42"}
+        # The by-session surface still works alongside the all-session one.
+        assert len(sm.get_recent_statuses_by_session("collie:conv-1")) == 1
+
 
 # ---------------------------------------------------------------------------
 # Runtime + IPC plumbing
 # ---------------------------------------------------------------------------
+
+
+def _activity_manager(rows_active=None, rows_recent=None):
+    """Manager stub exposing the all-session feed used by subagent_activity()."""
+    calls = {"active": 0, "recent": 0}
+
+    def _active():
+        calls["active"] += 1
+        return list(rows_active or [])
+
+    def _recent():
+        calls["recent"] += 1
+        return list(rows_recent or [])
+
+    return SimpleNamespace(
+        get_running_statuses=_active,
+        get_recent_statuses=_recent,
+        _calls_log=calls,
+    )
 
 
 class TestRuntimeRoster:
@@ -208,21 +314,19 @@ class TestRuntimeRoster:
         runtime = CollieRuntime(port=0, db=db)
         now = time.monotonic()
 
-        runtime.loop = SimpleNamespace(
-            subagents=SimpleNamespace(
-                get_running_statuses_by_session=lambda key: [],
-                get_recent_statuses_by_session=lambda key: [{
-                    "id": "abc123",
-                    "name": "Trip Planner",
-                    "phase": "done",
-                    "task_description": "Plan Barcelona",
-                    "started_at": now - 10.0,
-                    "ended_at": now - 2.0,
-                    "outcome": "ok",
-                    "execution_posture": "read_only",
-                }],
-            )
-        )
+        runtime.loop = SimpleNamespace(subagents=_activity_manager(
+            rows_recent=[{
+                "id": "abc123",
+                "name": "Trip Planner",
+                "phase": "done",
+                "task_description": "Plan Barcelona",
+                "started_at": now - 10.0,
+                "ended_at": now - 2.0,
+                "outcome": "ok",
+                "execution_posture": "read_only",
+                "session_key": "collie:" + conv["id"],
+            }],
+        ))
         try:
             status = runtime._status()
             recent = status["recent_agents"]
@@ -246,12 +350,7 @@ class TestRuntimeRoster:
         db = CollieDB(tmp_path / "c.db")
         db.create_conversation("trip")
         runtime = CollieRuntime(port=0, db=db)
-        runtime.loop = SimpleNamespace(
-            subagents=SimpleNamespace(
-                get_running_statuses_by_session=lambda key: [],
-                get_recent_statuses_by_session=lambda key: [],
-            )
-        )
+        runtime.loop = SimpleNamespace(subagents=_activity_manager())
         try:
             payload = runtime._status()
             assert "recent_agents" in payload
@@ -260,20 +359,121 @@ class TestRuntimeRoster:
             runtime.loop = None
             db.close()
 
+    def test_subagent_activity_never_walks_conversation_history(self, tmp_path) -> None:
+        """The cheap feed reads the manager directly: db.list_conversations is
+        not touched, so cost is independent of how many conversations exist."""
+        from collie_core.db import CollieDB
+
+        db = CollieDB(tmp_path / "c.db")
+        for index in range(300):
+            db.create_conversation(f"conv-{index}")
+        runtime = CollieRuntime(port=0, db=db)
+        now = time.monotonic()
+        manager = _activity_manager(
+            rows_active=[{
+                "id": "live1", "name": "Trip Planner", "phase": "awaiting_tools",
+                "task_description": "Plan Barcelona", "started_at": now,
+                "execution_posture": "read_only", "session_key": "collie:conv-7",
+            }],
+            rows_recent=[{
+                "id": "done1", "name": "Budget Checker", "phase": "done",
+                "task_description": "Compare prices", "started_at": now - 30,
+                "ended_at": now - 5, "outcome": "ok",
+                "execution_posture": "read_only", "session_key": "collie:conv-7",
+            }],
+        )
+        runtime.loop = SimpleNamespace(subagents=manager)
+        try:
+            with patch.object(
+                db, "list_conversations", wraps=db.list_conversations
+            ) as spy:
+                activity = runtime.subagent_activity()
+            spy.assert_not_called()
+            # One all-session pass, not one pass per conversation.
+            assert manager._calls_log == {"active": 1, "recent": 1}
+            assert [row["id"] for row in activity["active_agents"]] == ["live1"]
+            assert [row["id"] for row in activity["recent_agents"]] == ["done1"]
+        finally:
+            runtime.loop = None
+            db.close()
+
+    def test_messenger_session_rows_surface_without_conversation_id(
+        self, tmp_path
+    ) -> None:
+        """Messenger session keys cannot be reverse-mapped to a desktop
+        conversation, so those rows get conversation_id '' (roster-only)."""
+        from collie_core.db import CollieDB
+
+        db = CollieDB(tmp_path / "c.db")
+        runtime = CollieRuntime(port=0, db=db)
+        now = time.monotonic()
+        manager = _activity_manager(
+            rows_active=[{
+                "id": "live1", "name": "Trip Planner", "phase": "awaiting_tools",
+                "task_description": "Plan Barcelona", "started_at": now,
+                "execution_posture": "read_only", "session_key": "collie:conv-9",
+            }],
+            rows_recent=[{
+                "id": "done1", "name": "Messenger Helper", "phase": "done",
+                "task_description": "Send note", "started_at": now - 30,
+                "ended_at": now - 5, "outcome": "ok",
+                "execution_posture": "read_only", "session_key": "telegram:42",
+            }],
+        )
+        runtime.loop = SimpleNamespace(subagents=manager)
+        try:
+            activity = runtime.subagent_activity()
+            by_id = {
+                row["id"]: row
+                for row in activity["active_agents"] + activity["recent_agents"]
+            }
+            assert by_id["live1"]["conversation_id"] == "conv-9"
+            assert by_id["done1"]["conversation_id"] == ""
+        finally:
+            runtime.loop = None
+            db.close()
+
 
 class TestIpcActivity:
     @pytest.mark.asyncio
-    async def test_get_subagent_activity_returns_roster_only(self, tmp_path) -> None:
+    async def test_get_subagent_activity_uses_dedicated_activity_provider(
+        self, tmp_path
+    ) -> None:
+        db = MagicMock()
+        status_provider = MagicMock(return_value={
+            "configured": True,
+            "active_agents": [{"id": "a1"}],
+            "recent_agents": [{"id": "a2"}],
+        })
+        activity_provider = MagicMock(return_value={
+            "active_agents": [{"id": "a1", "name": "Working"}],
+            "recent_agents": [{"id": "a2", "name": "Done"}],
+        })
+        srv = CollieIPCServer(
+            db,
+            status_provider=status_provider,
+            activity_provider=activity_provider,
+        )
+        result = await srv._cmd_get_subagent_activity(MagicMock(), {})
+        assert result == {
+            "active_agents": [{"id": "a1", "name": "Working"}],
+            "recent_agents": [{"id": "a2", "name": "Done"}],
+        }
+        activity_provider.assert_called_once_with()
+        status_provider.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_get_subagent_activity_falls_back_to_status_provider(
+        self, tmp_path
+    ) -> None:
         db = MagicMock()
         srv = CollieIPCServer(
             db,
             status_provider=lambda: {
                 "configured": True,
-                "workspace": "/tmp",
                 "active_agents": [{"id": "a1", "name": "Working"}],
                 "recent_agents": [{"id": "a2", "name": "Done"}],
                 "conversations": 99,
-                "providers": [],
             },
         )
         result = await srv._cmd_get_subagent_activity(MagicMock(), {})

@@ -848,7 +848,7 @@ export class CollieClient {
   }
 
   /** Lightweight roster for poll-heavy surfaces (Agents tab live section). */
-  getSubagentActivity(timeoutMs = 30_000): Promise<{
+  getSubagentActivity(timeoutMs = 5_000): Promise<{
     active_agents: ActiveAgent[]
     recent_agents: ActiveAgent[]
   }> {

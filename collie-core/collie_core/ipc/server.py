@@ -187,6 +187,7 @@ class CollieIPCServer:
             Callable[[str], Awaitable[dict[str, Any]]] | None
         ) = None,
         status_provider: Callable[[], dict[str, Any]] | None = None,
+        activity_provider: Callable[[], dict[str, Any]] | None = None,
         service_manager: Any = None,
         subagent_loader: Any = None,
         prompt_writer: Callable[[str, str], Awaitable[str]] | None = None,
@@ -220,6 +221,7 @@ class CollieIPCServer:
         self._on_finalize_provider_candidate = on_finalize_provider_candidate
         self._on_rollback_provider_candidate = on_rollback_provider_candidate
         self._status_provider = status_provider
+        self._activity_provider = activity_provider
         self._service_manager = service_manager
         self._subagent_loader = subagent_loader
         self._prompt_writer = prompt_writer
@@ -483,15 +485,18 @@ class CollieIPCServer:
     async def _cmd_get_subagent_activity(
         self, connection: ServerConnection, frame: dict
     ) -> dict:
-        """Lightweight subagent roster for poll-heavy surfaces (Agents tab).
+        """Cheap subagent roster for poll-heavy surfaces (Agents tab).
 
-        Returns only the live + recently settled subagent rows instead of the
-        full status payload (conversation/provider/usage lists), so a 2 s
-        roster poll stays cheap.
+        Prefers the dedicated activity provider (runtime.subagent_activity,
+        which reads the manager's active + settled collections directly);
+        falls back to the status provider's roster keys when no dedicated
+        provider was wired in. Either way the payload is just the two
+        roster arrays — never the full status payload.
         """
-        if self._status_provider is None:
+        provider = self._activity_provider or self._status_provider
+        if provider is None:
             return {"active_agents": [], "recent_agents": []}
-        status = self._status_provider()
+        status = provider()
         return {
             "active_agents": status.get("active_agents") or [],
             "recent_agents": status.get("recent_agents") or [],

@@ -7,7 +7,8 @@ import {
   agentOutcomeLabel,
   agentPhaseLabel,
   formatAgentElapsed,
-  isAgentSettled
+  isAgentSettled,
+  settledRowsWithinWindow
 } from '../lib/agentActivity'
 import { quantizePortraitPointer } from './colliePortraitMotion'
 import {
@@ -24,8 +25,6 @@ const pawFront = new URL('../assets/portrait/paw-front-brand.webp', import.meta.
 
 const MAX_WORKING_ROWS = 3
 const MAX_SETTLED_ROWS = 2
-/** How long a settled row stays visible next to the pet (ms). */
-const SETTLED_VISIBILITY_MS = 3 * 60_000
 
 interface Props {
   thinking: ThinkingState | null
@@ -142,9 +141,17 @@ export default function InteractiveColliePortrait({
   }, [frames.length, paused, reducedMotion, state])
 
   // One 1 s tick so agent rows' elapsed labels stay live without re-rendering
-  // the whole chat screen; freezes as soon as nothing is shown.
-  const showWorking = activeAgents.length > 0
-  const showSettled = recentAgents.length > 0
+  // the whole chat screen; freezes as soon as nothing visible remains. The
+  // show flags derive from the VISIBLE (expiry-filtered) rows so that once
+  // the last settled row ages out, the ticker is cleared and the empty
+  // container unmounts instead of lingering forever.
+  const workingRows = activeAgents.slice(0, MAX_WORKING_ROWS)
+  const overflowCount = activeAgents.length - workingRows.length
+  const settledRows = settledRowsWithinWindow(recentAgents, now)
+    .filter((agent) => isAgentSettled(agent))
+    .slice(0, MAX_SETTLED_ROWS)
+  const showWorking = workingRows.length > 0
+  const showSettled = settledRows.length > 0
   useEffect(() => {
     if (!showWorking && !showSettled) return
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
@@ -165,18 +172,6 @@ export default function InteractiveColliePortrait({
   }
 
   const status = copyPool[copyIndex] || 'Ready when you are.'
-
-  const workingRows = activeAgents.slice(0, MAX_WORKING_ROWS)
-  const overflowCount = activeAgents.length - workingRows.length
-  const settledRows = recentAgents
-    .filter((agent) => isAgentSettled(agent))
-    .filter((agent) => {
-      // Settled rows age out next to the pet: once the chat stops polling,
-      // the last snapshot would otherwise linger forever.
-      const ended = agent.ended_at_ms
-      return typeof ended === 'number' && now - ended < SETTLED_VISIBILITY_MS
-    })
-    .slice(0, MAX_SETTLED_ROWS)
 
   return (
     <section

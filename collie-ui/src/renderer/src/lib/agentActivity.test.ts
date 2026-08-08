@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { ActiveAgent } from './ipc'
 import {
+  SETTLED_VISIBILITY_MS,
   agentActivityLine,
   agentElapsedMs,
   agentOutcomeLabel,
   agentPhaseLabel,
   formatAgentElapsed,
-  isAgentSettled
+  isAgentSettled,
+  settledRowsWithinWindow
 } from './agentActivity'
 
 const workingAgent = (overrides: Partial<ActiveAgent> = {}): ActiveAgent => ({
@@ -87,5 +89,28 @@ describe('isAgentSettled', () => {
     expect(isAgentSettled(workingAgent({ outcome: 'error' }))).toBe(true)
     expect(isAgentSettled(workingAgent({ outcome: 'cancelled' }))).toBe(true)
     expect(isAgentSettled(workingAgent({ outcome: undefined }))).toBe(false)
+  })
+})
+
+describe('settledRowsWithinWindow', () => {
+  it('keeps only settled rows inside the visibility window', () => {
+    const now = Date.now()
+    const fresh = workingAgent({
+      ended_at_ms: now - 60_000,
+      outcome: 'ok'
+    })
+    const expired = workingAgent({
+      id: 'a2',
+      ended_at_ms: now - SETTLED_VISIBILITY_MS - 1_000,
+      outcome: 'ok'
+    })
+    const stillWorking = workingAgent({ id: 'a3', outcome: undefined })
+    expect(settledRowsWithinWindow([fresh, expired, stillWorking], now)).toEqual([fresh])
+  })
+
+  it('drops rows with no wall-clock ended_at', () => {
+    const now = Date.now()
+    const missing = workingAgent({ id: 'a4', ended_at_ms: undefined, outcome: 'ok' })
+    expect(settledRowsWithinWindow([missing], now)).toEqual([])
   })
 })

@@ -1,5 +1,12 @@
 import type { ActiveAgent, SubagentOutcome } from './ipc'
 
+/**
+ * How long a settled subagent row stays visible next to the pet / in the
+ * roster (ms). Shared by both surfaces so the expiry behavior is one
+ * decision, not two.
+ */
+export const SETTLED_VISIBILITY_MS = 3 * 60_000
+
 /** Friendly labels for the engine's subagent lifecycle phases. */
 export const AGENT_PHASE_LABELS: Record<string, string> = {
   initializing: 'Getting ready',
@@ -68,4 +75,20 @@ export function agentElapsedMs(
 
 export function isAgentSettled(agent: ActiveAgent): boolean {
   return agent.outcome === 'ok' || agent.outcome === 'error' || agent.outcome === 'cancelled'
+}
+
+/**
+ * Settled rows still inside the visibility window. Rows age out after
+ * SETTLED_VISIBILITY_MS from ended_at, and rows without a wall-clock
+ * ended_at_ms are dropped — once polling stops, the last snapshot must not
+ * linger (or keep a 1 s ticker alive) forever.
+ */
+export function settledRowsWithinWindow(
+  agents: ActiveAgent[],
+  nowMs: number
+): ActiveAgent[] {
+  return agents.filter((agent) => {
+    const ended = agent.ended_at_ms
+    return typeof ended === 'number' && nowMs - ended < SETTLED_VISIBILITY_MS
+  })
 }

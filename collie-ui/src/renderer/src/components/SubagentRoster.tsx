@@ -5,7 +5,8 @@ import {
   agentActivityLine,
   agentElapsedMs,
   agentOutcomeLabel,
-  formatAgentElapsed
+  formatAgentElapsed,
+  settledRowsWithinWindow
 } from '../lib/agentActivity'
 import AgentAvatar from './AgentAvatar'
 
@@ -70,7 +71,15 @@ interface Props {
  */
 export default function SubagentRoster({ active, recent, nowMs }: Props): React.JSX.Element | null {
   const [now, setNow] = useState(nowMs ?? Date.now)
-  const hasLive = active.length > 0 || recent.length > 0
+
+  const working = active.slice(0, MAX_WORKING_ROWS)
+  const workingOverflow = active.length - working.length
+  // Settled rows age out after SETTLED_VISIBILITY_MS so a stale roster
+  // snapshot never lingers (or keeps a 1 s ticker alive) once the chat has
+  // stopped polling.
+  const settled = settledRowsWithinWindow(recent, now).slice(0, MAX_SETTLED_ROWS)
+  // The ticker + container live only while there are VISIBLE rows.
+  const hasLive = working.length > 0 || settled.length > 0
 
   useEffect(() => {
     if (nowMs !== undefined) return
@@ -80,10 +89,6 @@ export default function SubagentRoster({ active, recent, nowMs }: Props): React.
   }, [hasLive, nowMs])
 
   if (!hasLive) return null
-
-  const working = active.slice(0, MAX_WORKING_ROWS)
-  const workingOverflow = active.length - working.length
-  const settled = recent.slice(0, MAX_SETTLED_ROWS)
 
   return (
     <section className="subagent-roster" aria-label="Agents activity">

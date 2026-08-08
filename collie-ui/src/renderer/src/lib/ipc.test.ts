@@ -151,4 +151,14 @@ describe('CollieClient connection startup', () => {
     await expect(reply).resolves.toEqual({ conversation_id: 'conversation-1' })
     client.close()
   })
+
+  it('gives getSubagentActivity a short default timeout for 2 s polls', async () => {
+    const client = new CollieClient(4321)
+    const commandSpy = vi
+      .spyOn(client, 'command')
+      .mockResolvedValue({ active_agents: [], recent_agents: [] })
+    void client.getSubagentActivity()
+    expect(commandSpy).toHaveBeenCalledWith('get_subagent_activity', {}, 5_000)
+    commandSpy.mockRestore()
+  })
 })

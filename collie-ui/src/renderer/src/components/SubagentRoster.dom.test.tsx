@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ActiveAgent } from '../lib/ipc'
 import SubagentRoster from './SubagentRoster'
 
@@ -108,5 +108,34 @@ describe('SubagentRoster', () => {
     expect(text()).toContain('Agent 0')
     expect(text()).toContain('Agent 5')
     expect(text()).not.toContain('Agent 7')
+  })
+
+  it('ages settled rows out after the visibility window and stops the ticker', () => {
+    vi.useFakeTimers()
+    const ended = Date.now() - 60_000
+    render(
+      <SubagentRoster
+        active={[]}
+        recent={[settled({ ended_at_ms: ended, started_at_ms: ended - 120_000 })]}
+      />
+    )
+    expect(text()).toContain('Budget Checker')
+    expect(text()).toContain('Earlier')
+
+    // The 1 s ticker keeps the row alive up to the 3-minute boundary.
+    act(() => {
+      vi.advanceTimersByTime(60_000)
+    })
+    expect(text()).toContain('Budget Checker')
+
+    // Past the boundary the row disappears, the container unmounts and the
+    // ticker stops — no empty section lingering with a live interval.
+    act(() => {
+      vi.advanceTimersByTime(2 * 60_000 + 1_000)
+    })
+    expect(text()).not.toContain('Budget Checker')
+    expect(host!.children.length).toBe(0)
+    expect(vi.getTimerCount()).toBe(0)
+    vi.useRealTimers()
   })
 })

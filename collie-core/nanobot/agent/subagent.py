@@ -62,6 +62,42 @@ class SubagentStatus:
     outcome: str | None = None       # ok | error | cancelled
 
 
+@dataclass(frozen=True, slots=True)
+class SubagentSnapshot:
+    """Immutable, lightweight settled-state record for a finished subagent.
+
+    Deliberately tiny: the roster only needs these fields, and retaining full
+    ``SubagentStatus`` objects (with their ``tool_events`` list and ``usage``
+    dict) for a bounded window would pin potentially large payloads in memory
+    for no UI benefit.
+    """
+
+    task_id: str
+    label: str
+    phase: str
+    task_description: str
+    started_at: float          # time.monotonic()
+    ended_at: float | None     # time.monotonic(); set on every terminal state
+    outcome: str | None        # ok | error | cancelled
+    execution_posture: str
+    session_key: str | None
+
+
+def _recent_row(snapshot: SubagentSnapshot) -> dict[str, Any]:
+    """UI-safe dict for a settled snapshot (shared by the by-session and
+    all-session roster surfaces)."""
+    return {
+        "id": snapshot.task_id,
+        "name": snapshot.label,
+        "phase": snapshot.phase,
+        "task_description": snapshot.task_description,
+        "started_at": snapshot.started_at,
+        "ended_at": snapshot.ended_at,
+        "outcome": snapshot.outcome,
+        "execution_posture": snapshot.execution_posture,
+    }
+
+
 class _SubagentHook(AgentHook):
     """Hook for subagent execution — logs tool calls and updates status."""
 
@@ -161,9 +197,9 @@ class SubagentManager:
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._task_statuses: dict[str, SubagentStatus] = {}
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
-        # Recently finished statuses, oldest first; bounded so the roster
+        # Recently finished snapshots, oldest first; bounded so the roster
         # cannot grow without bound (no persistence — T3-style client fold).
-        self._recent_statuses: deque[SubagentStatus] = deque(maxlen=self.recent_status_limit)
+        self._recent_statuses: deque[SubagentSnapshot] = deque(maxlen=self.recent_status_limit)
 
     def set_provider(self, provider: LLMProvider, model: str) -> None:
         """Update the deprecated runtime source used by legacy ``spawn`` calls."""
@@ -286,8 +322,9 @@ class SubagentManager:
         def _cleanup(_: asyncio.Task) -> None:
             self._running_tasks.pop(task_id, None)
             if task_id in self._task_statuses:
-                # Retain the finished status briefly so clients can render
-                # settled rows (outcome, elapsed) before it ages out.
+                # Retain a small immutable snapshot of the finished status so
+                # clients can render settled rows (outcome, elapsed) before
+                # it ages out — never the full status with tool_events/usage.
                 if status.ended_at is None:
                     status.ended_at = time.monotonic()
                 if status.outcome is None:
@@ -297,7 +334,17 @@ class SubagentManager:
                     # dangling "working" row.
                     status.phase = "cancelled"
                     status.outcome = "cancelled"
-                self._recent_statuses.append(status)
+                self._recent_statuses.append(SubagentSnapshot(
+                    task_id=status.task_id,
+                    label=status.label,
+                    phase=status.phase,
+                    task_description=status.task_description,
+                    started_at=status.started_at,
+                    ended_at=status.ended_at,
+                    outcome=status.outcome,
+                    execution_posture=status.execution_posture,
+                    session_key=status.session_key,
+                ))
             self._task_statuses.pop(task_id, None)
             if session_key and (ids := self._session_tasks.get(session_key)):
                 ids.discard(task_id)
@@ -590,6 +637,45 @@ class SubagentManager:
             })
         return sorted(statuses, key=lambda item: float(item["started_at"]))
 
+    def get_running_statuses(self) -> list[dict[str, Any]]:
+        """Return UI-safe details for every currently running subagent.
+
+        Covers all sessions (desktop + messenger) in one pass, so the
+        roster feed stays O(active tasks) instead of O(conversations).
+        """
+        rows: list[dict[str, Any]] = []
+        for task_id, task in self._running_tasks.items():
+            status = self._task_statuses.get(task_id)
+            if task is None or task.done() or status is None:
+                continue
+            rows.append({
+                "id": status.task_id,
+                "name": status.label,
+                "phase": status.phase,
+                "task_description": status.task_description,
+                "started_at": status.started_at,
+                "execution_posture": status.execution_posture,
+                "session_key": status.session_key,
+            })
+        return sorted(rows, key=lambda item: float(item["started_at"]))
+
+    def get_recent_statuses(self) -> list[dict[str, Any]]:
+        """Return UI-safe settled rows across every session, newest first.
+
+        Reads the bounded snapshot retention directly (no per-conversation
+        walk), so poll-heavy surfaces stay cheap on large chat histories.
+        """
+        rows: list[dict[str, Any]] = []
+        for snapshot in self._recent_statuses:
+            row = _recent_row(snapshot)
+            row["session_key"] = snapshot.session_key
+            rows.append(row)
+        return sorted(
+            rows,
+            key=lambda item: float(item.get("ended_at") or item["started_at"]),
+            reverse=True,
+        )
+
     def get_recent_statuses_by_session(self, session_key: str) -> list[dict[str, Any]]:
         """Return UI-safe details for subagents that recently finished for a session.
 
@@ -597,22 +683,13 @@ class SubagentManager:
         can render "earlier" rows with outcome and elapsed time before they
         age out. Newest first.
         """
-        statuses: list[dict[str, Any]] = []
-        for status in self._recent_statuses:
-            if status.session_key != session_key:
+        rows: list[dict[str, Any]] = []
+        for snapshot in self._recent_statuses:
+            if snapshot.session_key != session_key:
                 continue
-            statuses.append({
-                "id": status.task_id,
-                "name": status.label,
-                "phase": status.phase,
-                "task_description": status.task_description,
-                "started_at": status.started_at,
-                "ended_at": status.ended_at,
-                "outcome": status.outcome,
-                "execution_posture": status.execution_posture,
-            })
+            rows.append(_recent_row(snapshot))
         return sorted(
-            statuses,
+            rows,
             key=lambda item: float(item.get("ended_at") or item["started_at"]),
             reverse=True,
         )

@@ -77,26 +77,46 @@ export default function AgentsScreen(): React.JSX.Element {
     void refresh()
   }, [])
 
-  // Live roster: light 2 s poll of the subagent activity feed while this
-  // screen is mounted. Stops on unmount; nothing is persisted client-side.
+  // Live roster: serialized 2 s poll of the subagent activity feed while
+  // this screen is mounted. Requests never overlap — the next tick is
+  // scheduled only after the previous one settles (success or failure) — and
+  // a stale response can never overwrite newer state. Three failed polls in a
+  // row clear the "working" rows so a stalled core doesn't leave ghosts.
+  // Nothing is persisted client-side; polling stops on unmount.
   useEffect(() => {
     if (new URLSearchParams(window.location.search).has('preview')) return
     let cancelled = false
+    let inFlight = false
+    let generation = 0
+    let consecutiveFailures = 0
+    let timer: number | undefined
     const poll = async (): Promise<void> => {
+      if (inFlight || cancelled) return
+      inFlight = true
+      const requestGeneration = ++generation
       try {
         const activity = await collieClient.getSubagentActivity()
-        if (cancelled) return
+        if (cancelled || requestGeneration !== generation) return
+        consecutiveFailures = 0
         setActiveAgents(activity.active_agents)
         setRecentAgents(activity.recent_agents)
       } catch {
-        // The local core may be starting; keep the last known roster.
+        if (cancelled || requestGeneration !== generation) return
+        consecutiveFailures += 1
+        if (consecutiveFailures >= 3) {
+          // The core has been unreachable for a while: stop showing stale
+          // "working" rows. Settled rows are historical facts and may stay.
+          setActiveAgents([])
+        }
+      } finally {
+        inFlight = false
+        if (!cancelled) timer = window.setTimeout(() => void poll(), 2000)
       }
     }
     void poll()
-    const timer = window.setInterval(() => void poll(), 2000)
     return () => {
       cancelled = true
-      window.clearInterval(timer)
+      if (timer !== undefined) window.clearTimeout(timer)
     }
   }, [])
 
