@@ -29,6 +29,12 @@ import {
   isTrustedRendererUrl,
   shouldAllowAudioPermission
 } from './renderer-security'
+import {
+  INITIAL_RENDERER_RECOVERY_STATE,
+  isRecoverableRendererReason,
+  planRendererRecovery,
+  type RendererRecoveryState
+} from './renderer-recovery'
 
 // A detached dev terminal can close stdout while Electron is still running.
 // Treat that transport failure as harmless instead of surfacing an app error dialog.
@@ -53,6 +59,7 @@ if (isolatedUserData) app.setPath('userData', isolatedUserData)
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let quitting = false
+let rendererRecovery: RendererRecoveryState = INITIAL_RENDERER_RECOVERY_STATE
 let updateCheckTimer: NodeJS.Timeout | null = null
 const activeWork = new ActiveWorkTracker()
 const updates = new UpdateController(
@@ -172,8 +179,27 @@ function createWindow(): void {
   mainWindow.on('ready-to-show', () => { console.log('[window] ready-to-show'); mainWindow?.show() })
   mainWindow.on('show', () => console.log('[window] show event'))
   mainWindow.on('hide', () => console.log('[window] hide event'))
-  mainWindow.webContents.on('render-process-gone', (_e, details) => {
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
     console.error('[window] render-process-gone reason:', details.reason, 'exitCode:', details.exitCode)
+    if (quitting) return
+    const plan = planRendererRecovery(rendererRecovery, Date.now(), details.reason)
+    if (!plan) {
+      // A genuine crash with the reload budget exhausted: a reload would just
+      // loop. The Python core is untouched, so a full restart loses nothing.
+      if (isRecoverableRendererReason(details.reason)) {
+        dialog.showErrorBox(
+          'Collie needs a restart',
+          'The window crashed several times in a row. Please quit and reopen Collie — your chats and work are safe.'
+        )
+      }
+      return
+    }
+    rendererRecovery = plan.next
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.reload()
+      }
+    }, plan.delayMs)
   })
   mainWindow.on('focus', () => {
     // Returning to the app is an acknowledgement that the user reviewed
