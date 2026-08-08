@@ -606,6 +606,9 @@ export default function ChatScreen({
   const activeAgents = (runtimeStatus.active_agents || []).filter(
     (agent) => agent.conversation_id === activeId
   )
+  const recentAgents = (runtimeStatus.recent_agents || []).filter(
+    (agent) => agent.conversation_id === activeId
+  )
   const activeTiming = activeId ? taskTimings[activeId] : undefined
   const activeTask = activeId ? tasksByConversation[activeId] : undefined
   const taskIsActive = activeTask ? !isTaskTerminal(activeTask) : false
@@ -1031,6 +1034,7 @@ export default function ChatScreen({
               elapsedLabel={elapsedLabel}
               isTyping={isTyping}
               activeAgents={activeAgents}
+              recentAgents={recentAgents}
             />
             <ChatInput
               onSend={(text, attachments) => void send(text, attachments)}

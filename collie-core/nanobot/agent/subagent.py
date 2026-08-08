@@ -5,6 +5,7 @@ import json
 import time
 import uuid
 import warnings
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -50,12 +51,51 @@ class SubagentStatus:
     task_description: str
     started_at: float          # time.monotonic()
     execution_posture: str = "read_only"
-    phase: str = "initializing"  # initializing | awaiting_tools | tools_completed | final_response | done | error
+    phase: str = "initializing"  # initializing | awaiting_tools | tools_completed | final_response | done | error | cancelled
     iteration: int = 0
     tool_events: list = field(default_factory=list)   # [{name, status, detail}, ...]
     usage: dict = field(default_factory=dict)          # token usage
     stop_reason: str | None = None
     error: str | None = None
+    session_key: str | None = None
+    ended_at: float | None = None    # time.monotonic(); set on every terminal state
+    outcome: str | None = None       # ok | error | cancelled
+
+
+@dataclass(frozen=True, slots=True)
+class SubagentSnapshot:
+    """Immutable, lightweight settled-state record for a finished subagent.
+
+    Deliberately tiny: the roster only needs these fields, and retaining full
+    ``SubagentStatus`` objects (with their ``tool_events`` list and ``usage``
+    dict) for a bounded window would pin potentially large payloads in memory
+    for no UI benefit.
+    """
+
+    task_id: str
+    label: str
+    phase: str
+    task_description: str
+    started_at: float          # time.monotonic()
+    ended_at: float | None     # time.monotonic(); set on every terminal state
+    outcome: str | None        # ok | error | cancelled
+    execution_posture: str
+    session_key: str | None
+
+
+def _recent_row(snapshot: SubagentSnapshot) -> dict[str, Any]:
+    """UI-safe dict for a settled snapshot (shared by the by-session and
+    all-session roster surfaces)."""
+    return {
+        "id": snapshot.task_id,
+        "name": snapshot.label,
+        "phase": snapshot.phase,
+        "task_description": snapshot.task_description,
+        "started_at": snapshot.started_at,
+        "ended_at": snapshot.ended_at,
+        "outcome": snapshot.outcome,
+        "execution_posture": snapshot.execution_posture,
+    }
 
 
 class _SubagentHook(AgentHook):
@@ -102,6 +142,7 @@ class SubagentManager:
         fail_on_tool_error: bool | None = None,
         llm_wall_timeout_for_session: Callable[[str | None], float | None] | None = None,
         hook_factories: list[AgentTurnHookFactory] | None = None,
+        recent_status_limit: int = 24,
     ):
         if workspace is None:
             raise TypeError("SubagentManager.__init__() missing required argument: 'workspace'")
@@ -149,12 +190,16 @@ class SubagentManager:
             if fail_on_tool_error is not None
             else defaults.fail_on_tool_error
         )
+        self.recent_status_limit = recent_status_limit
         self.runner = AgentRunner()
         self._llm_wall_timeout_for_session = llm_wall_timeout_for_session
         self.hook_factories: list[AgentTurnHookFactory] = list(hook_factories or [])
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._task_statuses: dict[str, SubagentStatus] = {}
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
+        # Recently finished snapshots, oldest first; bounded so the roster
+        # cannot grow without bound (no persistence — T3-style client fold).
+        self._recent_statuses: deque[SubagentSnapshot] = deque(maxlen=self.recent_status_limit)
 
     def set_provider(self, provider: LLMProvider, model: str) -> None:
         """Update the deprecated runtime source used by legacy ``spawn`` calls."""
@@ -253,6 +298,7 @@ class SubagentManager:
             task_description=task,
             started_at=time.monotonic(),
             execution_posture=execution_posture,
+            session_key=session_key,
         )
         self._task_statuses[task_id] = status
 
@@ -275,6 +321,30 @@ class SubagentManager:
 
         def _cleanup(_: asyncio.Task) -> None:
             self._running_tasks.pop(task_id, None)
+            if task_id in self._task_statuses:
+                # Retain a small immutable snapshot of the finished status so
+                # clients can render settled rows (outcome, elapsed) before
+                # it ages out — never the full status with tool_events/usage.
+                if status.ended_at is None:
+                    status.ended_at = time.monotonic()
+                if status.outcome is None:
+                    # The task ended without recording a terminal state (e.g.
+                    # cancelled before its first await, or killed externally).
+                    # Treat it as stopped so the roster never shows a
+                    # dangling "working" row.
+                    status.phase = "cancelled"
+                    status.outcome = "cancelled"
+                self._recent_statuses.append(SubagentSnapshot(
+                    task_id=status.task_id,
+                    label=status.label,
+                    phase=status.phase,
+                    task_description=status.task_description,
+                    started_at=status.started_at,
+                    ended_at=status.ended_at,
+                    outcome=status.outcome,
+                    execution_posture=status.execution_posture,
+                    session_key=status.session_key,
+                ))
             self._task_statuses.pop(task_id, None)
             if session_key and (ids := self._session_tasks.get(session_key)):
                 ids.discard(task_id)
@@ -387,8 +457,10 @@ class SubagentManager:
                 reset_request_context(request_token)
             status.phase = "done"
             status.stop_reason = result.stop_reason
+            status.ended_at = time.monotonic()
 
             if result.stop_reason == "tool_error":
+                status.outcome = "error"
                 status.tool_events = list(result.tool_events)
                 await self._announce_result(
                     task_id, label, task,
@@ -396,18 +468,29 @@ class SubagentManager:
                     origin, "error", origin_message_id,
                 )
             elif result.stop_reason == "error":
+                status.outcome = "error"
                 await self._announce_result(
                     task_id, label, task,
                     result.error or "Error: subagent execution failed.",
                     origin, "error", origin_message_id,
                 )
             else:
+                status.outcome = "ok"
                 final_result = result.final_content or "Task completed but no final response was generated."
                 logger.info("Subagent [{}] completed successfully", task_id)
                 await self._announce_result(task_id, label, task, final_result, origin, "ok", origin_message_id)
 
+        except asyncio.CancelledError:
+            # Stop-everything path: record the settle state before the
+            # cleanup callback retains the status.
+            status.phase = "cancelled"
+            status.outcome = "cancelled"
+            status.ended_at = time.monotonic()
+            raise
         except Exception as e:
             status.phase = "error"
+            status.outcome = "error"
+            status.ended_at = time.monotonic()
             status.error = str(e)
             logger.exception("Subagent [{}] failed", task_id)
             await self._announce_result(task_id, label, task, f"Error: {e}", origin, "error", origin_message_id)
@@ -553,3 +636,60 @@ class SubagentManager:
                 "execution_posture": status.execution_posture,
             })
         return sorted(statuses, key=lambda item: float(item["started_at"]))
+
+    def get_running_statuses(self) -> list[dict[str, Any]]:
+        """Return UI-safe details for every currently running subagent.
+
+        Covers all sessions (desktop + messenger) in one pass, so the
+        roster feed stays O(active tasks) instead of O(conversations).
+        """
+        rows: list[dict[str, Any]] = []
+        for task_id, task in self._running_tasks.items():
+            status = self._task_statuses.get(task_id)
+            if task is None or task.done() or status is None:
+                continue
+            rows.append({
+                "id": status.task_id,
+                "name": status.label,
+                "phase": status.phase,
+                "task_description": status.task_description,
+                "started_at": status.started_at,
+                "execution_posture": status.execution_posture,
+                "session_key": status.session_key,
+            })
+        return sorted(rows, key=lambda item: float(item["started_at"]))
+
+    def get_recent_statuses(self) -> list[dict[str, Any]]:
+        """Return UI-safe settled rows across every session, newest first.
+
+        Reads the bounded snapshot retention directly (no per-conversation
+        walk), so poll-heavy surfaces stay cheap on large chat histories.
+        """
+        rows: list[dict[str, Any]] = []
+        for snapshot in self._recent_statuses:
+            row = _recent_row(snapshot)
+            row["session_key"] = snapshot.session_key
+            rows.append(row)
+        return sorted(
+            rows,
+            key=lambda item: float(item.get("ended_at") or item["started_at"]),
+            reverse=True,
+        )
+
+    def get_recent_statuses_by_session(self, session_key: str) -> list[dict[str, Any]]:
+        """Return UI-safe details for subagents that recently finished for a session.
+
+        Settled statuses are retained for a short, bounded window so clients
+        can render "earlier" rows with outcome and elapsed time before they
+        age out. Newest first.
+        """
+        rows: list[dict[str, Any]] = []
+        for snapshot in self._recent_statuses:
+            if snapshot.session_key != session_key:
+                continue
+            rows.append(_recent_row(snapshot))
+        return sorted(
+            rows,
+            key=lambda item: float(item.get("ended_at") or item["started_at"]),
+            reverse=True,
+        )

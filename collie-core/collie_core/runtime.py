@@ -15,6 +15,7 @@ import inspect
 import json
 import os
 import sys
+import time
 import urllib.parse
 import uuid
 from contextlib import suppress
@@ -130,6 +131,7 @@ class CollieRuntime:
             on_finalize_provider_candidate=self._finalize_provider_candidate,
             on_rollback_provider_candidate=self._rollback_provider_candidate,
             status_provider=self._status,
+            activity_provider=self.subagent_activity,
             service_manager=self.services,
             subagent_loader=self.subagents,
             prompt_writer=self._write_subagent_prompt,
@@ -315,7 +317,7 @@ class CollieRuntime:
             try:
                 statuses = self.loop.subagents.get_running_statuses_by_session(session_key)
             except Exception:
-                logger.exception("Failed to list subagents for session {}", session_key)
+                logger.exception("Failed to list subagents for session {session_key}")
                 continue
             for agent in statuses:
                 agent_id = str(agent.get("id") or "")
@@ -323,8 +325,100 @@ class CollieRuntime:
                     continue
                 if agent_id:
                     seen.add(agent_id)
-                active.append({**agent, "conversation_id": conversation_id})
+                active.append(self._decorate_subagent(agent, conversation_id))
         return sorted(active, key=lambda item: float(item.get("started_at") or 0))
+
+    def recent_subagents_for_conversation(
+        self, conversation_id: str
+    ) -> list[dict[str, Any]]:
+        """List UI-safe specialists that recently finished for a conversation.
+
+        Mirrors :meth:`active_subagents_for_conversation` but reads the
+        manager's bounded settled-status retention, so the roster can show
+        "earlier" rows (outcome + elapsed) without any persistence.
+        """
+        if self.loop is None:
+            return []
+        recent: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for session_key in sorted(self.session_keys_for_conversation(conversation_id)):
+            try:
+                statuses = self.loop.subagents.get_recent_statuses_by_session(session_key)
+            except Exception:
+                logger.exception("Failed to list recent subagents for session {session_key}")
+                continue
+            for agent in statuses:
+                agent_id = str(agent.get("id") or "")
+                if agent_id and agent_id in seen:
+                    continue
+                if agent_id:
+                    seen.add(agent_id)
+                recent.append(self._decorate_subagent(agent, conversation_id))
+        return sorted(
+            recent,
+            key=lambda item: float(item.get("ended_at") or item.get("started_at") or 0),
+            reverse=True,
+        )
+
+    @staticmethod
+    def _decorate_subagent(agent: dict[str, Any], conversation_id: str) -> dict[str, Any]:
+        """Attach wall-clock ms + conversation scoping to a UI-safe subagent row.
+
+        The manager reports ``time.monotonic()`` values; the renderer needs
+        epoch ms so elapsed time can be computed and frozen across polls.
+        """
+        now_mono = time.monotonic()
+        offset_ms = (time.time() - now_mono) * 1000.0
+        started_ms = agent.get("started_at")
+        if isinstance(started_ms, (int, float)):
+            agent["started_at_ms"] = int(started_ms * 1000.0 + offset_ms)
+        ended_at = agent.get("ended_at")
+        if isinstance(ended_at, (int, float)):
+            agent["ended_at_ms"] = int(ended_at * 1000.0 + offset_ms)
+        agent["conversation_id"] = conversation_id
+        return agent
+
+    @staticmethod
+    def _conversation_id_for_session(session_key: str | None) -> str:
+        """Map an engine session key back to a desktop conversation id.
+
+        Desktop session keys embed the conversation id (``collie:<id>``).
+        Messenger session keys cannot be reverse-mapped to a desktop
+        conversation, so those rows surface with an empty conversation id —
+        they appear in the Agents-tab roster but never match a desktop
+        conversation in ChatScreen.
+        """
+        if session_key and session_key.startswith("collie:"):
+            return session_key[len("collie:"):]
+        return ""
+
+    def subagent_activity(self) -> dict[str, list[dict[str, Any]]]:
+        """Live + settled roster feed for poll-heavy surfaces.
+
+        Reads the SubagentManager's active and settled collections directly
+        instead of walking every conversation, so the cost is O(active
+        sessions) rather than O(all conversations) — safe to poll every
+        couple of seconds from the event loop.
+        """
+        if self.loop is None:
+            return {"active_agents": [], "recent_agents": []}
+        active: list[dict[str, Any]] = []
+        recent: list[dict[str, Any]] = []
+        try:
+            manager = self.loop.subagents
+            for agent in manager.get_running_statuses():
+                active.append(self._decorate_subagent(
+                    agent,
+                    self._conversation_id_for_session(agent.get("session_key")),
+                ))
+            for agent in manager.get_recent_statuses():
+                recent.append(self._decorate_subagent(
+                    agent,
+                    self._conversation_id_for_session(agent.get("session_key")),
+                ))
+        except Exception:
+            logger.exception("Failed to build the subagent activity feed")
+        return {"active_agents": active, "recent_agents": recent}
 
     async def cancel_subagents_for_conversation(self, conversation_id: str) -> int:
         """Cancel specialists across every session mapped to a conversation."""
@@ -1135,6 +1229,7 @@ class CollieRuntime:
             "workspace": str(self.workspace),
             "db_path": str(self.db.path),
             "active_agents": [],
+            "recent_agents": [],
         }
         if self.loop is not None:
             try:
@@ -1143,12 +1238,9 @@ class CollieRuntime:
             except Exception:
                 pass
             try:
-                active_agents: list[dict[str, Any]] = []
-                for conversation in self.db.list_conversations(include_archived=True):
-                    active_agents.extend(
-                        self.active_subagents_for_conversation(str(conversation["id"]))
-                    )
-                status["active_agents"] = active_agents
+                activity = self.subagent_activity()
+                status["active_agents"] = activity["active_agents"]
+                status["recent_agents"] = activity["recent_agents"]
             except Exception:
                 pass
         return status

@@ -5,6 +5,7 @@ Localhost-only JSON protocol between the Electron shell and the Python core.
 Client -> server commands (JSON objects; ``type`` + optional ``id``):
 - ``ping``                     -> ``pong``
 - ``get_status``               -> core status (provider, model, counts)
+- ``get_subagent_activity``    -> live + recently settled subagent roster only
 - ``transcribe``               -> local English microphone dictation
 - ``chat``                     -> start an agent turn; streams events back
 - ``stop``                     -> note a stop request for a conversation
@@ -186,6 +187,7 @@ class CollieIPCServer:
             Callable[[str], Awaitable[dict[str, Any]]] | None
         ) = None,
         status_provider: Callable[[], dict[str, Any]] | None = None,
+        activity_provider: Callable[[], dict[str, Any]] | None = None,
         service_manager: Any = None,
         subagent_loader: Any = None,
         prompt_writer: Callable[[str, str], Awaitable[str]] | None = None,
@@ -219,6 +221,7 @@ class CollieIPCServer:
         self._on_finalize_provider_candidate = on_finalize_provider_candidate
         self._on_rollback_provider_candidate = on_rollback_provider_candidate
         self._status_provider = status_provider
+        self._activity_provider = activity_provider
         self._service_manager = service_manager
         self._subagent_loader = subagent_loader
         self._prompt_writer = prompt_writer
@@ -478,6 +481,26 @@ class CollieIPCServer:
         if self._status_provider is not None:
             status.update(self._status_provider())
         return status
+
+    async def _cmd_get_subagent_activity(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
+        """Cheap subagent roster for poll-heavy surfaces (Agents tab).
+
+        Prefers the dedicated activity provider (runtime.subagent_activity,
+        which reads the manager's active + settled collections directly);
+        falls back to the status provider's roster keys when no dedicated
+        provider was wired in. Either way the payload is just the two
+        roster arrays — never the full status payload.
+        """
+        provider = self._activity_provider or self._status_provider
+        if provider is None:
+            return {"active_agents": [], "recent_agents": []}
+        status = provider()
+        return {
+            "active_agents": status.get("active_agents") or [],
+            "recent_agents": status.get("recent_agents") or [],
+        }
 
     async def _cmd_list_commands(self, connection: ServerConnection, frame: dict) -> dict:
         if self._command_catalog is None:
