@@ -377,6 +377,16 @@ export interface GardenerSuggestion {
   evidence_ids: string[]
 }
 
+/** One append-only memory write (ProfileStore mutation), newest first. */
+export interface MemoryJournalEntry {
+  id: number
+  kind: 'fact' | 'person' | 'date' | string
+  subject: string
+  action: 'add' | 'update' | 'delete' | string
+  value?: unknown
+  created_at: string
+}
+
 /** A user-facing progress snapshot. It deliberately excludes tool traffic and model reasoning. */
 export interface TaskStep {
   key: string
@@ -724,6 +734,11 @@ export class CollieClient {
   /** Past Dream consolidations (memory_dream versions), newest first. */
   getDreamHistory(): Promise<{ versions: ArtifactVersion[] }> {
     return this.command('get_dream_history', {})
+  }
+
+  /** Recent memory writes (kind/subject/action/value), newest first. */
+  getMemoryJournal(limit = 50): Promise<{ entries: MemoryJournalEntry[] }> {
+    return this.command('get_memory_journal', { limit })
   }
 
   /** Manual trigger: run one Gardener pass (evidence -> suggestions). */
