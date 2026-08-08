@@ -282,6 +282,24 @@ describe('RememberPill', () => {
     act(() => root.unmount())
   })
 
+  it('follows conversation switches after mount (activeId starts null in ChatScreen)', async () => {
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    act(() => root.render(<RememberPill conversationId={null} />))
+    await flush() // baseline established (empty journal -> 0)
+
+    // ChatScreen opens the starter conversation after mount.
+    act(() => root.render(<RememberPill conversationId="c1" />))
+    hooks.journal.entries = [entry({ id: 1 })]
+    await act(async () => {
+      hooks.emit(assistantMessage('c1'))
+    })
+    await flush()
+
+    expect(container.querySelector('.remember-pill')).not.toBeNull()
+    act(() => root.unmount())
+  })
+
   it('re-baselines after a core restart without replaying history', async () => {
     const container = document.createElement('div')
     const root = createRoot(container)

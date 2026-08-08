@@ -42,6 +42,14 @@ export default function RememberPill({ conversationId }: Props): React.JSX.Eleme
   // would clobber ChatScreen's own collieClient listener (ordering tests).
   const conversationIdRef = useRef(conversationId)
 
+  // ...but the ref *value* must track the active conversation. ChatScreen
+  // mounts this component before the starter conversation is opened
+  // (activeId starts null), so without this sync the assistant-turn gate
+  // below would never pass in the real app.
+  useEffect(() => {
+    conversationIdRef.current = conversationId
+  }, [conversationId])
+
   const dismiss = useCallback(() => {
     if (timerRef.current !== null) {
       clearTimeout(timerRef.current)
