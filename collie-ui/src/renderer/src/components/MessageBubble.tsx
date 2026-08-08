@@ -1,15 +1,20 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FileText, Image, X } from 'lucide-react'
 import CardRenderer from './cards/CardRenderer'
+import TakeawayCard from './cards/TakeawayCard'
 import type { MessageAttachment, TaskState } from '../lib/ipc'
 import MarkdownContent from './MarkdownContent'
 import { visibleStreamText } from '../lib/stream'
+import { buildTakeawayDigest } from '../lib/takeaway'
 import TaskProgress, { isTaskTerminal } from './tasks/TaskProgress'
 
 interface Props {
   role: 'user' | 'assistant'
   content: string
   streaming?: boolean
+  /** False for the in-flight streaming bubble; the takeaway closer only
+   * appears once the answer is complete and committed. */
+  settled?: boolean
   cardType?: string | null
   cardData?: Record<string, unknown> | null
   attachments?: MessageAttachment[] | null
@@ -29,12 +34,13 @@ function attachmentPreviewSource(attachment: MessageAttachment): string | null {
   return /^data:image\/(?:png|jpeg|webp|gif);base64,/i.test(source) ? source : null
 }
 
-function MessageBubble({ role, content, streaming, cardType, cardData, attachments, taskState }: Props): React.JSX.Element {
+function MessageBubble({ role, content, streaming, settled = true, cardType, cardData, attachments, taskState }: Props): React.JSX.Element {
   const [preview, setPreview] = useState<{ name: string; source: string } | null>(null)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const returnFocusRef = useRef<HTMLButtonElement | null>(null)
   const isUser = role === 'user'
   const visibleContent = isUser ? content : visibleStreamText(content)
+  const takeaway = useMemo(() => buildTakeawayDigest(content), [content])
 
   const closePreview = useCallback((): void => {
     setPreview(null)
@@ -108,6 +114,11 @@ function MessageBubble({ role, content, streaming, cardType, cardData, attachmen
           <TaskProgress task={taskState} readOnly />
         </div>
       ) : null}
+      {!isUser && settled && !streaming && takeaway && (
+        <div className="flex justify-start collie-reveal mt-1">
+          <TakeawayCard digest={takeaway} />
+        </div>
+      )}
       {preview ? (
         <div
           className="attachment-lightbox"

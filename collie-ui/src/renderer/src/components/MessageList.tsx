@@ -76,7 +76,7 @@ export default function MessageList({ messages, streamText, cardPreview }: Props
             taskState={msg.task_state}
           />
         ))}
-        {visibleStream && <MessageBubble role="assistant" content={visibleStream} cardType={cardPreview?.card_type ?? null} cardData={cardPreview?.card_data ?? null} />}
+        {visibleStream && <MessageBubble role="assistant" content={visibleStream} cardType={cardPreview?.card_type ?? null} cardData={cardPreview?.card_data ?? null} settled={false} />}
         <div ref={endRef} />
       </div>
     </div>
