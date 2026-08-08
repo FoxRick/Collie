@@ -443,14 +443,24 @@ function clampActiveWork(snapshot: ActiveWorkSnapshot): ActiveWorkSnapshot {
 /**
  * Wait for the Python core to reach a settled state after spawnCore, so the
  * post-update boot verification can judge the new version honestly.
+ *
+ * A single 'failed' blip is NOT a verdict: the supervision respawns after
+ * 3s, so a transient failure flips failed → starting → running. We only
+ * resolve as failed when the state stays failed for a sustained period.
  */
-function waitForCoreSettle(timeoutMs = 45_000): Promise<'running' | 'failed'> {
+function waitForCoreSettle(timeoutMs = 60_000): Promise<'running' | 'failed'> {
   return new Promise((resolve) => {
     const started = Date.now()
+    let failedSince: number | null = null
     const poll = (): void => {
       const state = coreState().state
       if (state === 'running') return resolve('running')
-      if (state === 'failed') return resolve('failed')
+      if (state === 'failed') {
+        failedSince ??= Date.now()
+        if (Date.now() - failedSince >= 5_000) return resolve('failed')
+      } else {
+        failedSince = null
+      }
       if (Date.now() - started >= timeoutMs) return resolve('failed')
       setTimeout(poll, 300)
     }
@@ -490,9 +500,12 @@ app.whenReady().then(async () => {
   updates.evaluateBoot(coreHealthy)
   if (petEnabled()) spawnPet(isDev)
   // Let the window and local core settle before contacting the release channel.
+  // A pending rollback notice keeps the stage: the user drives the next check.
   updateCheckTimer = setTimeout(() => {
     updateCheckTimer = null
-    void updates.check()
+    if (updates.getStatus().phase !== 'rollback') {
+      void updates.check()
+    }
   }, 15_000)
 
   app.on('activate', () => {
