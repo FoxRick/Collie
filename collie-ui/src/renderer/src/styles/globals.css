@@ -322,10 +322,65 @@ button {
 .sidebar {
   position: relative;
   z-index: 2;
+  width: 288px;
   background: #101112;
   color: #f8f8f6;
   border-right: 1px solid rgba(255, 255, 255, 0.07);
   box-shadow: 12px 0 32px rgba(16, 17, 18, 0.06);
+  transition: width 180ms ease;
+}
+
+.sidebar.is-collapsed {
+  width: 64px;
+}
+
+.sidebar.is-collapsed .brand-lockup {
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 0 16px;
+}
+
+.sidebar.is-collapsed .brand-name,
+.sidebar.is-collapsed .sidebar-search-toggle {
+  display: none;
+}
+
+.sidebar.is-collapsed .new-chat-button {
+  width: 36px;
+  height: 36px;
+  margin-inline: auto;
+  padding: 0;
+  gap: 0;
+}
+
+.sidebar.is-collapsed .new-chat-button span,
+.sidebar.is-collapsed .sidebar-nav-item span,
+.sidebar.is-collapsed .sidebar-settings span {
+  display: none;
+}
+
+.sidebar.is-collapsed .sidebar-primary {
+  padding: 0 14px;
+}
+
+.sidebar.is-collapsed .sidebar-nav-item {
+  justify-content: center;
+  padding: 0;
+}
+
+.sidebar.is-collapsed .sidebar-search,
+.sidebar.is-collapsed .sidebar-conversation-nav {
+  display: none;
+}
+
+.sidebar.is-collapsed .sidebar-settings {
+  width: 36px;
+  justify-content: center;
+  margin-inline: auto;
+  padding: 0;
+  border-radius: 11px;
+  border-top: none;
 }
 
 .brand-lockup {
@@ -344,6 +399,22 @@ button {
   border-radius: 9px;
   color: var(--collie-text-sidebar-muted);
   transition: background 150ms ease, color 150ms ease;
+}
+
+.sidebar-collapse-toggle {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 9px;
+  color: var(--collie-text-sidebar-muted);
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.sidebar-collapse-toggle:hover,
+.sidebar-collapse-toggle.is-active {
+  background: #252729;
+  color: #fff;
 }
 
 .sidebar-search-toggle:hover,

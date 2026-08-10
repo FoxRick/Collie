@@ -15,6 +15,8 @@ export const en = {
   'sidebar.skills': 'Skills',
   'sidebar.routines': 'Routines',
   'sidebar.connectors': 'Connections',
+  'sidebar.collapseNav': 'Collapse sidebar (Ctrl+B)',
+  'sidebar.expandNav': 'Expand sidebar (Ctrl+B)',
 
   'chat.emptyTitle': "Hey! What's up?",
   'chat.emptySub': 'Ask me anything — weather, plans, ideas, or just say hi.',

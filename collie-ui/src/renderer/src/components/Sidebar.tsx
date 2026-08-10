@@ -5,6 +5,8 @@ import {
   FolderPlus,
   MessageCircle,
   MessageSquarePlus,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pin,
   PinOff,
   Plug,
@@ -18,7 +20,9 @@ import { collieClient, type Conversation } from '../lib/ipc'
 import { useT } from '../lib/i18n'
 import {
   PINNED_CONVERSATIONS_STORAGE_KEY,
+  SIDEBAR_COLLAPSED_STORAGE_KEY,
   readPinnedConversationIds,
+  readSidebarCollapsed,
   reconcilePinnedConversationIds,
   type AppView
 } from '../lib/navigation'
@@ -55,6 +59,9 @@ export default function Sidebar({
 }: Props): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
+  const [collapsed, setCollapsed] = useState<boolean>(() =>
+    typeof localStorage === 'undefined' ? false : readSidebarCollapsed(localStorage)
+  )
   const [pinnedIds, setPinnedIds] = useState<string[]>(() =>
     typeof localStorage === 'undefined' ? [] : readPinnedConversationIds(localStorage)
   )
@@ -68,6 +75,23 @@ export default function Sidebar({
     setPinnedIds(ids)
     localStorage.setItem(PINNED_CONVERSATIONS_STORAGE_KEY, JSON.stringify(ids))
   }
+
+  const toggleCollapsed = (): void => {
+    setSearchOpen(false)
+    setCollapsed((collapsedNow) => !collapsedNow)
+    localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, collapsed ? '0' : '1')
+  }
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b') {
+        event.preventDefault()
+        toggleCollapsed()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   useEffect(() => {
     // Conversation data starts empty while the local store loads. Explicit deletes
@@ -195,7 +219,7 @@ export default function Sidebar({
     ))
 
   return (
-    <aside className="sidebar flex w-72 shrink-0 flex-col">
+    <aside className={`sidebar flex shrink-0 flex-col ${collapsed ? 'is-collapsed' : ''}`}>
       <div className="brand-lockup">
         <div className="brand-mark"><CollieFace size={25} /></div>
         <div className="brand-name">Collie</div>
@@ -216,15 +240,26 @@ export default function Sidebar({
         >
           <Search size={17} />
         </button>
+        <button
+          type="button"
+          className="sidebar-collapse-toggle"
+          onClick={toggleCollapsed}
+          title={collapsed ? t('sidebar.expandNav') : t('sidebar.collapseNav')}
+          aria-label={collapsed ? t('sidebar.expandNav') : t('sidebar.collapseNav')}
+          aria-expanded={!collapsed}
+        >
+          {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+        </button>
       </div>
 
       <button
         type="button"
         onClick={onNewChat}
         className="new-chat-button mx-4 mb-3 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-semibold transition"
+        title={t('sidebar.newChat')}
       >
         <MessageSquarePlus size={16} />
-        {t('sidebar.newChat')}
+        <span>{t('sidebar.newChat')}</span>
       </button>
 
       <div
@@ -258,6 +293,7 @@ export default function Sidebar({
             type="button"
             onClick={() => onNavigate(key)}
             className={`sidebar-nav-item ${activeView === key ? 'is-active' : ''}`}
+            title={label}
             aria-current={activeView === key ? 'page' : undefined}
           >
             <Icon size={17} />
@@ -338,10 +374,11 @@ export default function Sidebar({
       <button
         onClick={() => onNavigate('settings')}
         className={`sidebar-settings mx-4 mb-4 flex items-center gap-2 px-3 py-2.5 text-sm transition ${activeView === 'settings' ? 'is-active' : ''}`}
+        title={t('sidebar.settings')}
         aria-current={activeView === 'settings' ? 'page' : undefined}
       >
         <Settings size={16} />
-        {t('sidebar.settings')}
+        <span>{t('sidebar.settings')}</span>
       </button>
     </aside>
   )

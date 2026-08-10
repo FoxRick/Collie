@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Conversation } from '../lib/ipc'
-import { PINNED_CONVERSATIONS_STORAGE_KEY } from '../lib/navigation'
+import { PINNED_CONVERSATIONS_STORAGE_KEY, SIDEBAR_COLLAPSED_STORAGE_KEY } from '../lib/navigation'
 import Sidebar from './Sidebar'
 
 const { searchMessages } = vi.hoisted(() => ({
@@ -16,6 +16,8 @@ vi.mock('lucide-react', () => ({
   FolderPlus: () => null,
   MessageCircle: () => null,
   MessageSquarePlus: () => null,
+  PanelLeftClose: () => null,
+  PanelLeftOpen: () => null,
   Pin: () => null,
   PinOff: () => null,
   Plug: () => null,
@@ -237,5 +239,60 @@ describe('Sidebar navigation', () => {
     })
     expect(container.querySelector('button[title="Recent chat"]')).not.toBeNull()
     expect(container.querySelector('button[title="Pinned chat"]')).toBeNull()
+  })
+})
+
+describe('Sidebar collapse', () => {
+  it('starts expanded, collapses on toggle, and persists the choice', () => {
+    const container = renderSidebar()
+    const aside = container.querySelector<HTMLElement>('aside')!
+    expect(aside.classList.contains('is-collapsed')).toBe(false)
+
+    const toggle = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="sidebar.collapseNav"]'
+    )!
+    act(() => toggle.click())
+
+    expect(aside.classList.contains('is-collapsed')).toBe(true)
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(toggle.getAttribute('aria-label')).toBe('sidebar.expandNav')
+    expect(localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY)).toBe('1')
+  })
+
+  it('renders collapsed when the preference is persisted, and expands on toggle', () => {
+    localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, '1')
+    const container = renderSidebar()
+    const aside = container.querySelector<HTMLElement>('aside')!
+    expect(aside.classList.contains('is-collapsed')).toBe(true)
+
+    const toggle = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="sidebar.expandNav"]'
+    )!
+    act(() => toggle.click())
+
+    expect(aside.classList.contains('is-collapsed')).toBe(false)
+    expect(localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY)).toBe('0')
+  })
+
+  it('toggles via Ctrl+B and closes any open search', () => {
+    const container = renderSidebar()
+    const searchToggle = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="sidebar.searchLabel"]'
+    )!
+    act(() => searchToggle.click())
+    const searchPanel = container.querySelector<HTMLElement>('#sidebar-search')!
+    expect(searchPanel.hidden).toBe(false)
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', ctrlKey: true, bubbles: true }))
+    })
+    expect(container.querySelector('aside')!.classList.contains('is-collapsed')).toBe(true)
+    expect(searchPanel.hidden).toBe(true)
+    expect(localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY)).toBe('1')
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'B', ctrlKey: true, bubbles: true }))
+    })
+    expect(container.querySelector('aside')!.classList.contains('is-collapsed')).toBe(false)
   })
 })
