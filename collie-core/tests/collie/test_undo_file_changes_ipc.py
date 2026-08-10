@@ -34,10 +34,31 @@ async def test_undo_file_changes_restores_all_entries(
     entry = record_write("conv-1", edited, "overwrite")
     edited.write_text("after", encoding="utf-8")
 
-    result = await _call(server, {"conversation_id": "conv-1", "entry_ids": []})
+    result = await _call(server, {"conversation_id": "conv-1"})
     assert [item["id"] for item in result["undone"]] == [entry]
     assert result["errors"] == []
     assert edited.read_text(encoding="utf-8") == "before"
+
+
+@pytest.mark.asyncio
+async def test_undo_file_changes_empty_entry_ids_is_a_noop(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """An explicit empty list undoes nothing — never a blanket undo."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("COLLIE_HOME", str(home))
+    server = _server(tmp_path)
+
+    edited = home / "notes.md"
+    edited.write_text("before", encoding="utf-8")
+    record_write("conv-1", edited, "overwrite")
+    edited.write_text("after", encoding="utf-8")
+
+    result = await _call(server, {"conversation_id": "conv-1", "entry_ids": []})
+    assert result["undone"] == []
+    assert result["errors"] == []
+    assert edited.read_text(encoding="utf-8") == "after"
 
 
 @pytest.mark.asyncio

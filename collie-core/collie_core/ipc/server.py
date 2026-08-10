@@ -1598,11 +1598,15 @@ class CollieIPCServer:
 
         conversation_id = str(frame.get("conversation_id") or "")
         raw_ids = frame.get("entry_ids")
-        entry_ids = (
-            [str(entry_id) for entry_id in raw_ids if str(entry_id)]
-            if isinstance(raw_ids, list) and raw_ids
-            else None
-        )
+        if raw_ids is None:
+            # Field omitted: undo every journaled entry for this conversation.
+            entry_ids = None
+        elif isinstance(raw_ids, list):
+            # Explicit list (even empty) selects exactly those entries — an
+            # empty list is a deliberate no-op, never a blanket undo.
+            entry_ids = [str(entry_id) for entry_id in raw_ids if str(entry_id)]
+        else:
+            entry_ids = None
         return undo_entries(conversation_id, entry_ids)
 
     async def _cmd_write_file(self, connection: ServerConnection, frame: dict) -> dict:

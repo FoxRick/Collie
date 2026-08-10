@@ -370,3 +370,35 @@ async def test_local_files_writes_without_conversation_skip_journaling(
     created = await tool.execute(operation="create", path="notes.md", content="draft")
     assert not created.is_error
     assert "undo_entry_id" not in json.loads(created)
+
+
+@pytest.mark.asyncio
+async def test_local_files_failed_write_discards_phantom_entry(
+    scoped_tool, tmp_path: Path, monkeypatch
+) -> None:
+    """A write that fails must not leave an undoable journal entry behind."""
+    tool, root = scoped_tool
+    monkeypatch.setenv("COLLIE_HOME", str(tmp_path / "home"))
+
+    with request_context(
+        RequestContext(
+            channel="collie",
+            chat_id="conv-undo",
+            metadata={"permission_context": {"conversation_id": "conv-undo"}},
+        )
+    ):
+        created = await tool.execute(operation="create", path="notes.md", content="draft")
+        assert not created.is_error
+        created_id = json.loads(created).get("undo_entry_id")
+        assert created_id
+
+        # old_text does not match -> the edit fails after record_write ran.
+        failed = await tool.execute(
+            operation="edit", path="notes.md", old_text="missing", new_text="nope"
+        )
+        assert failed.is_error
+        # The phantom entry from the failed edit was discarded; the create
+        # entry remains the only undoable one, and undoing it removes the file.
+        entries = undo_entries("conv-undo")
+        assert [item["id"] for item in entries["undone"]] == [created_id]
+        assert not (root / "notes.md").exists()

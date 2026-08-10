@@ -144,6 +144,27 @@ def record_write(conversation_id: str, path: str | Path, operation: str) -> str 
         return entry_id
 
 
+def discard_write(conversation_id: str, entry_id: str) -> None:
+    """Drop a journal entry that must not be undoable (e.g. the write failed).
+
+    Removes the entry from the manifest and deletes its shadow copy. Safe to
+    call for unknown entry ids — it is a no-op then.
+    """
+    safe_id = _safe_conversation_id(conversation_id)
+    if safe_id is None or not isinstance(entry_id, str) or not entry_id:
+        return
+    conversation_dir = _conversation_dir(safe_id)
+    with _LOCK:
+        entries = _load_manifest(conversation_dir)
+        kept = [entry for entry in entries if entry.get("id") != entry_id]
+        if len(kept) == len(entries):
+            return
+        (conversation_dir / f"{entry_id}.orig").unlink(missing_ok=True)
+        _save_manifest(conversation_dir, kept)
+        if not kept and not any(conversation_dir.iterdir()):
+            shutil.rmtree(conversation_dir, ignore_errors=True)
+
+
 def pending_entries(conversation_id: str) -> list[dict[str, Any]]:
     """Return not-yet-undone journal entries for a conversation, newest first."""
     safe_id = _safe_conversation_id(conversation_id)

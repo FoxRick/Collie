@@ -134,3 +134,36 @@ def test_undo_restores_paths_with_missing_parent(undo_home: Path) -> None:
     result = journal.undo_entries("conv-1")
     assert [item["id"] for item in result["undone"]] == [entry]
     assert target.read_text(encoding="utf-8") == "orig"
+
+
+def test_discard_write_removes_entry_and_shadow(undo_home: Path) -> None:
+    target = undo_home / "notes.md"
+    target.write_text("original", encoding="utf-8")
+    entry = journal.record_write("conv-1", target, "overwrite")
+
+    journal.discard_write("conv-1", str(entry))
+    assert journal.pending_entries("conv-1") == []
+    conversation_dir = undo_home / "undo" / "conv-1"
+    assert not (conversation_dir / f"{entry}.orig").exists()
+
+
+def test_discard_write_keeps_other_entries(undo_home: Path) -> None:
+    first = undo_home / "a.md"
+    first.write_text("a", encoding="utf-8")
+    first_entry = journal.record_write("conv-1", first, "overwrite")
+    second = undo_home / "b.md"
+    second.write_text("b", encoding="utf-8")
+    second_entry = journal.record_write("conv-1", second, "overwrite")
+
+    journal.discard_write("conv-1", str(first_entry))
+    remaining = journal.pending_entries("conv-1")
+    assert [item["id"] for item in remaining] == [second_entry]
+
+
+def test_discard_write_unknown_entry_is_noop(undo_home: Path) -> None:
+    target = undo_home / "notes.md"
+    target.write_text("original", encoding="utf-8")
+    entry = journal.record_write("conv-1", target, "overwrite")
+
+    journal.discard_write("conv-1", "does-not-exist")
+    assert [item["id"] for item in journal.pending_entries("conv-1")] == [entry]
