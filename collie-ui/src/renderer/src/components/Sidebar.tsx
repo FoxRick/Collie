@@ -240,16 +240,6 @@ export default function Sidebar({
         >
           <Search size={17} />
         </button>
-        <button
-          type="button"
-          className="sidebar-collapse-toggle"
-          onClick={toggleCollapsed}
-          title={collapsed ? t('sidebar.expandNav') : t('sidebar.collapseNav')}
-          aria-label={collapsed ? t('sidebar.expandNav') : t('sidebar.collapseNav')}
-          aria-expanded={!collapsed}
-        >
-          {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
-        </button>
       </div>
 
       <button
@@ -371,15 +361,28 @@ export default function Sidebar({
         </section>
       </nav>
 
-      <button
-        onClick={() => onNavigate('settings')}
-        className={`sidebar-settings mx-4 mb-4 flex items-center gap-2 px-3 py-2.5 text-sm transition ${activeView === 'settings' ? 'is-active' : ''}`}
-        title={t('sidebar.settings')}
-        aria-current={activeView === 'settings' ? 'page' : undefined}
-      >
-        <Settings size={16} />
-        <span>{t('sidebar.settings')}</span>
-      </button>
+      <div className="sidebar-footer">
+        <button
+          type="button"
+          onClick={toggleCollapsed}
+          className="sidebar-footer-row mx-4 mb-2 flex items-center gap-2 px-3 py-2.5 text-sm transition"
+          title={collapsed ? t('sidebar.expandNav') : t('sidebar.collapseNav')}
+          aria-label={collapsed ? t('sidebar.expandNav') : t('sidebar.collapseNav')}
+          aria-expanded={!collapsed}
+        >
+          {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          <span>{collapsed ? t('sidebar.expandNav') : t('sidebar.collapseNav')}</span>
+        </button>
+        <button
+          onClick={() => onNavigate('settings')}
+          className={`sidebar-settings sidebar-footer-row mx-4 mb-4 flex items-center gap-2 px-3 py-2.5 text-sm transition ${activeView === 'settings' ? 'is-active' : ''}`}
+          title={t('sidebar.settings')}
+          aria-current={activeView === 'settings' ? 'page' : undefined}
+        >
+          <Settings size={16} />
+          <span>{t('sidebar.settings')}</span>
+        </button>
+      </div>
     </aside>
   )
 }

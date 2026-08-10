@@ -334,53 +334,20 @@ button {
   width: 64px;
 }
 
-.sidebar.is-collapsed .brand-lockup {
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 20px 0 16px;
-}
-
+/* Collapse hides labels and non-essential blocks only — every icon keeps
+   the exact x-position it has when expanded, so collapsing feels like the
+   labels simply disappeared rather than the rail re-centering. */
 .sidebar.is-collapsed .brand-name,
-.sidebar.is-collapsed .sidebar-search-toggle {
-  display: none;
-}
-
-.sidebar.is-collapsed .new-chat-button {
-  width: 36px;
-  height: 36px;
-  margin-inline: auto;
-  padding: 0;
-  gap: 0;
-}
-
-.sidebar.is-collapsed .new-chat-button span,
-.sidebar.is-collapsed .sidebar-nav-item span,
-.sidebar.is-collapsed .sidebar-settings span {
-  display: none;
-}
-
-.sidebar.is-collapsed .sidebar-primary {
-  padding: 0 14px;
-}
-
-.sidebar.is-collapsed .sidebar-nav-item {
-  justify-content: center;
-  padding: 0;
-}
-
+.sidebar.is-collapsed .sidebar-search-toggle,
 .sidebar.is-collapsed .sidebar-search,
 .sidebar.is-collapsed .sidebar-conversation-nav {
   display: none;
 }
 
-.sidebar.is-collapsed .sidebar-settings {
-  width: 36px;
-  justify-content: center;
-  margin-inline: auto;
-  padding: 0;
-  border-radius: 11px;
-  border-top: none;
+.sidebar.is-collapsed .new-chat-button span,
+.sidebar.is-collapsed .sidebar-nav-item span,
+.sidebar.is-collapsed .sidebar-footer-row span {
+  display: none;
 }
 
 .brand-lockup {
@@ -401,20 +368,24 @@ button {
   transition: background 150ms ease, color 150ms ease;
 }
 
-.sidebar-collapse-toggle {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  border-radius: 9px;
-  color: var(--collie-text-sidebar-muted);
-  transition: background 150ms ease, color 150ms ease;
+.sidebar-collapse-toggle,
+.sidebar-footer-row {
+  border-radius: 0;
+  color: #a9aba7;
+  font-weight: 590;
+  text-align: left;
+  transition: color 150ms ease, background 150ms ease;
 }
 
 .sidebar-collapse-toggle:hover,
-.sidebar-collapse-toggle.is-active {
-  background: #252729;
+.sidebar-footer-row:hover {
   color: #fff;
+}
+
+.sidebar-collapse-toggle.is-active,
+.sidebar-footer-row.is-active {
+  color: #fff;
+  box-shadow: inset 2px 0 0 var(--collie-amber);
 }
 
 .sidebar-search-toggle:hover,
@@ -563,16 +534,13 @@ button {
   opacity: 1;
 }
 
-.sidebar-settings {
+.sidebar-footer {
+  margin-top: auto;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 0;
-  color: #a9aba7 !important;
 }
 
-.sidebar-settings:hover { color: #fff !important; }
-.sidebar-settings.is-active {
-  color: #fff !important;
-  box-shadow: inset 2px 0 0 var(--collie-amber);
+.sidebar-settings {
+  border-radius: 0;
 }
 
 .section-workspace {
