@@ -6,6 +6,7 @@ from contextvars import ContextVar
 from datetime import datetime
 from typing import Any
 
+from collie_core.permissions.models import PermissionRequest, Risk
 from nanobot.agent.tools.base import Tool, ToolResult, tool_parameters
 from nanobot.agent.tools.context import current_request_context
 from nanobot.agent.tools.schema import (
@@ -117,6 +118,38 @@ class CronTool(Tool):
         return (
             "Schedule reminders and recurring tasks. Actions: add, list, remove. "
             f"If tz is omitted, cron expressions and naive ISO times default to {self._default_timezone}."
+        )
+
+    def permission_request(self, params: dict[str, Any]) -> PermissionRequest:
+        action = str(params.get("action") or "").strip().lower()
+        if action == "remove":
+            return PermissionRequest(
+                action="delete.destructive",
+                resource=str(params.get("job_id") or "scheduled job"),
+                risk=Risk.DESTRUCTIVE,
+                summary="Delete this scheduled job",
+                reversible=False,
+                hard_approval=True,
+            )
+        if action == "add":
+            return PermissionRequest(
+                action="cron.add",
+                resource="cron",
+                risk=Risk.LOCAL_WRITE,
+                summary="Schedule a recurring task",
+                reversible=False,
+                # Recurring authority is never automatic or run-approvable:
+                # a scheduled job keeps acting for the user. The ``cron.``
+                # prefix also excludes it from any future automatic-local
+                # eligibility (see permissions.defaults).
+                hard_approval=True,
+            )
+        return PermissionRequest(
+            action="cron.list",
+            resource="cron",
+            risk=Risk.LOCAL_WRITE,
+            summary="List scheduled tasks",
+            reversible=True,
         )
 
     def validate_params(self, params: dict[str, Any]) -> list[str]:

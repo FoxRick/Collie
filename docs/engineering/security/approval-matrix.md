@@ -10,7 +10,7 @@ This is the current implementation overview. Code and focused tests remain the s
 Collie starts new chats in **Execute** mode. **Plan** remains strictly read-only. In Execute, the permission system makes an explicit per-operation decision immediately before a tool runs:
 
 - Read-only operations are allowed, subject to project and network safety checks.
-- Explicitly classified, reversible local personal actions are prompt-free. This includes ordinary notes, one-time reminders, non-destructive shopping-list work, image creation, local calendar/contact updates, one-time goals, and starting a focused subagent.
+- Explicitly classified, reversible local personal actions are prompt-free. This includes ordinary notes, one-time reminders, non-destructive shopping-list work, image creation, local calendar/contact updates, one-time goals, starting a focused subagent, and bounded file work inside the user-granted scope (reading content, creating files, and saving new files).
 - Other explicitly eligible local work can use the user's **Approve for me** setting or an approved-for-this-task rule. **Ask me** is the conservative default and presents a normal approval card for that work.
 - A broad setting or task rule is never inferred just from `LOCAL_WRITE`. Each operation must opt in, and a task-wide rule is checked again when it is used.
 - Financial transactions, sends, publishing/external writes, destructive actions, sensitive work, credentials/connectors, reusable capabilities, schedules/routines, provider/settings changes, and unknown MCP work still require their own approval path. No saved rule or task-wide approval bypasses a hard action.
@@ -50,7 +50,7 @@ The classifier inspects multi-action wrapper parameters as well as tool names, s
 
 `local_files` is the agent-facing tool for everyday document work. It can list folders; read small UTF-8 text files; and create, save, overwrite, or make one exact edit to supported text artifacts. It does not offer shell access, file deletion, network paths, device paths, symlink/junction hops, Word/PDF binaries, or unrestricted binary handling. Replacements are atomic; read hashes can protect a subsequent overwrite from a stale read.
 
-Reading text may send its contents to the configured model provider to answer the request; the tool says so in its permission metadata. Writing remains local-only. Folder choice is a boundary, not automatic permission to write: in **Ask me** mode an eligible bounded write prompts, while **Approve for me** can continue an explicitly eligible local write.
+Reading text may send its contents to the configured model provider to answer the request; the tool says so in its permission metadata (summary + `data_leaving_device`). **Selecting a Files scope is explicit consent for the content inside it** — including that an in-scope read may send the file's text to the configured model provider — so in-scope reads are prompt-free. Writing stays local-only. Inside the granted scope, reversible writes (create, save of a new file) are prompt-free too; overwriting or editing an existing file still prompts because it destroys prior content (in **Ask me** mode an eligible bounded write prompts, while **Approve for me** can continue an explicitly eligible local write).
 
 The chat composer exposes one compact **Files** selector that combines the
 conversation project folder with the local-file boundary:

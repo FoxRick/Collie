@@ -164,8 +164,10 @@ class PermissionEvaluator:
             )
             if redacted.get("unrestricted_local_files") is True:
                 # Full local-file access is selected: no project-boundary ask
-                # for local file tools (reads that disclose content still hit
-                # their own hard-approval gate above).
+                # for local file tools. In-scope content reads are covered by
+                # the folder/file-access consent itself (local_files declares
+                # them READ rather than hard-gated); any other operation still
+                # hits its own gates above and below.
                 return PermissionDecision(
                     Effect.ALLOW, "Full local file access is selected."
                 )

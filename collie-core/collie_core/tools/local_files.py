@@ -16,6 +16,7 @@ from typing import Any
 
 from collie_core.permissions.broker import PermissionDeniedError
 from collie_core.permissions.models import PermissionRequest, Risk, Scope
+from collie_core.undo.journal import discard_write, record_write
 from nanobot.agent.tools.base import Tool, ToolResult, tool_parameters
 from nanobot.agent.tools.context import current_request_context
 from nanobot.security.workspace_access import (
@@ -359,7 +360,7 @@ class LocalFilesTool(Tool):
             return PermissionRequest(
                 action="local_file.read",
                 resource=resource,
-                risk=Risk.SENSITIVE,
+                risk=Risk.READ,
                 summary=f"Read {resource} and send its text to {provider}",
                 reversible=True,
                 data_leaving_device=(provider,),
@@ -372,9 +373,16 @@ class LocalFilesTool(Tool):
                     "allowed_local_roots": allowed_roots,
                     "unrestricted_local_files": unrestricted,
                 },
-                # Selecting a Files scope limits where the tool may look; it
-                # is not consent to disclose this file's contents externally.
-                hard_approval=True,
+                # Selecting a Files scope (project folder, chosen folders, or
+                # full file access) is explicit consent for the content inside
+                # it — including that a read may send the file's text to the
+                # configured model provider, which the summary and
+                # data_leaving_device above still disclose honestly. In-scope
+                # reads therefore need no per-file approval card; targets
+                # outside the granted scope were already refused above (no
+                # dead-end approvals). Irreversible writes and external
+                # actions keep their own gates.
+                hard_approval=False,
             )
         return PermissionRequest(
             action="local_file.write" if is_write else "local_file.read",
@@ -391,11 +399,12 @@ class LocalFilesTool(Tool):
                 "allowed_local_roots": allowed_roots,
                 "unrestricted_local_files": unrestricted,
             },
-            # A folder selection defines where files may be touched, not an
-            # automatic consent to edit them.  Workstream A can offer an
-            # explicit "approve for me" run rule for these bounded writes.
-            # The execution path revalidates scope before every change.
-            approval_free=False,
+            # A folder selection defines where files may be touched. Reversible
+            # bounded work inside it (create, save of a new file) is
+            # approval-free; overwriting or editing an existing file stays an
+            # explicit approval because it destroys prior content. The
+            # execution path revalidates scope before every change.
+            approval_free=bool(safe_write and reversible),
             approve_for_me=safe_write,
         )
 
@@ -413,6 +422,8 @@ class LocalFilesTool(Tool):
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         operation = str(kwargs.get("operation") or "").lower()
+        undo_entry_id: str | None = None
+        conversation_id: str | None = None
         try:
             target, _in_scope = _resolve_local_path(
                 str(kwargs.get("path") or ""), allow_directory=operation == "list"
@@ -422,6 +433,11 @@ class LocalFilesTool(Tool):
             _require_text_artifact(target)
             if operation == "read":
                 return self._read(target, int(kwargs.get("max_chars") or 12_000))
+            # Snapshot the pre-write state so the user can take the change
+            # back with one tap. Skipped (returns None) when no conversation
+            # id is in scope or the file is too large to copy.
+            conversation_id = _current_conversation_id()
+            undo_entry_id = record_write(conversation_id, target, operation)
             if operation == "create":
                 if not target.parent.is_dir():
                     raise _LocalFileError("The destination folder does not exist.")
@@ -441,12 +457,31 @@ class LocalFilesTool(Tool):
                 else:
                     _atomic_create(target, payload)
             elif operation == "edit":
-                return self._edit(target, str(kwargs.get("old_text")), str(kwargs.get("new_text")))
+                result = self._edit(
+                    target, str(kwargs.get("old_text")), str(kwargs.get("new_text"))
+                )
+                if not result.is_error and undo_entry_id:
+                    edited_payload = json.loads(result)
+                    edited_payload["undo_entry_id"] = undo_entry_id
+                    return ToolResult(json.dumps(edited_payload))
+                return result
             else:
                 raise _LocalFileError("Choose list, read, create, overwrite, edit, or save.")
         except (OSError, UnicodeError, WorkspaceBoundaryError, _LocalFileError) as exc:
+            if undo_entry_id and conversation_id:
+                # The write never happened — don't leave an undoable entry
+                # for a file that was not changed (a later undo would be a
+                # confusing no-op).
+                discard_write(conversation_id, undo_entry_id)
             return ToolResult.error(f"I couldn't work with that local file: {exc}")
-        return ToolResult(json.dumps({"operation": operation, "path": str(target), "local_only": True}))
+        result_payload: dict[str, Any] = {
+            "operation": operation,
+            "path": str(target),
+            "local_only": True,
+        }
+        if undo_entry_id:
+            result_payload["undo_entry_id"] = undo_entry_id
+        return ToolResult(json.dumps(result_payload))
 
     @staticmethod
     def _list(path: Path, max_entries: int) -> ToolResult:

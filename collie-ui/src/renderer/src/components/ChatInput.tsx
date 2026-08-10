@@ -861,6 +861,10 @@ export default function ChatInput({
                 <div className="context-popover-heading context-popover-heading--section">
                   Access for this chat
                 </div>
+                <p className="context-popover-note">
+                  Files Collie reads inside this scope may be sent to{' '}
+                  {activeProvider?.name || 'your model provider'}.
+                </p>
                 <button
                   type="button"
                   aria-pressed={fileAccessScope.mode === 'selected_folder'}
