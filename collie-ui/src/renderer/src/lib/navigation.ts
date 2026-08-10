@@ -7,6 +7,7 @@ export type AppView =
   | 'settings'
 
 export const PINNED_CONVERSATIONS_STORAGE_KEY = 'collie.pinnedConversations'
+export const SIDEBAR_COLLAPSED_STORAGE_KEY = 'collie.sidebarCollapsed'
 
 export function readPinnedConversationIds(storage: Pick<Storage, 'getItem'>): string[] {
   try {
@@ -15,6 +16,14 @@ export function readPinnedConversationIds(storage: Pick<Storage, 'getItem'>): st
     return [...new Set(value.filter((id): id is string => typeof id === 'string' && id.length > 0))]
   } catch {
     return []
+  }
+}
+
+export function readSidebarCollapsed(storage: Pick<Storage, 'getItem'>): boolean {
+  try {
+    return storage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === '1'
+  } catch {
+    return false
   }
 }
 
