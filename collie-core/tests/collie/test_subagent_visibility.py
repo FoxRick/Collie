@@ -211,3 +211,97 @@ async def test_shutdown_freezes_intake_before_queued_messenger_dispatch(
     assert runtime._loop_task is None
     assert runtime.loop is None
     db.close()
+
+
+@pytest.mark.asyncio
+async def test_outbound_consumer_artifact_event_reaches_messenger_dispatch(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """ArtifactEvent on a messenger channel goes to the channel queue, not IPC.
+
+    The normie text fallback (``📎 Made: …``) is the messenger UX for things;
+    intercepting the event before the channel dispatch would swallow it.
+    """
+    monkeypatch.setenv("COLLIE_HOME", str(tmp_path / ".collie"))
+    db = CollieDB(tmp_path / ".collie" / "collie.db")
+    runtime = CollieRuntime(port=_free_port(), db=db)
+    bus = MessageBus()
+    runtime.loop = SimpleNamespace(
+        bus=bus,
+        subagents=SimpleNamespace(get_running_count_by_session=lambda key: 0),
+    )
+
+    dispatched: list[Any] = []
+    broadcasts: list[dict[str, Any]] = []
+
+    async def capture_dispatch(msg: Any) -> bool:
+        dispatched.append(msg)
+        return True
+
+    async def capture_broadcast(payload: dict[str, Any]) -> None:
+        broadcasts.append(payload)
+
+    monkeypatch.setattr(runtime.messengers, "dispatch", capture_dispatch)
+    monkeypatch.setattr(runtime.ipc, "broadcast", capture_broadcast)
+
+    from nanobot.bus.outbound_events import ArtifactEvent, outbound_message_for_event
+
+    task = asyncio.create_task(runtime._consume_outbound())
+    try:
+        # Messenger channel: must reach messengers.dispatch (text fallback).
+        await bus.publish_outbound(
+            outbound_message_for_event(
+                channel="telegram",
+                chat_id="12345",
+                event=ArtifactEvent(
+                    artifact_id="th_abc",
+                    title="Dog walk flyer",
+                    kind="image",
+                    file_path="/tmp/flyer.png",
+                    size_bytes=8,
+                    created_at=1.0,
+                ),
+                content="📎 Made: Dog walk flyer · Open",
+            )
+        )
+        # Collie channel: must become an IPC artifact broadcast, never a chat
+        # bubble (the model mentions the thing in its own reply).
+        conv = db.create_conversation("trip")
+        await bus.publish_outbound(
+            outbound_message_for_event(
+                channel="collie",
+                chat_id=conv["id"],
+                event=ArtifactEvent(
+                    artifact_id="th_def",
+                    title="Trip notes",
+                    kind="document",
+                    file_path="/tmp/notes.md",
+                    size_bytes=8,
+                    created_at=1.0,
+                ),
+                content="📎 Made: Trip notes · Open",
+            )
+        )
+        for _ in range(100):
+            if dispatched and any(b.get("type") == "artifact" for b in broadcasts):
+                break
+            await asyncio.sleep(0.02)
+    finally:
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    assert len(dispatched) == 1
+    assert dispatched[0].channel == "telegram"
+    assert dispatched[0].content == "📎 Made: Dog walk flyer · Open"
+
+    artifacts = [b for b in broadcasts if b.get("type") == "artifact"]
+    assert len(artifacts) == 1
+    assert artifacts[0]["conversation_id"] == conv["id"]
+    assert artifacts[0]["artifact"]["title"] == "Trip notes"
+    # No chat bubble for the collie artifact (skip the duplicate).
+    message_events = [b for b in broadcasts if b.get("type") == "message"]
+    assert message_events == []
+    db.close()

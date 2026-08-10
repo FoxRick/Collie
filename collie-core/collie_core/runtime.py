@@ -849,12 +849,16 @@ class CollieRuntime:
             outbound = await loop.bus.consume_outbound()
             try:
                 channel = str(getattr(outbound, "channel", "") or "")
+                if channel != "collie":
+                    # Messenger-bound replies go to the channel queue even when
+                    # they carry a typed event (e.g. an ArtifactEvent falls
+                    # back to its normie text in channel.send). Intercepting
+                    # here would swallow the fallback for Telegram/Discord/…
+                    await self.messengers.dispatch(outbound)
+                    continue
                 event = outbound_event_from_message(outbound)
                 if isinstance(event, ArtifactEvent):
                     await self._deliver_artifact_event(event, outbound)
-                    continue
-                if channel != "collie":
-                    await self.messengers.dispatch(outbound)
                     continue
                 conv_id = str(getattr(outbound, "chat_id", "") or "")
                 content = str(getattr(outbound, "content", "") or "")
