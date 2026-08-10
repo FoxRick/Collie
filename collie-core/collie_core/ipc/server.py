@@ -1587,6 +1587,24 @@ class CollieIPCServer:
             return {"content": ""}
         return {"content": file_path.read_text(encoding="utf-8")}
 
+    async def _cmd_undo_file_changes(self, connection: ServerConnection, frame: dict) -> dict:
+        """One-tap undo: restore files Collie changed in a conversation.
+
+        Restores the pre-write bytes (or removes created files) from the
+        shadow journal. Scope is strictly the entries recorded for this
+        conversation; ``entry_ids`` narrows to a subset (all when omitted).
+        """
+        from collie_core.undo.journal import undo_entries
+
+        conversation_id = str(frame.get("conversation_id") or "")
+        raw_ids = frame.get("entry_ids")
+        entry_ids = (
+            [str(entry_id) for entry_id in raw_ids if str(entry_id)]
+            if isinstance(raw_ids, list) and raw_ids
+            else None
+        )
+        return undo_entries(conversation_id, entry_ids)
+
     async def _cmd_write_file(self, connection: ServerConnection, frame: dict) -> dict:
         file_path = self._resolve_workspace_path(str(frame.get("path") or ""))
         content = str(frame.get("content") or "")
@@ -3311,6 +3329,11 @@ class CollieIPCServer:
                 await self.send_thinking(conv_id, "idle")
                 return
             card_type, card_data = self._extract_card(tool_results)
+            files_card_type, files_card_data = self._files_changed_card(tool_results, conv_id)
+            if files_card_type:
+                # The undo surface wins: a turn that changed files shows the
+                # files_changed card (with its one-tap undo) over any info card.
+                card_type, card_data = files_card_type, files_card_data
             failure_message = self.db.add_message(
                 conv_id,
                 "assistant",
@@ -3388,6 +3411,11 @@ class CollieIPCServer:
                 terminal_task = turn_task_snapshot
 
         card_type, card_data = self._extract_card(tool_results)
+        files_card_type, files_card_data = self._files_changed_card(tool_results, conv_id)
+        if files_card_type:
+            # The undo surface wins: a turn that changed files shows the
+            # files_changed card (with its one-tap undo) over any info card.
+            card_type, card_data = files_card_type, files_card_data
         final = getattr(outbound, "content", None) or "".join(parts)
         message_task = terminal_task
         if run_id:
@@ -3423,3 +3451,42 @@ class CollieIPCServer:
                 data.pop("plan_change_terminal_message", None)
                 return card_type, data
         return None, None
+
+    @staticmethod
+    def _files_changed_card(
+        tool_results: list[str], conversation_id: str
+    ) -> tuple[str | None, Any]:
+        """Build a ``files_changed`` card from this turn's undo journal entries.
+
+        LocalFilesTool writes carry ``undo_entry_id`` in their result JSON;
+        each becomes one card row the UI can take back with a single tap.
+        Returns ``(None, None)`` when the turn changed no local files.
+        """
+        import json as _json
+
+        write_operations = frozenset({"create", "overwrite", "edit", "save"})
+        files: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for raw in tool_results:
+            try:
+                data = _json.loads(raw)
+            except (TypeError, _json.JSONDecodeError):
+                continue
+            if not isinstance(data, dict):
+                continue
+            entry_id = data.get("undo_entry_id")
+            operation = str(data.get("operation") or "")
+            path = str(data.get("path") or "")
+            if not entry_id or operation not in write_operations or not path:
+                continue
+            if entry_id in seen:
+                continue
+            seen.add(str(entry_id))
+            files.append({
+                "path": path,
+                "status": "added" if operation == "create" else "modified",
+                "undo_entry_id": str(entry_id),
+            })
+        if not files:
+            return None, None
+        return "files_changed", {"files": files, "conversation_id": conversation_id}

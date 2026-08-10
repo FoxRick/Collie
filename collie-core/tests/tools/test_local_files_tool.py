@@ -12,6 +12,7 @@ from collie_core.permissions.evaluator import PermissionEvaluator
 from collie_core.permissions.models import ExecutionContext, Risk
 from collie_core.permissions.store import PermissionStore
 from collie_core.tools.local_files import LocalFilesTool
+from collie_core.undo.journal import undo_entries
 from nanobot.agent.tools.context import RequestContext, request_context
 from nanobot.security.workspace_access import (
     bind_workspace_scope,
@@ -320,3 +321,52 @@ def test_live_file_access_override_is_conversation_scoped(tmp_path: Path) -> Non
     finally:
         clear_live_local_file_scope("conv-a")
         reset_workspace_scope(token)
+
+
+@pytest.mark.asyncio
+async def test_local_files_writes_journal_undoable_entries(
+    scoped_tool, tmp_path: Path, monkeypatch
+) -> None:
+    """Writes inside a conversation snapshot the pre-write state; undo restores."""
+    tool, root = scoped_tool
+    monkeypatch.setenv("COLLIE_HOME", str(tmp_path / "home"))
+
+    with request_context(
+        RequestContext(
+            channel="collie",
+            chat_id="conv-undo",
+            metadata={"permission_context": {"conversation_id": "conv-undo"}},
+        )
+    ):
+        created = await tool.execute(operation="create", path="notes.md", content="draft")
+        assert not created.is_error
+        created_id = json.loads(created).get("undo_entry_id")
+        assert created_id
+
+        edited = await tool.execute(
+            operation="edit", path="notes.md", old_text="draft", new_text="final"
+        )
+        assert not edited.is_error
+        edited_id = json.loads(edited).get("undo_entry_id")
+        assert edited_id
+        assert (root / "notes.md").read_text(encoding="utf-8") == "final"
+
+        undone = undo_entries("conv-undo")
+        assert {item["id"] for item in undone["undone"]} == {created_id, edited_id}
+        # Undo order is newest-first: the edit restores "draft", then the
+        # create entry removes the file entirely.
+        assert not (root / "notes.md").exists()
+        assert undone["errors"] == []
+
+
+@pytest.mark.asyncio
+async def test_local_files_writes_without_conversation_skip_journaling(
+    scoped_tool, tmp_path: Path, monkeypatch
+) -> None:
+    """No conversation id in scope -> write still works, no undo entry."""
+    tool, root = scoped_tool
+    monkeypatch.setenv("COLLIE_HOME", str(tmp_path / "home"))
+
+    created = await tool.execute(operation="create", path="notes.md", content="draft")
+    assert not created.is_error
+    assert "undo_entry_id" not in json.loads(created)

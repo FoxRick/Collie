@@ -719,6 +719,20 @@ export class CollieClient {
     return this.command('rollback_artifact', { version_id: versionId })
   }
 
+  /** One-tap undo of local file changes made in a conversation. */
+  undoFileChanges(
+    conversationId: string,
+    entryIds?: string[]
+  ): Promise<{
+    undone: Array<{ id: string; path: string }>
+    errors: Array<{ id: string; path: string; message: string }>
+  }> {
+    return this.command('undo_file_changes', {
+      conversation_id: conversationId,
+      entry_ids: entryIds ?? []
+    })
+  }
+
   /** Manual trigger: run one Dream consolidation pass (Settings -> Memory). */
   runDream(): Promise<{
     changed: boolean
