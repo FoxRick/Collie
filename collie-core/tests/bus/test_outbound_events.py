@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.outbound_events import (
+    ArtifactEvent,
     GoalStateSyncEvent,
     GoalStatusEvent,
     ProgressEvent,
@@ -242,3 +243,31 @@ def test_streamed_response_event_keeps_final_content_outside_event_payload() -> 
 
     assert msg.content == "final answer"
     assert isinstance(outbound_event_from_message(msg), StreamedResponseEvent)
+
+
+def test_artifact_event_roundtrip_with_normie_fallback_content() -> None:
+    msg = outbound_message_for_event(
+        channel="collie",
+        chat_id="conv-1",
+        event=ArtifactEvent(
+            artifact_id="th_abc123",
+            title="Dog walk flyer",
+            kind="image",
+            file_path="/tmp/flyer.png",
+            size_bytes=2048,
+            created_at=1_720_000_000.0,
+        ),
+        content="📎 Made: Dog walk flyer · Open",
+    )
+
+    assert msg.content == "📎 Made: Dog walk flyer · Open"
+
+    event = outbound_event_from_message(msg)
+    assert isinstance(event, ArtifactEvent)
+    assert event.artifact_id == "th_abc123"
+    assert event.title == "Dog walk flyer"
+    assert event.kind == "image"
+    assert event.file_path == "/tmp/flyer.png"
+    assert event.size_bytes == 2048
+    assert event.status == "new"
+    assert event.version == 1

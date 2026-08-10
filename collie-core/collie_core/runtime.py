@@ -39,6 +39,8 @@ from collie_core.permissions.store import PermissionStore
 from collie_core.services.manager import bind_service_manager
 from collie_core.session_identity import desktop_session_key
 from collie_core.subagents.loader import SubagentLoader, bind_subagent_loader
+from collie_core.things.store import ThingStore
+from collie_core.tools.artifacts import bind_things
 from collie_core.tools.life_db import bind_life_db
 from collie_core.tools.memory import bind_profile_store
 from collie_core.tools.model_switch import SetModelTool, bind_model_switcher
@@ -78,6 +80,8 @@ class CollieRuntime:
         bind_plans_db(self.db)
         bind_model_switcher(self._switch_model)
         bind_task_checklists_db(self.db)
+        self.things = ThingStore()
+        bind_things(store=self.things)
         # The connector manager keeps the old ServiceManager-shaped facade for
         # one transition release, so existing life-tool bridges stay bootable.
         self.services = ConnectorManager(self.db)
@@ -175,6 +179,7 @@ class CollieRuntime:
             self.db, mcp_servers=self.services.mcp_servers_for_config()
         )
         bus = CollieBus(on_inbound=self._on_messenger_inbound)
+        bind_things(bus=bus)
         provider_override = self._provider_override()
         telemetry_factories = [create_telemetry_hook_factory(self.db)]
         if provider_override is not None:
@@ -835,10 +840,19 @@ class CollieRuntime:
         loop = self.loop
         if loop is None:
             return
+        from nanobot.bus.outbound_events import (
+            ArtifactEvent,
+            outbound_event_from_message,
+        )
+
         while True:
             outbound = await loop.bus.consume_outbound()
             try:
                 channel = str(getattr(outbound, "channel", "") or "")
+                event = outbound_event_from_message(outbound)
+                if isinstance(event, ArtifactEvent):
+                    await self._deliver_artifact_event(event, outbound)
+                    continue
                 if channel != "collie":
                     await self.messengers.dispatch(outbound)
                     continue
@@ -858,6 +872,35 @@ class CollieRuntime:
                 await self.ipc.send_thinking(conv_id, state)
             except Exception:
                 logger.exception("Failed to deliver background message")
+
+    async def _deliver_artifact_event(self, event: Any, outbound: Any) -> None:
+        """Broadcast a registered "thing" to the desktop panel.
+
+        The ``save_thing`` tool already persisted the record and published the
+        event; this only pushes the desktop payload to IPC clients for the
+        conversation the tool ran in. Messenger channels never reach this
+        branch — they fall back to the message's normie text (``📎 Made: …``)
+        via ``messengers.dispatch``.
+        """
+        conv_id = str(getattr(outbound, "chat_id", "") or "")
+        if not conv_id or self.db.get_conversation(conv_id) is None:
+            return
+        await self.ipc.broadcast(
+            {
+                "type": "artifact",
+                "conversation_id": conv_id,
+                "artifact": {
+                    "id": event.artifact_id,
+                    "title": event.title,
+                    "kind": event.kind,
+                    "path": event.file_path,
+                    "size_bytes": event.size_bytes,
+                    "created_at": event.created_at,
+                    "status": event.status,
+                    "version": event.version,
+                },
+            }
+        )
 
     def _subagents_running(self, conversation_id: str) -> int:
         """How many subagents are still working for a conversation."""

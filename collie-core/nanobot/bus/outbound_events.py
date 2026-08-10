@@ -81,6 +81,27 @@ class RuntimeModelUpdatedEvent(OutboundEvent):
     model_preset: str | None = None
 
 
+@dataclass(frozen=True)
+class ArtifactEvent(OutboundEvent):
+    """A finished deliverable registered for the user's "Your things" panel.
+
+    Internal name only — user-facing copy never uses the word "artifact"; the
+    desktop UI renders this as a thing card. Carried by
+    :attr:`OutboundMessage.event`; channels that cannot render it (Telegram,
+    Discord, …) fall back to the message ``content``, which the emitter sets
+    to a short normie line like ``📎 Made: Dog walk flyer · Open``.
+    """
+
+    artifact_id: str
+    title: str
+    kind: str
+    file_path: str
+    size_bytes: int
+    created_at: float
+    status: str = "new"
+    version: int = 1
+
+
 def outbound_message_for_event(
     *,
     channel: str,
