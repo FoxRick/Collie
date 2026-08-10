@@ -209,6 +209,7 @@ class CollieIPCServer:
         token: str | None = None,
         dream_runner: Callable[[], Awaitable[dict[str, Any]]] | None = None,
         gardener_runner: Callable[[], Awaitable[dict[str, Any]]] | None = None,
+        thing_store: Any = None,
     ) -> None:
         self.db = db
         self.host = host
@@ -243,6 +244,7 @@ class CollieIPCServer:
         self._token = token
         self._dream_runner = dream_runner
         self._gardener_runner = gardener_runner
+        self._thing_store = thing_store
         self._clients: set[ServerConnection] = set()
         self._server: Any = None
         self._chat_tasks: dict[str, asyncio.Task] = {}
@@ -621,6 +623,20 @@ class CollieIPCServer:
             self.db.list_conversations,
             bool(frame.get("include_archived")),
         )}
+
+    async def _cmd_list_things(self, connection: ServerConnection, frame: dict) -> dict:
+        """Hydrate the "Your things" panel for a conversation (read-only)."""
+        conv_id = str(frame.get("conversation_id") or "")
+        if not conv_id:
+            raise ValueError("conversation_id is required")
+        # Default root (~/.collie/things) matches the runtime's own ThingStore,
+        # so a server-side instance reads the same index files when the
+        # runtime hasn't injected its store.
+        from collie_core.things.store import ThingStore
+
+        store = self._thing_store if self._thing_store is not None else ThingStore()
+        things = await asyncio.to_thread(store.list, conv_id)
+        return {"things": things}
 
     async def _cmd_get_messages(self, connection: ServerConnection, frame: dict) -> dict:
         conv_id = str(frame.get("conversation_id") or "")

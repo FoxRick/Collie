@@ -97,6 +97,45 @@ class _RecordingConnection:
 
 
 @pytest.mark.asyncio
+async def test_list_things_roundtrip(tmp_path: Path) -> None:
+    """list_things hydrates the panel from the injected ThingStore."""
+    from collie_core.things.store import ThingStore
+
+    store = ThingStore(tmp_path / "things")
+    store.register(
+        conversation_id="conv_test",
+        artifact_id="thing-1",
+        title="Dog walk flyer",
+        kind="document",
+        path="/tmp/flyer.md",
+        size_bytes=2048,
+        created_at=1720000000.0,
+    )
+    db = CollieDB(tmp_path / "collie.db")
+    srv = CollieIPCServer(db, port=_free_port(), thing_store=store)
+    await srv.start()
+    try:
+        ws = await _connect(srv)
+        await _send(ws, type="list_things", id="t1", conversation_id="conv_test")
+        reply = await _recv_until(ws, "ok")
+        assert reply["id"] == "t1"
+        things = reply["data"]["things"]
+        assert len(things) == 1
+        assert things[0]["title"] == "Dog walk flyer"
+        assert things[0]["kind"] == "document"
+        # Unknown conversation → empty list, not an error.
+        await _send(ws, type="list_things", id="t2", conversation_id="conv_missing")
+        reply = await _recv_until(ws, "ok")
+        assert reply["data"]["things"] == []
+        # Missing conversation id → error.
+        await _send(ws, type="list_things", id="t3")
+        reply = await _recv_until(ws, "error")
+        assert "conversation_id" in reply["message"]
+    finally:
+        await srv.stop()
+
+
+@pytest.mark.asyncio
 async def test_ping_and_status(server: CollieIPCServer) -> None:
     ws = await _connect(server)
     await _send(ws, type="ping", id="1")

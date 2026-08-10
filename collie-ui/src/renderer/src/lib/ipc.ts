@@ -23,6 +23,18 @@ export interface MessageAttachment {
   preview_data_url?: string
 }
 
+/** One finished deliverable in the "Your things" panel (backend: ThingRecord). */
+export interface Thing {
+  id: string
+  title: string
+  kind: 'image' | 'document' | 'sheet' | 'pdf' | 'web' | 'file' | string
+  path: string
+  size_bytes: number
+  created_at: string
+  status: string
+  version: number
+}
+
 export interface AttachmentDraft extends MessageAttachment {
   data_url: string
 }
@@ -447,6 +459,7 @@ export type CollieEvent =
   | ({ type: 'thinking' } & ThinkingState)
   | { type: 'delta'; conversation_id: string; text: string }
   | { type: 'message'; conversation_id: string; message: CollieMessage }
+  | { type: 'artifact'; conversation_id: string; artifact: Thing }
   | { type: 'card'; conversation_id: string; card_type: string; card_data: Record<string, unknown> }
   | { type: 'conversation_updated'; conversation: Conversation }
   | { type: 'error'; conversation_id?: string; id?: string; message: string; detail?: string }
@@ -680,6 +693,10 @@ export class CollieClient {
 
   listConversations(): Promise<{ conversations: Conversation[] }> {
     return this.command('list_conversations')
+  }
+
+  listThings(conversationId: string): Promise<{ things: Thing[] }> {
+    return this.command('list_things', { conversation_id: conversationId })
   }
 
   getMessages(conversationId: string): Promise<{ messages: CollieMessage[] }> {

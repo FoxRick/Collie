@@ -305,10 +305,16 @@ body {
   letter-spacing: -0.01em;
 }
 
-button,
-textarea,
-input {
-  font: inherit;
+/* Form controls inherit the app font. Kept inside @layer base so Tailwind
+   font-size utilities (text-sm / text-xs / …) can override it — as an
+   unlayered rule it beat every utility in the cascade and buttons silently
+   fell back to the 16px inherited size. */
+@layer base {
+  button,
+  textarea,
+  input {
+    font: inherit;
+  }
 }
 
 button {
@@ -1828,8 +1834,65 @@ button {
    placeholder lines fade out beneath it. */
 .message-row--assistant .message-bubble--writing {
   position: relative;
-  min-height: 88px;
+  min-width: 176px;
+  min-height: 104px;
   overflow: hidden;
+}
+
+/* Thinking cue: shown inside the answer bubble while Collie is still
+   forming the reply (before the first streamed token lands). It gives the
+   frame real content — without it the bubble collapsed to a 34px-wide
+   strip while the absolutely-positioned skeleton lines had no width. */
+.collie-thinking {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 560;
+}
+
+.collie-thinking-dots {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.collie-thinking-dots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--grass);
+  opacity: 0.45;
+  animation: collie-thinking-bounce 1.3s ease-in-out infinite;
+}
+
+.collie-thinking-dots i:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.collie-thinking-dots i:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+@keyframes collie-thinking-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collie-thinking-dots i {
+    animation: none;
+  }
 }
 
 .message-content {
@@ -1854,6 +1917,12 @@ button {
 
 .collie-skeleton--active {
   opacity: 1;
+}
+
+/* When the thinking cue is above, drop the placeholder lines below it
+   instead of drawing over the dots/label. */
+.collie-skeleton--below-thinking {
+  top: 42px;
 }
 
 .collie-skeleton-line {
@@ -3216,4 +3285,337 @@ button {
     animation: none !important;
     transition: none !important;
   }
+}
+
+/* Your things panel ---------------------------------------------------- */
+.things-toggle {
+  position: relative;
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 9px;
+  color: var(--muted);
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.things-toggle:hover,
+.things-toggle.is-active {
+  background: #252729;
+  color: #fff;
+}
+
+.things-toggle-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  display: grid;
+  min-width: 17px;
+  height: 17px;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--collie-amber);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1;
+  padding: 0 4px;
+}
+
+.things-panel {
+  display: flex;
+  flex-direction: column;
+  width: 300px;
+  flex: none;
+  min-height: 0;
+  border-left: 1px solid var(--line);
+  background: var(--card);
+  animation: things-panel-in 180ms ease-out;
+}
+
+@keyframes things-panel-in {
+  from { opacity: 0; transform: translateX(8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.things-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 58px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.things-panel-head b {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.things-panel-back,
+.things-panel-close {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--muted);
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.things-panel-back:hover,
+.things-panel-close:hover {
+  background: var(--bone);
+  color: var(--ink);
+}
+
+.things-panel-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.things-panel-empty {
+  padding: 28px 20px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.thing-card {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  border-radius: 10px;
+  transition: background 150ms ease;
+}
+
+.thing-card:hover {
+  background: var(--bone);
+}
+
+.thing-card.is-new .thing-card-copy b {
+  color: var(--ink);
+}
+
+.thing-card-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 8px;
+  text-align: left;
+}
+
+.thing-card-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--bone);
+  color: var(--grass-dark);
+}
+
+.thing-card-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.thing-card-copy b {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thing-card-copy small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thing-new-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  align-self: center;
+  border-radius: 50%;
+  background: var(--collie-amber);
+}
+
+.thing-card-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.thing-card-menu-btn {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity 150ms ease, background 150ms ease, color 150ms ease;
+}
+
+.thing-card:hover .thing-card-menu-btn,
+.thing-card-menu-btn[aria-expanded='true'] {
+  opacity: 1;
+}
+
+.thing-card-menu-btn:hover {
+  background: var(--paper-deep);
+  color: var(--ink);
+}
+
+.thing-menu {
+  position: absolute;
+  top: 100%;
+  right: 4px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 168px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--card);
+  box-shadow: var(--shadow-md);
+}
+
+.thing-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 560;
+  text-align: left;
+}
+
+.thing-menu button:hover {
+  background: var(--bone);
+}
+
+.thing-menu-close {
+  margin-top: 4px;
+  border-top: 1px solid var(--line);
+  padding-top: 4px;
+}
+
+.thing-menu-close button {
+  color: var(--muted);
+}
+
+.thing-preview {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.thing-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.thing-preview-head b {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thing-preview-head button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 8px;
+  background: var(--bone);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.thing-preview-head button:hover {
+  background: var(--paper-deep);
+}
+
+.thing-preview-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px;
+}
+
+.thing-preview-loading {
+  display: grid;
+  height: 100%;
+  place-items: center;
+  color: var(--muted);
+}
+
+.thing-spin {
+  animation: thing-spin 0.9s linear infinite;
+}
+
+@keyframes thing-spin {
+  to { transform: rotate(360deg); }
+}
+
+.thing-preview-error {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+  padding: 24px 8px;
+}
+
+.thing-preview-image {
+  display: block;
+  max-width: 100%;
+  border-radius: 10px;
+}
+
+.thing-preview-text {
+  color: var(--ink);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+/* When the things panel sits beside the chat card, drop the card's own
+   right border + corner so the two surfaces share one clean divider. */
+.workspace-body.has-things .conversation-panel {
+  border-right: 0;
+  border-bottom-right-radius: 0;
 }

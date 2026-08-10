@@ -156,6 +156,7 @@ class CollieRuntime:
             token=ipc_token,
             dream_runner=self._run_dream_manual,
             gardener_runner=self._run_gardener_manual,
+            thing_store=self.things,
         )
         self.approvals = ApprovalBroker(
             self.db, self.permission_evaluator, self.ipc.broadcast
