@@ -265,6 +265,11 @@ describe('ChatInput compose command listener', () => {
     expect(output).toContain('Project folder only')
     expect(output).toContain('Collie Workspace')
     expect(output).toContain('Local text files anywhere on this computer')
+    // Selecting a Files scope is consent for the content inside it —
+    // including that a read may send the file's text to the model provider.
+    // The disclosure must be visible at grant time, not only in a card that
+    // in-scope reads no longer raise.
+    expect(output).toContain('may be sent to')
 
     hooks.setState(1, [{
       name: 'photo.png',

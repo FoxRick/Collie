@@ -1,4 +1,3 @@
-import asyncio
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -163,7 +162,9 @@ def test_local_files_permission_metadata_is_local_and_in_scope(scoped_tool) -> N
     assert write.action == "local_file.write"
     assert write.resource == str((root / "draft.txt").resolve())
     assert write.risk.value == "local_write"
-    assert write.approval_free is False
+    # A brand-new file inside the granted folder is reversible bounded work:
+    # the folder grant covers it without a card.
+    assert write.approval_free is True
     assert write.approve_for_me is True
     assert write.data_leaving_device == ()
     assert write.redacted_parameters["allowed_local_roots"] == [str(root.resolve())]
@@ -176,11 +177,13 @@ def test_local_files_permission_metadata_is_local_and_in_scope(scoped_tool) -> N
         )
     ):
         read = tool.permission_request({"operation": "read", "path": "draft.txt"})
-    assert read.risk == Risk.SENSITIVE
+    # Reading inside a granted folder is consent for the content there; the
+    # provider is still disclosed honestly in the summary and metadata.
+    assert read.risk == Risk.READ
     assert read.resource == str((root / "draft.txt").resolve())
     assert read.data_leaving_device == ("ChatGPT",)
     assert read.redacted_parameters["model_provider"] == "ChatGPT"
-    assert read.hard_approval is True
+    assert read.hard_approval is False
     assert read.approval_free is False
     assert read.approve_for_me is False
 
@@ -188,6 +191,8 @@ def test_local_files_permission_metadata_is_local_and_in_scope(scoped_tool) -> N
     overwrite = tool.permission_request(
         {"operation": "save", "path": "draft.txt", "content": "replacement"}
     )
+    # Overwriting an existing file destroys prior content: still a card
+    # (or run-approvable), never silently automatic.
     assert overwrite.reversible is False
     assert overwrite.approval_free is False
     assert overwrite.approve_for_me is True
@@ -196,10 +201,19 @@ def test_local_files_permission_metadata_is_local_and_in_scope(scoped_tool) -> N
         tool.permission_request(
             {"operation": "save", "path": "../outside.txt", "content": "no"}
         )
+    with pytest.raises(PermissionDeniedError):
+        tool.permission_request({"operation": "read", "path": "../outside.txt"})
 
 
 @pytest.mark.asyncio
-async def test_local_file_read_broker_discloses_exact_path_and_provider(scoped_tool, tmp_path: Path) -> None:
+async def test_local_file_read_inside_granted_scope_is_authorized_silently(
+    scoped_tool, tmp_path: Path
+) -> None:
+    """Folder selection is consent for in-scope reads: no card is raised.
+
+    The provider is still disclosed honestly on the request itself
+    (summary + data_leaving_device) even though no approval is needed.
+    """
     tool, root = scoped_tool
     target = root / "private.txt"
     target.write_text("private", encoding="utf-8")
@@ -222,33 +236,23 @@ async def test_local_file_read_broker_discloses_exact_path_and_provider(scoped_t
             metadata={"permission_context": {"model_provider": "ChatGPT"}},
         )
     ):
-        task = asyncio.create_task(
-            broker.authorize(
-                ExecutionContext(run_id="run-1"),
-                SimpleNamespace(id="call-1", name="local_files"),
-                tool,
-                {"operation": "read", "path": "private.txt"},
-            )
+        request = tool.permission_request(
+            {"operation": "read", "path": "private.txt"}
         )
-        await asyncio.sleep(0)
-        assert events[-1]["type"] == "approval_requested"
-        approval = broker.db.list_pending_approvals()[0]
-        display = approval["display"]
-        assert display["resource"] == str(target.resolve())
-        assert display["data_leaving_device"] == ["ChatGPT"]
-        assert display["parameters"] == {
-            "operation": "read",
-            "path": str(target.resolve()),
-            "model_provider": "ChatGPT",
-            "local_only": True,
-            "allowed_local_roots": [str(root.resolve())],
-            "unrestricted_local_files": False,
-        }
-        assert display["approve_for_me_eligible"] is False
-        with pytest.raises(ValueError, match="not eligible"):
-            await broker.resolve(str(approval["id"]), "allow_run")
-        await broker.resolve(str(approval["id"]), "allow_once")
-        await task
+        assert request.risk == Risk.READ
+        assert request.hard_approval is False
+        assert request.data_leaving_device == ("ChatGPT",)
+        assert "send its text to ChatGPT" in request.summary
+        assert request.redacted_parameters["allowed_local_roots"] == [str(root.resolve())]
+
+        await broker.authorize(
+            ExecutionContext(run_id="run-1"),
+            SimpleNamespace(id="call-1", name="local_files"),
+            tool,
+            {"operation": "read", "path": "private.txt"},
+        )
+    assert events == []
+    assert broker.db.list_pending_approvals() == []
     db.close()
 
 

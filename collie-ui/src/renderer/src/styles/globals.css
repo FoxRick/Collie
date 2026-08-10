@@ -2653,6 +2653,13 @@ button {
   padding-top: 12px;
 }
 
+.context-popover-note {
+  padding: 2px 8px 8px;
+  color: var(--muted);
+  font-size: var(--collie-min-font-size);
+  line-height: 1.4;
+}
+
 .context-popover > button {
   display: flex;
   width: 100%;
