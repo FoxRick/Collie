@@ -228,6 +228,10 @@ def test_permission_request_is_read_only_local_open() -> None:
     assert request.approve_for_me is False
     assert request.redacted_parameters["local_only"] is True
     assert request.redacted_parameters["default_app"] is True
+    # Scope metadata matches local_files so granted-folder opens hit the
+    # evaluator's read-allow path instead of asking.
+    assert request.redacted_parameters["allowed_local_roots"] == []
+    assert request.redacted_parameters["unrestricted_local_files"] is False
 
 
 def test_read_risk_opens_are_allowed_by_default_evaluator() -> None:

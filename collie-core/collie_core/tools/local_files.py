@@ -359,7 +359,7 @@ class LocalFilesTool(Tool):
             return PermissionRequest(
                 action="local_file.read",
                 resource=resource,
-                risk=Risk.SENSITIVE,
+                risk=Risk.READ,
                 summary=f"Read {resource} and send its text to {provider}",
                 reversible=True,
                 data_leaving_device=(provider,),
@@ -372,9 +372,16 @@ class LocalFilesTool(Tool):
                     "allowed_local_roots": allowed_roots,
                     "unrestricted_local_files": unrestricted,
                 },
-                # Selecting a Files scope limits where the tool may look; it
-                # is not consent to disclose this file's contents externally.
-                hard_approval=True,
+                # Selecting a Files scope (project folder, chosen folders, or
+                # full file access) is explicit consent for the content inside
+                # it — including that a read may send the file's text to the
+                # configured model provider, which the summary and
+                # data_leaving_device above still disclose honestly. In-scope
+                # reads therefore need no per-file approval card; targets
+                # outside the granted scope were already refused above (no
+                # dead-end approvals). Irreversible writes and external
+                # actions keep their own gates.
+                hard_approval=False,
             )
         return PermissionRequest(
             action="local_file.write" if is_write else "local_file.read",
@@ -391,11 +398,12 @@ class LocalFilesTool(Tool):
                 "allowed_local_roots": allowed_roots,
                 "unrestricted_local_files": unrestricted,
             },
-            # A folder selection defines where files may be touched, not an
-            # automatic consent to edit them.  Workstream A can offer an
-            # explicit "approve for me" run rule for these bounded writes.
-            # The execution path revalidates scope before every change.
-            approval_free=False,
+            # A folder selection defines where files may be touched. Reversible
+            # bounded work inside it (create, save of a new file) is
+            # approval-free; overwriting or editing an existing file stays an
+            # explicit approval because it destroys prior content. The
+            # execution path revalidates scope before every change.
+            approval_free=bool(safe_write and reversible),
             approve_for_me=safe_write,
         )
 

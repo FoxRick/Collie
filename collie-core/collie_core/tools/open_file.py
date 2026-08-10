@@ -22,8 +22,13 @@ from collie_core.permissions.models import PermissionRequest, Risk, Scope
 # Reuse the same canonical scope + path-safety resolution as ``local_files``
 # (workspace roots, symlink/junction refusal, UNC/device refusal) so the two
 # tools can never disagree about what a safe local target is.
-from collie_core.tools.local_files import _LocalFileError, _resolve_local_path
+from collie_core.tools.local_files import (
+    _LocalFileError,
+    _resolve_local_path,
+    _scope_roots,
+)
 from nanobot.agent.tools.base import Tool, ToolResult, tool_parameters
+from nanobot.security.workspace_access import current_tool_workspace
 from nanobot.security.workspace_policy import WorkspaceBoundaryError
 
 __all__ = ["OpenFileTool"]
@@ -141,6 +146,8 @@ class OpenFileTool(Tool):
             resource = str(target)
         except (OSError, UnicodeError, WorkspaceBoundaryError, _LocalFileError):
             resource = str(params.get("path") or "local file")
+        roots, unrestricted = _scope_roots(current_tool_workspace(None))
+        allowed_roots = [str(root) for root in roots] if roots else []
         kind = "folder" if (target is not None and target.is_dir()) else "file"
         label = target.name if target is not None else Path(resource).name or resource
         return PermissionRequest(
@@ -155,6 +162,11 @@ class OpenFileTool(Tool):
                 "path": resource,
                 "local_only": True,
                 "default_app": True,
+                # Same scope metadata as local_files, so a target inside a
+                # user-granted folder is recognized as granted by the
+                # evaluator's read-allow path instead of asking.
+                "allowed_local_roots": allowed_roots,
+                "unrestricted_local_files": unrestricted,
             },
             # Read-only and bounded to allowlisted types inside the approved
             # folders: no data leaves the device, nothing is written.  The
