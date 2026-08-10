@@ -16,6 +16,7 @@ from typing import Any
 
 from collie_core.permissions.broker import PermissionDeniedError
 from collie_core.permissions.models import PermissionRequest, Risk, Scope
+from collie_core.undo.journal import discard_write, record_write
 from nanobot.agent.tools.base import Tool, ToolResult, tool_parameters
 from nanobot.agent.tools.context import current_request_context
 from nanobot.security.workspace_access import (
@@ -421,6 +422,8 @@ class LocalFilesTool(Tool):
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         operation = str(kwargs.get("operation") or "").lower()
+        undo_entry_id: str | None = None
+        conversation_id: str | None = None
         try:
             target, _in_scope = _resolve_local_path(
                 str(kwargs.get("path") or ""), allow_directory=operation == "list"
@@ -430,6 +433,11 @@ class LocalFilesTool(Tool):
             _require_text_artifact(target)
             if operation == "read":
                 return self._read(target, int(kwargs.get("max_chars") or 12_000))
+            # Snapshot the pre-write state so the user can take the change
+            # back with one tap. Skipped (returns None) when no conversation
+            # id is in scope or the file is too large to copy.
+            conversation_id = _current_conversation_id()
+            undo_entry_id = record_write(conversation_id, target, operation)
             if operation == "create":
                 if not target.parent.is_dir():
                     raise _LocalFileError("The destination folder does not exist.")
@@ -449,12 +457,31 @@ class LocalFilesTool(Tool):
                 else:
                     _atomic_create(target, payload)
             elif operation == "edit":
-                return self._edit(target, str(kwargs.get("old_text")), str(kwargs.get("new_text")))
+                result = self._edit(
+                    target, str(kwargs.get("old_text")), str(kwargs.get("new_text"))
+                )
+                if not result.is_error and undo_entry_id:
+                    edited_payload = json.loads(result)
+                    edited_payload["undo_entry_id"] = undo_entry_id
+                    return ToolResult(json.dumps(edited_payload))
+                return result
             else:
                 raise _LocalFileError("Choose list, read, create, overwrite, edit, or save.")
         except (OSError, UnicodeError, WorkspaceBoundaryError, _LocalFileError) as exc:
+            if undo_entry_id and conversation_id:
+                # The write never happened — don't leave an undoable entry
+                # for a file that was not changed (a later undo would be a
+                # confusing no-op).
+                discard_write(conversation_id, undo_entry_id)
             return ToolResult.error(f"I couldn't work with that local file: {exc}")
-        return ToolResult(json.dumps({"operation": operation, "path": str(target), "local_only": True}))
+        result_payload: dict[str, Any] = {
+            "operation": operation,
+            "path": str(target),
+            "local_only": True,
+        }
+        if undo_entry_id:
+            result_payload["undo_entry_id"] = undo_entry_id
+        return ToolResult(json.dumps(result_payload))
 
     @staticmethod
     def _list(path: Path, max_entries: int) -> ToolResult:

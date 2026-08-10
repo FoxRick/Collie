@@ -1,4 +1,6 @@
-import { ChevronDown, FileDiff } from 'lucide-react'
+import { useState } from 'react'
+import { ChevronDown, FileDiff, Undo2 } from 'lucide-react'
+import { collieClient } from '../../lib/ipc'
 
 export type ChangedFileStatus = 'added' | 'modified' | 'deleted' | 'renamed'
 
@@ -7,10 +9,14 @@ export interface ChangedFile {
   additions: number
   deletions: number
   status: ChangedFileStatus
+  /** Shadow-journal entry id; present when this change can be undone. */
+  undoEntryId?: string
 }
 
-interface FilesChangedCardData {
+export interface FilesChangedCardData {
   files: ChangedFile[]
+  /** Conversation owning the undo journal; required for the undo button. */
+  conversationId?: string
 }
 
 const supportedStatuses = new Set<ChangedFileStatus>(['added', 'modified', 'deleted', 'renamed'])
@@ -25,12 +31,18 @@ function asStatus(value: unknown): ChangedFileStatus {
     : 'modified'
 }
 
+function asOptionalId(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
 /**
  * Cards arrive from a streamed runtime boundary, so accept only the small
  * declared shape. Invalid file entries are ignored; invalid counts become 0.
  */
 export function parseFilesChangedCardData(data: Record<string, unknown>): FilesChangedCardData {
-  if (!Array.isArray(data.files)) return { files: [] }
+  const conversationId = asOptionalId(data.conversation_id)
+
+  if (!Array.isArray(data.files)) return { files: [], conversationId }
 
   const files = data.files.flatMap((entry): ChangedFile[] => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return []
@@ -42,11 +54,12 @@ export function parseFilesChangedCardData(data: Record<string, unknown>): FilesC
       path,
       additions: asSafeCount(candidate.additions),
       deletions: asSafeCount(candidate.deletions),
-      status: asStatus(candidate.status)
+      status: asStatus(candidate.status),
+      undoEntryId: asOptionalId(candidate.undo_entry_id)
     }]
   })
 
-  return { files }
+  return { files, conversationId }
 }
 
 function statusLabel(status: ChangedFileStatus): string {
@@ -56,13 +69,42 @@ function statusLabel(status: ChangedFileStatus): string {
         : 'Modified'
 }
 
+type UndoState = 'idle' | 'undoing' | 'undone' | 'error'
+
 export default function FilesChangedCard({ data }: { data: Record<string, unknown> }): React.JSX.Element | null {
-  const { files } = parseFilesChangedCardData(data)
+  const { files, conversationId } = parseFilesChangedCardData(data)
+  const [undoState, setUndoState] = useState<UndoState>('idle')
+  const [notice, setNotice] = useState('')
+
   if (files.length === 0) return null
 
   const additions = files.reduce((total, file) => total + file.additions, 0)
   const deletions = files.reduce((total, file) => total + file.deletions, 0)
   const fileLabel = `${files.length} changed file${files.length === 1 ? '' : 's'}`
+  const undoable = files.some((file) => file.undoEntryId !== undefined) && conversationId !== undefined
+  const busy = undoState === 'undoing'
+
+  const handleUndo = async (): Promise<void> => {
+    if (!conversationId || busy || undoState === 'undone') return
+    setUndoState('undoing')
+    setNotice('')
+    try {
+      const result = await collieClient.undoFileChanges(
+        conversationId,
+        files.flatMap((file) => (file.undoEntryId ? [file.undoEntryId] : []))
+      )
+      if (result.errors.length > 0) {
+        setNotice('Some files could not be restored. They may have been moved or deleted since.')
+        setUndoState('error')
+        return
+      }
+      setUndoState('undone')
+      setNotice('Undone — the files are back the way they were.')
+    } catch {
+      setNotice('I could not undo that change. Try again?')
+      setUndoState('error')
+    }
+  }
 
   return (
     <section aria-label="Files changed" className="my-2 max-w-2xl rounded-xl border border-stone-200 bg-white text-stone-900 shadow-sm">
@@ -89,6 +131,25 @@ export default function FilesChangedCard({ data }: { data: Record<string, unknow
               </li>
             ))}
           </ul>
+          {undoable && (
+            <div className="mt-2 border-t border-stone-100 pt-2" aria-label="Undo changes">
+              {undoState === 'undone' ? (
+                <p className="text-xs font-medium text-emerald-700">✓ {notice}</p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void handleUndo()}
+                  disabled={busy}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-stone-900 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-stone-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Undo2 size={13} /> {busy ? 'Taking it back…' : 'Take it back'}
+                </button>
+              )}
+              {notice && undoState !== 'undone' && (
+                <p className="mt-1.5 text-xs text-rose-700">{notice}</p>
+              )}
+            </div>
+          )}
         </div>
       </details>
     </section>
