@@ -294,5 +294,22 @@ describe('Sidebar collapse', () => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'B', ctrlKey: true, bubbles: true }))
     })
     expect(container.querySelector('aside')!.classList.contains('is-collapsed')).toBe(false)
+    // The mount-only keydown handler must not persist a stale closure value:
+    // after expanding via Ctrl+B the storage must say '0' (expanded), or a
+    // reload would bring the collapsed rail back.
+    expect(localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY)).toBe('0')
+
+    // And one more toggle cycle: collapse again, then expand — storage must
+    // follow the UI state every time, not flip only on the first press.
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', ctrlKey: true, bubbles: true }))
+    })
+    expect(container.querySelector('aside')!.classList.contains('is-collapsed')).toBe(true)
+    expect(localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY)).toBe('1')
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', ctrlKey: true, bubbles: true }))
+    })
+    expect(container.querySelector('aside')!.classList.contains('is-collapsed')).toBe(false)
+    expect(localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY)).toBe('0')
   })
 })

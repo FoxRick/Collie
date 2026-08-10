@@ -25,6 +25,9 @@ arrive, and the sidebar should prioritize starting and returning to chats.
   raw formatting markers such as `**` or `__` before styled text appears.
 - The sidebar order is: **New Chat**, **Agents**, **Skills**, **Routines**,
   **Connectors**, pinned chats, then recent chats.
+- The sidebar can be collapsed to a 64px icon-only rail (chevron button or
+  Ctrl/Cmd+B) to free up chat space. Labels become tooltips; the choice
+  survives restarts. Expanding restores the full navigation.
 - Chats can be pinned and unpinned. Pinned chats stay in the pinned section and
   do not depend on recent-chat ordering.
 - Chat search is a compact icon button at the top-right of the navigation pane,

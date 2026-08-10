@@ -78,8 +78,15 @@ export default function Sidebar({
 
   const toggleCollapsed = (): void => {
     setSearchOpen(false)
-    setCollapsed((collapsedNow) => !collapsedNow)
-    localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, collapsed ? '0' : '1')
+    // Write storage from the updater's next value, not from `collapsed` in
+    // this closure: the Ctrl+B handler in the mount-only effect below holds
+    // the FIRST render's toggleCollapsed, so a stale `collapsed` read here
+    // would persist the wrong value on every second keyboard toggle.
+    setCollapsed((collapsedNow) => {
+      const next = !collapsedNow
+      localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, next ? '1' : '0')
+      return next
+    })
   }
 
   useEffect(() => {
