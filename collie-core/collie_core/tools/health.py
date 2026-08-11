@@ -36,9 +36,7 @@ def _card(db: Any) -> str:
     rows = db.health_logs_since(week_ago.isoformat())
     by_day: dict[str, dict[str, float]] = {}
     for row in rows:
-        by_day.setdefault(str(row["logged_on"]), {})[str(row["metric"])] = _safe_float(
-            row["value"]
-        )
+        by_day.setdefault(str(row["logged_on"]), {})[str(row["metric"])] = _safe_float(row["value"])
 
     latest = by_day.get(today.isoformat(), {})
     grid: list[int] = []
@@ -69,31 +67,33 @@ def _card(db: Any) -> str:
     return json.dumps(payload)
 
 
-@tool_parameters({
-    "type": "object",
-    "properties": {
-        "action": {
-            "type": "string",
-            "enum": ["log", "summary"],
-            "description": "log a health value for a day, or show the week view.",
+@tool_parameters(
+    {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["log", "summary"],
+                "description": "log a health value for a day, or show the week view.",
+            },
+            "metric": {
+                "type": "string",
+                "enum": list(_METRICS),
+                "description": "For log: which metric.",
+            },
+            "value": {
+                "type": "number",
+                "description": "For log: the value (steps count, hours, cups, kg).",
+            },
+            "date": {
+                "type": "string",
+                "description": "For log: date YYYY-MM-DD (default today).",
+            },
+            "note": {"type": "string", "description": "For log: optional note."},
         },
-        "metric": {
-            "type": "string",
-            "enum": list(_METRICS),
-            "description": "For log: which metric.",
-        },
-        "value": {
-            "type": "number",
-            "description": "For log: the value (steps count, hours, cups, kg).",
-        },
-        "date": {
-            "type": "string",
-            "description": "For log: date YYYY-MM-DD (default today).",
-        },
-        "note": {"type": "string", "description": "For log: optional note."},
-    },
-    "required": ["action"],
-})
+        "required": ["action"],
+    }
+)
 class HealthTool(Tool):
     """Log health metrics and show weekly trends."""
 
@@ -124,7 +124,7 @@ class HealthTool(Tool):
         return life_db() is not None
 
     @classmethod
-    def create(cls, ctx: Any) -> "HealthTool":
+    def create(cls, ctx: Any) -> HealthTool:
         return cls()
 
     async def execute(self, **kwargs: Any) -> Any:
@@ -137,9 +137,7 @@ class HealthTool(Tool):
         if action == "log":
             metric = str(kwargs.get("metric") or "").strip().lower()
             if metric not in _METRICS:
-                return self.error(
-                    f"I can track {', '.join(_METRICS)} — which one is this?"
-                )
+                return self.error(f"I can track {', '.join(_METRICS)} — which one is this?")
             try:
                 value = float(kwargs.get("value"))  # type: ignore[arg-type]
             except (TypeError, ValueError):
@@ -157,6 +155,4 @@ class HealthTool(Tool):
         if action == "summary":
             return _card(db)
 
-        return self.error(
-            f"Not sure what to do with action '{action}'. Try log or summary."
-        )
+        return self.error(f"Not sure what to do with action '{action}'. Try log or summary.")

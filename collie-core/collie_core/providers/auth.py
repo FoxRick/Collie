@@ -189,10 +189,8 @@ def _login_oauth_cancellable(config: Any, storage: Any, cancelled: Event) -> Any
             while code is None and time.monotonic() < deadline:
                 await check_cancelled()
                 try:
-                    code = await asyncio.wait_for(
-                        asyncio.shield(code_future), timeout=0.1
-                    )
-                except asyncio.TimeoutError:
+                    code = await asyncio.wait_for(asyncio.shield(code_future), timeout=0.1)
+                except TimeoutError:
                     continue
             if not code:
                 raise RuntimeError("OAuth browser callback timed out.")
@@ -229,11 +227,11 @@ def _login_with_storage(
 ) -> dict[str, Any]:
     try:
         from oauth_cli_kit import get_token, login_oauth_interactive  # noqa: F811
-    except ImportError:
+    except ImportError as e:
         raise ValueError(
             "The OAuth sign-in helper library is not installed. "
             "Use an API key instead — it works the same way."
-        )
+        ) from e
 
     def check_cancelled() -> None:
         if cancelled is not None and cancelled.is_set():

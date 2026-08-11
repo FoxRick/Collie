@@ -47,7 +47,7 @@ class Schedule:
         return data
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Schedule":
+    def from_dict(cls, data: dict[str, Any]) -> Schedule:
         clock = time.fromisoformat(str(data["time"]))
         once_date = date.fromisoformat(str(data["date"])) if data.get("date") else None
         return cls(

@@ -74,9 +74,7 @@ class PresentPlanTool(Tool):
         if not isinstance(permission, dict):
             permission = {}
         conversation_id = (
-            str(permission.get("conversation_id") or request.chat_id or "")
-            if request
-            else ""
+            str(permission.get("conversation_id") or request.chat_id or "") if request else ""
         )
         change = _db.get_plan_change_context(conversation_id) if conversation_id else None
         trusted_plan_id = str((change or {}).get("plan_id") or "") or None
@@ -115,9 +113,7 @@ class PresentPlanTool(Tool):
             permission = request.metadata.get("permission_context", {})
             if not isinstance(permission, dict):
                 permission = {}
-            conversation_id = str(
-                permission.get("conversation_id") or request.chat_id or ""
-            )
+            conversation_id = str(permission.get("conversation_id") or request.chat_id or "")
             change = _db.get_plan_change_context(conversation_id) if _db is not None else None
             guidance = ""
             if change is not None:

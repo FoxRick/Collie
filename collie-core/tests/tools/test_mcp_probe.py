@@ -1,4 +1,5 @@
 """Tests for MCP HTTP probe guard (prevents event-loop crash on unreachable servers)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -11,7 +12,14 @@ from nanobot.agent.tools.mcp import _probe_http_url, connect_mcp_servers
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.security.network import configure_ssrf_whitelist
 
-_PROXY_ENV_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
+_PROXY_ENV_VARS = (
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -24,9 +32,11 @@ def _clear_proxy_env(monkeypatch: pytest.MonkeyPatch) -> None:
 # _probe_http_url unit tests
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_probe_returns_true_for_open_port(tmp_path):
     """Start a trivial TCP server, probe should return True."""
+
     async def _close_connection(_reader, writer):
         writer.close()
         await writer.wait_closed()
@@ -130,6 +140,7 @@ async def test_probe_tries_next_validated_ip_when_first_is_unreachable(monkeypat
 # connect_mcp_servers skips unreachable HTTP servers
 # ---------------------------------------------------------------------------
 
+
 def _make_http_cfg(url: str, transport: str = "streamableHttp"):
     cfg = MagicMock()
     cfg.type = transport
@@ -146,6 +157,7 @@ def _make_http_cfg(url: str, transport: str = "streamableHttp"):
 @pytest.mark.asyncio
 async def test_connect_skips_unreachable_streamable_http():
     """Unreachable streamableHttp server should be skipped with a warning, no crash."""
+
     async def _unreachable(_url: str) -> bool:
         return False
 
@@ -160,6 +172,7 @@ async def test_connect_skips_unreachable_streamable_http():
 @pytest.mark.asyncio
 async def test_connect_skips_unreachable_sse():
     """Unreachable SSE server should be skipped with a warning, no crash."""
+
     async def _unreachable(_url: str) -> bool:
         return False
 

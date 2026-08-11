@@ -36,6 +36,7 @@ def is_automatic_local_action_ineligible(action: str) -> bool:
         AUTOMATIC_LOCAL_INELIGIBLE_PREFIXES
     )
 
+
 SECRET_WORDS = frozenset(
     {
         "api_key",

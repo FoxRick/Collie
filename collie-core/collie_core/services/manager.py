@@ -13,8 +13,9 @@ Connect flow (F038):
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from contextlib import suppress
-from typing import Any, Callable
+from typing import Any
 
 from loguru import logger
 
@@ -64,34 +65,33 @@ class ServiceManager:
         for service in SERVICE_CATALOG:
             row = rows.get(service.id) or {}
             supported = platform_supported(service, self._platform)
-            view.append({
-                "id": service.id,
-                "name": service.name,
-                "category": service.category,
-                "description": service.description,
-                "auth": service.auth,
-                "fields": [
-                    {
-                        "key": f.key,
-                        "label": f.label,
-                        "secret": f.secret,
-                        "placeholder": f.placeholder,
-                    }
-                    for f in service.fields
-                ],
-                "permissions": list(service.permissions),
-                "available": service.available and supported,
-                "release_status": service.release_status,
-                "note": service.note or (
-                    "" if supported else "Only available on macOS."
-                ),
-                "status": row.get("status") or (
-                    "disconnected" if service.available and supported else "coming_soon"
-                ),
-                "account_info": row.get("account_info"),
-                "connected_at": row.get("connected_at"),
-                "last_error": row.get("last_error"),
-            })
+            view.append(
+                {
+                    "id": service.id,
+                    "name": service.name,
+                    "category": service.category,
+                    "description": service.description,
+                    "auth": service.auth,
+                    "fields": [
+                        {
+                            "key": f.key,
+                            "label": f.label,
+                            "secret": f.secret,
+                            "placeholder": f.placeholder,
+                        }
+                        for f in service.fields
+                    ],
+                    "permissions": list(service.permissions),
+                    "available": service.available and supported,
+                    "release_status": service.release_status,
+                    "note": service.note or ("" if supported else "Only available on macOS."),
+                    "status": row.get("status")
+                    or ("disconnected" if service.available and supported else "coming_soon"),
+                    "account_info": row.get("account_info"),
+                    "connected_at": row.get("connected_at"),
+                    "last_error": row.get("last_error"),
+                }
+            )
         return view
 
     def is_connected(self, service_id: str) -> bool:
@@ -120,9 +120,7 @@ class ServiceManager:
         if service is None:
             raise ValueError(f"I don't know a service called '{service_id}'.")
         if not service.available:
-            raise ValueError(
-                f"{service.name} is coming soon — its Connect button is disabled."
-            )
+            raise ValueError(f"{service.name} is coming soon — its Connect button is disabled.")
         if not platform_supported(service, self._platform):
             raise ValueError(f"{service.name} only works on macOS.")
 
@@ -139,14 +137,11 @@ class ServiceManager:
             if service.auth == "oauth":
                 if service.oauth is None:
                     raise ValueError(f"{service.name} is missing its sign-in setup.")
-                tokens = self._oauth_runner(
-                    service.oauth, service_name=service.name
-                )
+                tokens = self._oauth_runner(service.oauth, service_name=service.name)
                 self.credentials.save(service.id, tokens)
             elif service.auth == "api_key":
                 creds = {
-                    f.key: str((credentials or {}).get(f.key) or "").strip()
-                    for f in service.fields
+                    f.key: str((credentials or {}).get(f.key) or "").strip() for f in service.fields
                 }
                 missing = [f.label for f in service.fields if not creds[f.key]]
                 if missing:
@@ -155,9 +150,7 @@ class ServiceManager:
                         "I'll take it from there!"
                     )
                 self.credentials.save(service.id, creds)
-                first_public = next(
-                    (f.key for f in service.fields if not f.secret), None
-                )
+                first_public = next((f.key for f in service.fields if not f.secret), None)
                 if first_public:
                     account_info = creds.get(first_public) or None
             # auth == "none": nothing to store
@@ -225,9 +218,7 @@ class ServiceManager:
         creds = self.credentials.load(service.id) or {}
         if service.auth == "oauth" and service.oauth is not None:
             with suppress(Exception):
-                fresh, refreshed = service_oauth.ensure_fresh_tokens(
-                    service.oauth, creds
-                )
+                fresh, refreshed = service_oauth.ensure_fresh_tokens(service.oauth, creds)
                 if refreshed:
                     self.credentials.save(service.id, fresh)
                 creds = fresh

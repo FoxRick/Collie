@@ -13,6 +13,7 @@ runs connect calls in a worker thread, same as provider sign-in.
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import json
 import os
@@ -23,8 +24,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any, Callable
+from typing import Any
 
 from loguru import logger
 
@@ -97,9 +99,11 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         params = {k: v[0] for k, v in urllib.parse.parse_qs(parsed.query).items()}
         type(self).result = params
         ok = "code" in params and "error" not in params
-        body = (_SUCCESS_PAGE if ok else _FAILURE_PAGE).format(
-            service=type(self).service_name
-        ).encode("utf-8")
+        body = (
+            (_SUCCESS_PAGE if ok else _FAILURE_PAGE)
+            .format(service=type(self).service_name)
+            .encode("utf-8")
+        )
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -127,10 +131,8 @@ def _post_token(token_url: str, payload: dict[str, str]) -> dict[str, Any]:
             body = json.loads(resp.read().decode())
     except urllib.error.HTTPError as e:
         detail = ""
-        try:
+        with contextlib.suppress(Exception):
             detail = e.read().decode()[:300]
-        except Exception:
-            pass
         raise OAuthError(f"token exchange failed ({e.code}): {detail}") from e
     except (urllib.error.URLError, ValueError) as e:
         raise OAuthError(f"token exchange failed: {e}") from e

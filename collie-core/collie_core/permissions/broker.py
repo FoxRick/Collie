@@ -66,9 +66,7 @@ class ApprovalBroker:
                             "message": message,
                         }
                     )
-        raise PermissionDeniedError(
-            "The user requested a plan change, so this action was not run."
-        )
+        raise PermissionDeniedError("The user requested a plan change, so this action was not run.")
 
     async def authorize(
         self,
@@ -172,10 +170,12 @@ class ApprovalBroker:
                 future.cancel()
             resolved = self.db.resolve_approval_request(request_id, "cancelled")
             if self.broadcaster:
-                await self.broadcaster({
-                    "type": "approval_resolved",
-                    "approval": resolved,
-                })
+                await self.broadcaster(
+                    {
+                        "type": "approval_resolved",
+                        "approval": resolved,
+                    }
+                )
         return len(rows)
 
     def cancel_all(self) -> None:

@@ -26,7 +26,9 @@ from nanobot.security.workspace_access import (
 def scoped_tool(tmp_path: Path):
     root = tmp_path / "project"
     root.mkdir()
-    token = bind_workspace_scope(build_workspace_scope(root, "restricted", source_channel="websocket"))
+    token = bind_workspace_scope(
+        build_workspace_scope(root, "restricted", source_channel="websocket")
+    )
     try:
         yield LocalFilesTool(), root
     finally:
@@ -54,7 +56,9 @@ async def test_local_files_create_read_edit_and_list_are_bounded(scoped_tool) ->
 
 
 @pytest.mark.asyncio
-async def test_local_files_rejects_traversal_binary_and_duplicate_edits(scoped_tool, tmp_path: Path) -> None:
+async def test_local_files_rejects_traversal_binary_and_duplicate_edits(
+    scoped_tool, tmp_path: Path
+) -> None:
     tool, root = scoped_tool
     (tmp_path / "outside.txt").write_text("private", encoding="utf-8")
     (root / "twice.txt").write_text("one one", encoding="utf-8")
@@ -67,7 +71,9 @@ async def test_local_files_rejects_traversal_binary_and_duplicate_edits(scoped_t
     assert binary.is_error
     assert "supported text artifact" in binary
 
-    ambiguous = await tool.execute(operation="edit", path="twice.txt", old_text="one", new_text="two")
+    ambiguous = await tool.execute(
+        operation="edit", path="twice.txt", old_text="one", new_text="two"
+    )
     assert ambiguous.is_error
     assert (root / "twice.txt").read_text(encoding="utf-8") == "one one"
 
@@ -199,9 +205,7 @@ def test_local_files_permission_metadata_is_local_and_in_scope(scoped_tool) -> N
     assert overwrite.approve_for_me is True
 
     with pytest.raises(PermissionDeniedError):
-        tool.permission_request(
-            {"operation": "save", "path": "../outside.txt", "content": "no"}
-        )
+        tool.permission_request({"operation": "save", "path": "../outside.txt", "content": "no"})
     with pytest.raises(PermissionDeniedError):
         tool.permission_request({"operation": "read", "path": "../outside.txt"})
 
@@ -237,9 +241,7 @@ async def test_local_file_read_inside_granted_scope_is_authorized_silently(
             metadata={"permission_context": {"model_provider": "ChatGPT"}},
         )
     ):
-        request = tool.permission_request(
-            {"operation": "read", "path": "private.txt"}
-        )
+        request = tool.permission_request({"operation": "read", "path": "private.txt"})
         assert request.risk == Risk.READ
         assert request.hard_approval is False
         assert request.data_leaving_device == ("ChatGPT",)
@@ -283,9 +285,7 @@ async def test_live_file_access_override_applies_mid_turn(tmp_path: Path) -> Non
                 {"operation": "save", "path": str(desktop / "draft.txt"), "content": "hi"}
             )
             assert request.resource == str((desktop / "draft.txt").resolve())
-            assert request.redacted_parameters["allowed_local_roots"] == [
-                str(desktop.resolve())
-            ]
+            assert request.redacted_parameters["allowed_local_roots"] == [str(desktop.resolve())]
             result = await tool.execute(
                 operation="save", path=str(desktop / "draft.txt"), content="hi"
             )

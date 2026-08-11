@@ -18,37 +18,39 @@ __all__ = ["CalendarTool"]
 _CALENDAR_SERVICES = ("google-calendar", "outlook")
 
 
-@tool_parameters({
-    "type": "object",
-    "properties": {
-        "action": {
-            "type": "string",
-            "enum": ["list", "create", "find_free"],
-            "description": "list events, create a new event, or find free time slots.",
+@tool_parameters(
+    {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["list", "create", "find_free"],
+                "description": "list events, create a new event, or find free time slots.",
+            },
+            "date_range": {
+                "type": "string",
+                "description": "Date range like 'today', 'this week', or '2026-07-18..2026-07-25'.",
+            },
+            "title": {
+                "type": "string",
+                "description": "For action=create: the event title.",
+            },
+            "start": {
+                "type": "string",
+                "description": "For action=create: ISO start datetime.",
+            },
+            "end": {
+                "type": "string",
+                "description": "For action=create: ISO end datetime.",
+            },
+            "duration_minutes": {
+                "type": "integer",
+                "description": "For action=find_free: minimum slot in minutes (default 30).",
+            },
         },
-        "date_range": {
-            "type": "string",
-            "description": "Date range like 'today', 'this week', or '2026-07-18..2026-07-25'.",
-        },
-        "title": {
-            "type": "string",
-            "description": "For action=create: the event title.",
-        },
-        "start": {
-            "type": "string",
-            "description": "For action=create: ISO start datetime.",
-        },
-        "end": {
-            "type": "string",
-            "description": "For action=create: ISO end datetime.",
-        },
-        "duration_minutes": {
-            "type": "integer",
-            "description": "For action=find_free: minimum slot in minutes (default 30).",
-        },
-    },
-    "required": ["action"],
-})
+        "required": ["action"],
+    }
+)
 class CalendarTool(Tool):
     """Manage calendar events (GCal / Apple Calendar via MCP)."""
 
@@ -92,7 +94,7 @@ class CalendarTool(Tool):
         return True
 
     @classmethod
-    def create(cls, ctx: Any) -> "CalendarTool":
+    def create(cls, ctx: Any) -> CalendarTool:
         return cls()
 
     async def execute(self, **kwargs: Any) -> Any:
@@ -110,25 +112,27 @@ class CalendarTool(Tool):
         if action == "list":
             date_range = str(kwargs.get("date_range") or "today")
             return (
-                "I'd love to check your calendar for {date_range}, but you haven't "
+                f"I'd love to check your calendar for {date_range}, but you haven't "
                 "connected a calendar yet! Head to **Settings → Services** and "
                 "connect Google Calendar or Apple Calendar — it takes just a click."
-            ).format(date_range=date_range)
+            )
 
         if action == "create":
             title = str(kwargs.get("title") or "Untitled event")
             return (
-                "I'd love to add '{title}' to your calendar! But first, connect "
+                f"I'd love to add '{title}' to your calendar! But first, connect "
                 "Google Calendar or Apple Calendar in **Settings → Services** — "
                 "it's one click and I'll handle the rest."
-            ).format(title=title)
+            )
 
         if action == "find_free":
             duration = int(kwargs.get("duration_minutes") or 30)
             return (
-                "I can find {duration}-minute slots for you once you connect a "
+                f"I can find {duration}-minute slots for you once you connect a "
                 "calendar in **Settings → Services**. Google Calendar or Apple "
                 "Calendar — just pick one!"
-            ).format(duration=duration)
+            )
 
-        return self.error(f"Not sure what to do with action '{action}'. Try list, create, or find_free.")
+        return self.error(
+            f"Not sure what to do with action '{action}'. Try list, create, or find_free."
+        )

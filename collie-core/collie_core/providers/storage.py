@@ -28,9 +28,7 @@ def legacy_oauth_data_root() -> Path:
     ``platformdirs`` or risking the real user profile.  The default preserves
     the path used by ``oauth_cli_kit.FileTokenStorage`` in production.
     """
-    configured = os.environ.get("COLLIE_OAUTH_ROOT") or os.environ.get(
-        "COLLIE_LEGACY_OAUTH_ROOT"
-    )
+    configured = os.environ.get("COLLIE_OAUTH_ROOT") or os.environ.get("COLLIE_LEGACY_OAUTH_ROOT")
     if configured:
         return Path(configured).expanduser()
 
@@ -111,6 +109,4 @@ class _DpapiErrorsFallback:
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
         if exc_type is None:
             return False
-        if issubclass(exc_type, RuntimeError):
-            return True
-        return False
+        return bool(issubclass(exc_type, RuntimeError))

@@ -1,4 +1,5 @@
 """Tests for tool plugin architecture: ToolLoader, ToolContext, metadata."""
+
 from __future__ import annotations
 
 from dataclasses import fields
@@ -55,9 +56,15 @@ def test_tool_plugin_discoverable_default_is_true():
 def test_tool_context_has_required_fields():
     field_names = {f.name for f in fields(ToolContext)}
     required = {
-        "config", "workspace", "bus", "subagent_manager",
-        "cron_service", "file_state_store", "provider_snapshot_loader",
-        "image_generation_provider_configs", "timezone",
+        "config",
+        "workspace",
+        "bus",
+        "subagent_manager",
+        "cron_service",
+        "file_state_store",
+        "provider_snapshot_loader",
+        "image_generation_provider_configs",
+        "timezone",
     }
     assert required <= field_names
 
@@ -76,8 +83,18 @@ def test_tool_context_defaults():
 
 
 def test_skip_modules_excludes_infrastructure():
-    infra = {"base", "schema", "registry", "context", "loader", "config",
-             "file_state", "sandbox", "mcp", "__init__"}
+    infra = {
+        "base",
+        "schema",
+        "registry",
+        "context",
+        "loader",
+        "config",
+        "file_state",
+        "sandbox",
+        "mcp",
+        "__init__",
+    }
     assert infra <= _SKIP_MODULES
 
 
@@ -114,6 +131,7 @@ def test_discover_skips_private_classes():
 
 async def test_message_tool_create():
     from nanobot.agent.tools.message import MessageTool
+
     mock_bus = MagicMock()
     mock_config = MagicMock()
     ctx = ToolContext(config=mock_config, workspace="/tmp", bus=mock_bus)
@@ -123,6 +141,7 @@ async def test_message_tool_create():
 
 def test_cron_tool_enabled_without_service():
     from nanobot.agent.tools.cron import CronTool
+
     mock_config = MagicMock()
     ctx = ToolContext(config=mock_config, workspace="/tmp", cron_service=None)
     assert CronTool.enabled(ctx) is False
@@ -130,6 +149,7 @@ def test_cron_tool_enabled_without_service():
 
 def test_cron_tool_enabled_with_service():
     from nanobot.agent.tools.cron import CronTool
+
     mock_service = MagicMock()
     mock_config = MagicMock()
     ctx = ToolContext(config=mock_config, workspace="/tmp", cron_service=mock_service)
@@ -138,11 +158,14 @@ def test_cron_tool_enabled_with_service():
 
 def test_cron_tool_create():
     from nanobot.agent.tools.cron import CronTool
+
     mock_service = MagicMock()
     mock_config = MagicMock()
     ctx = ToolContext(
-        config=mock_config, workspace="/tmp",
-        cron_service=mock_service, timezone="Asia/Shanghai",
+        config=mock_config,
+        workspace="/tmp",
+        cron_service=mock_service,
+        timezone="Asia/Shanghai",
     )
     tool = CronTool.create(ctx)
     assert isinstance(tool, CronTool)
@@ -150,6 +173,7 @@ def test_cron_tool_create():
 
 def test_web_tools_config_cls():
     from nanobot.agent.tools.web import WebFetchTool, WebSearchTool, WebToolsConfig
+
     assert WebSearchTool.config_key == "web"
     assert WebSearchTool.config_cls() is WebToolsConfig
     assert WebFetchTool.config_key == "web"
@@ -158,6 +182,7 @@ def test_web_tools_config_cls():
 
 def test_web_tools_enabled():
     from nanobot.agent.tools.web import WebSearchTool
+
     mock_config = MagicMock()
     mock_config.web.enable = True
     ctx = ToolContext(config=mock_config, workspace="/tmp")
@@ -168,6 +193,7 @@ def test_web_tools_enabled():
 
 def test_web_search_tool_create():
     from nanobot.agent.tools.web import WebSearchTool
+
     mock_config = MagicMock()
     mock_config.web.enable = True
     mock_config.web.search = MagicMock()
@@ -180,6 +206,7 @@ def test_web_search_tool_create():
 
 def test_web_fetch_tool_create():
     from nanobot.agent.tools.web import WebFetchTool
+
     mock_config = MagicMock()
     mock_config.web.enable = True
     mock_config.web.fetch = MagicMock()
@@ -192,12 +219,14 @@ def test_web_fetch_tool_create():
 
 def test_image_gen_tool_config_cls():
     from nanobot.agent.tools.image_generation import ImageGenerationTool, ImageGenerationToolConfig
+
     assert ImageGenerationTool.config_key == "image_generation"
     assert ImageGenerationTool.config_cls() is ImageGenerationToolConfig
 
 
 def test_image_gen_tool_enabled():
     from nanobot.agent.tools.image_generation import ImageGenerationTool
+
     mock_config = MagicMock()
     mock_config.image_generation.enabled = True
     ctx = ToolContext(config=mock_config, workspace="/tmp")
@@ -208,10 +237,12 @@ def test_image_gen_tool_enabled():
 
 def test_image_gen_tool_create():
     from nanobot.agent.tools.image_generation import ImageGenerationTool
+
     mock_config = MagicMock()
     mock_config.image_generation = MagicMock()
     ctx = ToolContext(
-        config=mock_config, workspace="/tmp",
+        config=mock_config,
+        workspace="/tmp",
         image_generation_provider_configs={"openrouter": MagicMock()},
     )
     tool = ImageGenerationTool.create(ctx)
@@ -220,6 +251,7 @@ def test_image_gen_tool_create():
 
 def test_mcp_wrappers_not_discoverable():
     from nanobot.agent.tools.mcp import MCPPromptWrapper, MCPResourceWrapper, MCPToolWrapper
+
     assert MCPToolWrapper._plugin_discoverable is False
     assert MCPResourceWrapper._plugin_discoverable is False
     assert MCPPromptWrapper._plugin_discoverable is False
@@ -255,8 +287,10 @@ def test_loader_registers_same_tools_as_old_hardcoded():
     registered = loader.load(ctx, registry)
 
     expected = {
-        "web_search", "web_fetch",
-        "message", "cron",
+        "web_search",
+        "web_fetch",
+        "message",
+        "cron",
     }
     actual = set(registered)
     assert expected <= actual, f"Missing tools: {expected - actual}"

@@ -10,8 +10,9 @@ Adapted from nanobot's cron service but simplified for Collie's needs:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
-from datetime import datetime, time, timedelta, timezone
+from datetime import UTC, datetime, time, timedelta
 from typing import Any
 
 from loguru import logger
@@ -245,9 +246,7 @@ class AutomationScheduler:
     async def start(self) -> None:
         seed_builtin_automations(self.db)
         seed_gardener_automations(self.db)
-        stale_before = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(
-            timespec="seconds"
-        )
+        stale_before = (datetime.now(UTC) - timedelta(minutes=5)).isoformat(timespec="seconds")
         recovered = self.db.recover_stale_runs(stale_before)
         if recovered:
             logger.warning("Recovered {} interrupted routine run(s)", recovered)
@@ -257,10 +256,8 @@ class AutomationScheduler:
     async def stop(self) -> None:
         if self._task:
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
             self._task = None
         for task in list(self._run_tasks):
             task.cancel()
@@ -277,14 +274,13 @@ class AutomationScheduler:
             await asyncio.sleep(self._poll_seconds)
 
     async def _tick(self) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         automations = self.db.list_automations(enabled_only=True)
 
         for auto in automations:
             auto_id = str(auto["id"] or "")
-            if (
-                auto.get("action_type") == "approved_plan"
-                and (not auto.get("plan_id") or not auto.get("plan_version"))
+            if auto.get("action_type") == "approved_plan" and (
+                not auto.get("plan_id") or not auto.get("plan_version")
             ):
                 self.db.update_automation(auto_id, routine_status="needs_attention")
                 continue
@@ -299,9 +295,7 @@ class AutomationScheduler:
                 upcoming = next_occurrence(schedule, now)
                 self.db.update_automation(
                     auto_id,
-                    next_run_at=(
-                        upcoming.isoformat(timespec="seconds") if upcoming else None
-                    ),
+                    next_run_at=(upcoming.isoformat(timespec="seconds") if upcoming else None),
                 )
                 continue
             try:
@@ -309,7 +303,7 @@ class AutomationScheduler:
             except ValueError:
                 continue
             if due.tzinfo is None:
-                due = due.replace(tzinfo=timezone.utc)
+                due = due.replace(tzinfo=UTC)
             if due > now:
                 continue
             schedule = self._structured_schedule(auto)
@@ -339,15 +333,11 @@ class AutomationScheduler:
             self._run_tasks.add(task)
             task.add_done_callback(self._run_tasks.discard)
 
-    async def _execute_claimed(
-        self, auto: dict[str, Any], run: dict[str, Any]
-    ) -> None:
+    async def _execute_claimed(self, auto: dict[str, Any], run: dict[str, Any]) -> None:
         async with self._semaphore:
             run_id = str(run["id"])
             self.db.transition_run(run_id, "running")
-            await self._emit(
-                {"type": "run_started", "run": self.db.get_run(run_id)}
-            )
+            await self._emit({"type": "run_started", "run": self.db.get_run(run_id)})
             try:
                 await self._fire(auto, mark_result=False)
             except asyncio.CancelledError:
@@ -368,8 +358,7 @@ class AutomationScheduler:
                     (
                         step
                         for step in steps
-                        if step.get("status")
-                        not in {"completed", "failed", "skipped", "blocked"}
+                        if step.get("status") not in {"completed", "failed", "skipped", "blocked"}
                     ),
                     None,
                 )
@@ -382,9 +371,7 @@ class AutomationScheduler:
                         status="failed",
                         error_message=str(exc)[:1000],
                     )
-                await self._emit(
-                    {"type": "run_failed", "run": self.db.get_run(run_id)}
-                )
+                await self._emit({"type": "run_failed", "run": self.db.get_run(run_id)})
                 return
             for step in self.db.list_run_steps(run_id):
                 if step.get("status") != "queued":
@@ -399,9 +386,7 @@ class AutomationScheduler:
                 )
             self.db.transition_run(run_id, "completed")
             self.db.mark_routine_result(str(auto["id"]), success=True)
-            await self._emit(
-                {"type": "run_completed", "run": self.db.get_run(run_id)}
-            )
+            await self._emit({"type": "run_completed", "run": self.db.get_run(run_id)})
 
     async def _fire(self, auto: dict[str, Any], *, mark_result: bool = True) -> None:
         auto_id = str(auto["id"] or "")
@@ -427,14 +412,16 @@ class AutomationScheduler:
         if isinstance(action_config, dict):
             prompt = str(action_config.get("prompt") or "")
 
-        await self._broadcaster({
-            "type": "automation",
-            "automation_id": auto_id,
-            "name": auto.get("name"),
-            "action_type": auto.get("action_type"),
-            "prompt": prompt,
-            "timestamp": utc_now(),
-        })
+        await self._broadcaster(
+            {
+                "type": "automation",
+                "automation_id": auto_id,
+                "name": auto.get("name"),
+                "action_type": auto.get("action_type"),
+                "prompt": prompt,
+                "timestamp": utc_now(),
+            }
+        )
         if mark_result:
             self.db.mark_routine_result(auto_id, success=True)
 
@@ -443,7 +430,7 @@ class AutomationScheduler:
             await self._broadcaster(payload)
 
     def _backfill_next_runs(self) -> None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for row in self.db.list_automations():
             if row.get("next_run_at"):
                 continue

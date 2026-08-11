@@ -27,7 +27,9 @@ from nanobot.security.workspace_access import (
 def scope(tmp_path: Path):
     root = tmp_path / "project"
     root.mkdir()
-    token = bind_workspace_scope(build_workspace_scope(root, "restricted", source_channel="websocket"))
+    token = bind_workspace_scope(
+        build_workspace_scope(root, "restricted", source_channel="websocket")
+    )
     try:
         yield root
     finally:
@@ -68,15 +70,11 @@ async def _next_outbound(bus: MessageBus) -> Any:
 # ---------------------------------------------------------------------------
 
 
-async def test_registers_thing_and_publishes_artifact_event(
-    scope: Path, wired, chat_ctx
-) -> None:
+async def test_registers_thing_and_publishes_artifact_event(scope: Path, wired, chat_ctx) -> None:
     bus, store, _media = wired
     (scope / "flyer.png").write_bytes(b"\x89PNG\r\n\x1a\n")
 
-    result = await _run_tool(
-        scope, title="Dog walk flyer", path="flyer.png", kind="image"
-    )
+    result = await _run_tool(scope, title="Dog walk flyer", path="flyer.png", kind="image")
 
     assert not result.is_error
     payload = json.loads(str(result))
@@ -102,9 +100,7 @@ async def test_registers_thing_and_publishes_artifact_event(
     assert msg.content == "📎 Made: Dog walk flyer · Open"
 
 
-async def test_kind_defaults_to_actual_for_unknown_file_kind(
-    scope: Path, wired, chat_ctx
-) -> None:
+async def test_kind_defaults_to_actual_for_unknown_file_kind(scope: Path, wired, chat_ctx) -> None:
     bus, store, _media = wired
     (scope / "notes.txt").write_text("hello", encoding="utf-8")
 
@@ -125,9 +121,7 @@ async def test_kind_mismatch_is_rejected(scope: Path, wired, chat_ctx) -> None:
     bus, store, _media = wired
     (scope / "flyer.png").write_bytes(b"\x89PNG\r\n\x1a\n")
 
-    result = await _run_tool(
-        scope, title="Dog walk flyer", path="flyer.png", kind="document"
-    )
+    result = await _run_tool(scope, title="Dog walk flyer", path="flyer.png", kind="document")
 
     assert result.is_error
     assert "image" in str(result)
@@ -139,9 +133,7 @@ async def test_kind_mismatch_is_rejected(scope: Path, wired, chat_ctx) -> None:
 async def test_missing_file_is_rejected(scope: Path, wired, chat_ctx) -> None:
     bus, store, _media = wired
 
-    result = await _run_tool(
-        scope, title="Ghost", path="ghost.png", kind="image"
-    )
+    result = await _run_tool(scope, title="Ghost", path="ghost.png", kind="image")
 
     assert result.is_error
     assert store.list("conv-1") == []
@@ -182,9 +174,7 @@ async def test_media_dir_carve_out_allows_assistant_made_files(
     made.parent.mkdir(parents=True)
     made.write_bytes(b"\x89PNG\r\n\x1a\n")
 
-    result = await _run_tool(
-        scope, title="Generated image", path=str(made), kind="image"
-    )
+    result = await _run_tool(scope, title="Generated image", path=str(made), kind="image")
 
     assert not result.is_error
     assert store.list("conv-1")[0]["path"] == str(made.resolve())

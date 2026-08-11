@@ -71,7 +71,7 @@ class SuggestAboutMeTool(Tool):
         return _workspace is not None
 
     @classmethod
-    def create(cls, ctx: Any) -> "SuggestAboutMeTool":
+    def create(cls, ctx: Any) -> SuggestAboutMeTool:
         return cls()
 
     async def execute(self, **kwargs: Any) -> Any:
@@ -79,13 +79,15 @@ class SuggestAboutMeTool(Tool):
         reasoning = (kwargs.get("reasoning") or "").strip()
         if not suggestion or not reasoning:
             return self.error("Both 'suggestion' and 'reasoning' are required.")
-        return json.dumps({
-            "card_type": "profile_suggestion",
-            "file": "AGENTS.md",
-            "label": "About Me",
-            "suggestion": suggestion,
-            "reasoning": reasoning,
-        })
+        return json.dumps(
+            {
+                "card_type": "profile_suggestion",
+                "file": "AGENTS.md",
+                "label": "About Me",
+                "suggestion": suggestion,
+                "reasoning": reasoning,
+            }
+        )
 
 
 @tool_parameters(COMMON_PARAMS)
@@ -105,7 +107,7 @@ class SuggestPersonalityTool(Tool):
         return _workspace is not None
 
     @classmethod
-    def create(cls, ctx: Any) -> "SuggestPersonalityTool":
+    def create(cls, ctx: Any) -> SuggestPersonalityTool:
         return cls()
 
     async def execute(self, **kwargs: Any) -> Any:
@@ -113,10 +115,12 @@ class SuggestPersonalityTool(Tool):
         reasoning = (kwargs.get("reasoning") or "").strip()
         if not suggestion or not reasoning:
             return self.error("Both 'suggestion' and 'reasoning' are required.")
-        return json.dumps({
-            "card_type": "profile_suggestion",
-            "file": "VISION.md",
-            "label": "Collie's Personality",
-            "suggestion": suggestion,
-            "reasoning": reasoning,
-        })
+        return json.dumps(
+            {
+                "card_type": "profile_suggestion",
+                "file": "VISION.md",
+                "label": "Collie's Personality",
+                "suggestion": suggestion,
+                "reasoning": reasoning,
+            }
+        )

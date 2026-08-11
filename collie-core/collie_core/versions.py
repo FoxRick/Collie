@@ -127,9 +127,7 @@ class VersionStore:
         else:
             target = max(applied, key=lambda r: int(r.get("version") or 0))
         if target is None:
-            raise VersionConflictError(
-                f"Version {to_version} was already undone or never existed."
-            )
+            raise VersionConflictError(f"Version {to_version} was already undone or never existed.")
 
         after_text = target.get("after_text") or ""
         current = current_text if current_text is not None else ""

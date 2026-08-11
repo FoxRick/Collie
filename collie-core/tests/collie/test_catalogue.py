@@ -107,7 +107,9 @@ def test_validate_catalogue_schema_rejects_bad_shapes() -> None:
     assert good is not None and validate_catalogue_schema(good)
     assert not validate_catalogue_schema({"schema_version": 999, "providers": [], "source": {}})
     assert not validate_catalogue_schema({"schema_version": 1, "providers": "nope", "source": {}})
-    assert not validate_catalogue_schema({"schema_version": 1, "providers": [{"id": ""}], "source": {}})
+    assert not validate_catalogue_schema(
+        {"schema_version": 1, "providers": [{"id": ""}], "source": {}}
+    )
     assert not validate_catalogue_schema(None)
     assert not validate_catalogue_schema("html error page")
 

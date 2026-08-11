@@ -146,14 +146,16 @@ def test_prepare_call_rejects_malformed_json_string_arguments() -> None:
 
 def test_prepare_call_rejects_scalar_for_single_required_parameter() -> None:
     registry = ToolRegistry()
-    registry.register(_FakeTool(
-        "web_fetch",
-        {
-            "type": "object",
-            "properties": {"url": {"type": "string"}},
-            "required": ["url"],
-        },
-    ))
+    registry.register(
+        _FakeTool(
+            "web_fetch",
+            {
+                "type": "object",
+                "properties": {"url": {"type": "string"}},
+                "required": ["url"],
+            },
+        )
+    )
 
     tool, params, error = registry.prepare_call("web_fetch", "https://example.com")
 
@@ -165,14 +167,16 @@ def test_prepare_call_rejects_scalar_for_single_required_parameter() -> None:
 
 def test_prepare_call_rejects_unquoted_scalar_strings_before_schema_cast() -> None:
     registry = ToolRegistry()
-    registry.register(_FakeTool(
-        "message",
-        {
-            "type": "object",
-            "properties": {"content": {"type": "string"}},
-            "required": ["content"],
-        },
-    ))
+    registry.register(
+        _FakeTool(
+            "message",
+            {
+                "type": "object",
+                "properties": {"content": {"type": "string"}},
+                "required": ["content"],
+            },
+        )
+    )
 
     tool, params, error = registry.prepare_call("message", "true")
 
@@ -184,14 +188,16 @@ def test_prepare_call_rejects_unquoted_scalar_strings_before_schema_cast() -> No
 
 def test_prepare_call_unwraps_arguments_payload() -> None:
     registry = ToolRegistry()
-    registry.register(_FakeTool(
-        "read_file",
-        {
-            "type": "object",
-            "properties": {"path": {"type": "string"}},
-            "required": ["path"],
-        },
-    ))
+    registry.register(
+        _FakeTool(
+            "read_file",
+            {
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"],
+            },
+        )
+    )
 
     tool, params, error = registry.prepare_call(
         "read_file",

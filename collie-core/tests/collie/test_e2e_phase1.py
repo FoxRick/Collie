@@ -30,9 +30,7 @@ async def _fake_openai_app() -> web.Application:
         body = await request.json()
         assert body.get("model")
         if body.get("stream"):
-            resp = web.StreamResponse(
-                headers={"Content-Type": "text/event-stream"}
-            )
+            resp = web.StreamResponse(headers={"Content-Type": "text/event-stream"})
             await resp.prepare(request)
             chunks = ["Hi! ", "You said: ", "hello."]
             for i, text in enumerate(chunks):
@@ -40,12 +38,17 @@ async def _fake_openai_app() -> web.Application:
                     "id": "chatcmpl-fake",
                     "object": "chat.completion.chunk",
                     "model": body["model"],
-                    "choices": [{
-                        "index": 0,
-                        "delta": ({"role": "assistant", "content": text}
-                                  if i == 0 else {"content": text}),
-                        "finish_reason": None,
-                    }],
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": (
+                                {"role": "assistant", "content": text}
+                                if i == 0
+                                else {"content": text}
+                            ),
+                            "finish_reason": None,
+                        }
+                    ],
                 }
                 await resp.write(f"data: {json.dumps(payload)}\n\n".encode())
             done = {
@@ -53,24 +56,27 @@ async def _fake_openai_app() -> web.Application:
                 "object": "chat.completion.chunk",
                 "model": body["model"],
                 "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-                "usage": {"prompt_tokens": 20, "completion_tokens": 6,
-                          "total_tokens": 26},
+                "usage": {"prompt_tokens": 20, "completion_tokens": 6, "total_tokens": 26},
             }
             await resp.write(f"data: {json.dumps(done)}\n\n".encode())
             await resp.write(b"data: [DONE]\n\n")
             await resp.write_eof()
             return resp
-        return web.json_response({
-            "id": "chatcmpl-fake",
-            "object": "chat.completion",
-            "model": body["model"],
-            "choices": [{
-                "index": 0,
-                "message": {"role": "assistant", "content": "Hi! You said: hello."},
-                "finish_reason": "stop",
-            }],
-            "usage": {"prompt_tokens": 20, "completion_tokens": 6, "total_tokens": 26},
-        })
+        return web.json_response(
+            {
+                "id": "chatcmpl-fake",
+                "object": "chat.completion",
+                "model": body["model"],
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "Hi! You said: hello."},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 20, "completion_tokens": 6, "total_tokens": 26},
+            }
+        )
 
     app = web.Application()
     app.router.add_post("/v1/chat/completions", chat_completions)
@@ -102,10 +108,16 @@ async def test_phase1_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
             assert ready["type"] == "ready"
 
             # Welcome flow: inject the API key, then configure
-            await ws.send(json.dumps({
-                "type": "set_api_key", "id": "k",
-                "provider": "custom", "key": "sk-fake",
-            }))
+            await ws.send(
+                json.dumps(
+                    {
+                        "type": "set_api_key",
+                        "id": "k",
+                        "provider": "custom",
+                        "key": "sk-fake",
+                    }
+                )
+            )
             assert json.loads(await ws.recv())["type"] == "ok"
 
             await ws.send(json.dumps({"type": "configure", "id": "c"}))
@@ -115,9 +127,15 @@ async def test_phase1_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
             assert reply["data"]["model"] == "collie-test-model"
 
             # Chat round trip
-            await ws.send(json.dumps({
-                "type": "chat", "id": "m1", "content": "hello",
-            }))
+            await ws.send(
+                json.dumps(
+                    {
+                        "type": "chat",
+                        "id": "m1",
+                        "content": "hello",
+                    }
+                )
+            )
 
             states: list[str] = []
             deltas: list[str] = []
@@ -131,8 +149,7 @@ async def test_phase1_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
                     states.append(frame["state"])
                 elif frame["type"] == "delta":
                     deltas.append(frame["text"])
-                elif (frame["type"] == "message"
-                      and frame["message"]["role"] == "assistant"):
+                elif frame["type"] == "message" and frame["message"]["role"] == "assistant":
                     assistant = frame["message"]
                     break
                 elif frame["type"] == "error":
@@ -151,15 +168,20 @@ async def test_phase1_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
             assert db.usage_this_month()["tokens"] == 26
 
             # Second turn continues the same conversation with history
-            await ws.send(json.dumps({
-                "type": "chat", "id": "m2",
-                "conversation_id": conv_id, "content": "hello",
-            }))
+            await ws.send(
+                json.dumps(
+                    {
+                        "type": "chat",
+                        "id": "m2",
+                        "conversation_id": conv_id,
+                        "content": "hello",
+                    }
+                )
+            )
             assistant2 = None
             for _ in range(200):
                 frame = json.loads(await asyncio.wait_for(ws.recv(), 30))
-                if (frame["type"] == "message"
-                        and frame["message"]["role"] == "assistant"):
+                if frame["type"] == "message" and frame["message"]["role"] == "assistant":
                     assistant2 = frame["message"]
                     break
                 if frame["type"] == "error":

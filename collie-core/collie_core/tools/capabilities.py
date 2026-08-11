@@ -20,9 +20,7 @@ _MAX_INSTRUCTIONS = 16_000
 def _clean_skill_name(value: str) -> str:
     name = re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
     if not name or len(name) > 64 or not _SKILL_NAME.fullmatch(name):
-        raise ValueError(
-            "Skill names must use lowercase letters, numbers, and single hyphens."
-        )
+        raise ValueError("Skill names must use lowercase letters, numbers, and single hyphens.")
     return name
 
 
@@ -82,29 +80,31 @@ def create_workspace_skill(
     }
 
 
-@tool_parameters({
-    "type": "object",
-    "properties": {
-        "name": {"type": "string", "description": "Short name for the new specialist."},
-        "description": {
-            "type": "string",
-            "description": "One-sentence description of when this specialist helps.",
+@tool_parameters(
+    {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Short name for the new specialist."},
+            "description": {
+                "type": "string",
+                "description": "One-sentence description of when this specialist helps.",
+            },
+            "instructions": {
+                "type": "string",
+                "description": (
+                    "Complete system instructions defining the specialist's role, workflow, "
+                    "quality bar, and boundaries."
+                ),
+            },
+            "execution_posture": {
+                "type": "string",
+                "enum": ["read_only", "inherit"],
+                "description": "read_only for research/review; inherit for approved actions.",
+            },
         },
-        "instructions": {
-            "type": "string",
-            "description": (
-                "Complete system instructions defining the specialist's role, workflow, "
-                "quality bar, and boundaries."
-            ),
-        },
-        "execution_posture": {
-            "type": "string",
-            "enum": ["read_only", "inherit"],
-            "description": "read_only for research/review; inherit for approved actions.",
-        },
-    },
-    "required": ["name", "description", "instructions"],
-})
+        "required": ["name", "description", "instructions"],
+    }
+)
 class CreateSubagentTool(Tool):
     """Create a specialist only after the user explicitly asks and approves."""
 
@@ -164,24 +164,26 @@ class CreateSubagentTool(Tool):
         )
 
 
-@tool_parameters({
-    "type": "object",
-    "properties": {
-        "name": {
-            "type": "string",
-            "description": "Lowercase hyphenated skill name, such as weekly-review.",
+@tool_parameters(
+    {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": "Lowercase hyphenated skill name, such as weekly-review.",
+            },
+            "description": {
+                "type": "string",
+                "description": "Specific description of when Collie should load this skill.",
+            },
+            "instructions": {
+                "type": "string",
+                "description": "Complete reusable Markdown workflow instructions.",
+            },
         },
-        "description": {
-            "type": "string",
-            "description": "Specific description of when Collie should load this skill.",
-        },
-        "instructions": {
-            "type": "string",
-            "description": "Complete reusable Markdown workflow instructions.",
-        },
-    },
-    "required": ["name", "description", "instructions"],
-})
+        "required": ["name", "description", "instructions"],
+    }
+)
 class CreateSkillTool(Tool):
     """Create a Markdown-only skill inside Collie's workspace."""
 
@@ -205,7 +207,7 @@ class CreateSkillTool(Tool):
         return False
 
     @classmethod
-    def create(cls, ctx: Any) -> "CreateSkillTool":
+    def create(cls, ctx: Any) -> CreateSkillTool:
         return cls(Path(str(ctx.workspace)))
 
     def permission_request(self, params: dict[str, Any]) -> PermissionRequest:
@@ -241,13 +243,15 @@ class CreateSkillTool(Tool):
         )
 
 
-@tool_parameters({
-    "type": "object",
-    "properties": {
-        "name": {"type": "string", "description": "Exact skill name to load."},
-    },
-    "required": ["name"],
-})
+@tool_parameters(
+    {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Exact skill name to load."},
+        },
+        "required": ["name"],
+    }
+)
 class LoadSkillTool(Tool):
     """Load one discovered skill without exposing general filesystem access."""
 
@@ -270,7 +274,7 @@ class LoadSkillTool(Tool):
         return True
 
     @classmethod
-    def create(cls, ctx: Any) -> "LoadSkillTool":
+    def create(cls, ctx: Any) -> LoadSkillTool:
         return cls(Path(str(ctx.workspace)))
 
     async def execute(self, **kwargs: Any) -> Any:

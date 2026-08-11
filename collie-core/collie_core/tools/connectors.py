@@ -89,9 +89,7 @@ class ConnectConnectorTool(Tool):
         )
 
     async def execute(self, provider_id: str, **kwargs: Any) -> str:
-        result = await asyncio.to_thread(
-            _manager().connect, provider_id, None, origin="chat"
-        )
+        result = await asyncio.to_thread(_manager().connect, provider_id, None, origin="chat")
         return json.dumps(result, ensure_ascii=False)
 
 
@@ -131,8 +129,5 @@ class DisconnectConnectorTool(Tool):
         )
 
     async def execute(self, connection_id: str, **kwargs: Any) -> str:
-        result = await asyncio.to_thread(
-            _manager().remove, connection_id, origin="chat"
-        )
+        result = await asyncio.to_thread(_manager().remove, connection_id, origin="chat")
         return json.dumps(result, ensure_ascii=False)
-

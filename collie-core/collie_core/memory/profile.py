@@ -39,6 +39,7 @@ def _md_value(value: Any) -> str:
         text = text.replace(char, "\\" + char)
     return text
 
+
 # Known profile keys shown in Settings → Memory with friendly labels.
 PROFILE_KEYS: dict[str, str] = {
     "name": "Name",
@@ -58,9 +59,7 @@ PROFILE_KEYS: dict[str, str] = {
 class ProfileStore:
     """Structured profile memory backed by SQLite, mirrored to MEMORY.md."""
 
-    def __init__(
-        self, db: CollieDB, workspace: Path, version_store: Any = None
-    ) -> None:
+    def __init__(self, db: CollieDB, workspace: Path, version_store: Any = None) -> None:
         self.db = db
         self.workspace = workspace
         self.memory_file = workspace / "MEMORY.md"
@@ -99,7 +98,8 @@ class ProfileStore:
         existing = self.db.get_profile(key, None)
         self.db.set_profile(key, value)
         self._journal(
-            "fact", key,
+            "fact",
+            key,
             "add" if existing is None or existing == "" else "update",
             value,
         )
@@ -231,7 +231,9 @@ class ProfileStore:
                 who = people_by_id.get(d.get("person_id") or "")
                 suffix = f" ({_md_value(who)})" if who else ""
                 recur = " — every year" if d.get("recurring") else ""
-                lines.append(f"- **{_md_value(d['date'])}**: {_md_value(d['label'])}{suffix}{recur}")
+                lines.append(
+                    f"- **{_md_value(d['date'])}**: {_md_value(d['label'])}{suffix}{recur}"
+                )
             lines.append("")
 
         if len(lines) == 4:
@@ -246,9 +248,7 @@ class ProfileStore:
         # snapshot.
         with _MEMORY_WRITE_LOCK:
             self.workspace.mkdir(parents=True, exist_ok=True)
-            fd, tmp_name = tempfile.mkstemp(
-                prefix="MEMORY.md.", suffix=".tmp", dir=self.workspace
-            )
+            fd, tmp_name = tempfile.mkstemp(prefix="MEMORY.md.", suffix=".tmp", dir=self.workspace)
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as handle:
                     handle.write(self.memory_markdown())

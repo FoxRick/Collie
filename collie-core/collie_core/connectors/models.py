@@ -51,4 +51,3 @@ class ProbeResult:
     account_label: str | None = None
     remote_account_id: str | None = None
     granted_scopes: list[str] = field(default_factory=list)
-

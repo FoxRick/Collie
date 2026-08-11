@@ -18,29 +18,31 @@ __all__ = ["EmailTool"]
 _EMAIL_SERVICES = ("gmail", "outlook")
 
 
-@tool_parameters({
-    "type": "object",
-    "properties": {
-        "action": {
-            "type": "string",
-            "enum": ["list", "read", "search", "draft"],
-            "description": "list recent emails, read one, search, or draft a reply.",
+@tool_parameters(
+    {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["list", "read", "search", "draft"],
+                "description": "list recent emails, read one, search, or draft a reply.",
+            },
+            "query": {
+                "type": "string",
+                "description": "For action=search: what to look for.",
+            },
+            "email_id": {
+                "type": "string",
+                "description": "For action=read: the email's ID.",
+            },
+            "reply_text": {
+                "type": "string",
+                "description": "For action=draft: the draft reply text.",
+            },
         },
-        "query": {
-            "type": "string",
-            "description": "For action=search: what to look for.",
-        },
-        "email_id": {
-            "type": "string",
-            "description": "For action=read: the email's ID.",
-        },
-        "reply_text": {
-            "type": "string",
-            "description": "For action=draft: the draft reply text.",
-        },
-    },
-    "required": ["action"],
-})
+        "required": ["action"],
+    }
+)
 class EmailTool(Tool):
     """Manage email (Gmail / Outlook via MCP)."""
 
@@ -75,7 +77,7 @@ class EmailTool(Tool):
         return True
 
     @classmethod
-    def create(cls, ctx: Any) -> "EmailTool":
+    def create(cls, ctx: Any) -> EmailTool:
         return cls()
 
     async def execute(self, **kwargs: Any) -> Any:
@@ -102,10 +104,10 @@ class EmailTool(Tool):
             query = str(kwargs.get("query") or "")
             friendly = f' for "{query}"' if query else ""
             return (
-                "I'd dig through your mail{query_hint}, but you need to connect "
+                f"I'd dig through your mail{friendly}, but you need to connect "
                 "an email account first. Head to **Settings → Services** — Gmail "
                 "or Outlook, one click and I'll do the rest!"
-            ).format(query_hint=friendly)
+            )
 
         if action == "read":
             return (

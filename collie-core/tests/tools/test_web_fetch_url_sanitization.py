@@ -13,6 +13,7 @@ from nanobot.agent.tools.web import WebFetchTool, _validate_url
 
 def _fake_resolve_public(hostname, port, family=0, type_=0):
     import socket
+
     return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))]
 
 
@@ -21,23 +22,38 @@ class FakeResponse:
     url = "https://example.com/page"
     text = "<html><head><title>T</title></head><body><p>ok</p></body></html>"
     headers = {"content-type": "text/html"}
-    def raise_for_status(self): pass
-    def json(self): return {}
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return {}
 
 
 class FakeStreamResponse:
     headers = {"content-type": "text/html"}
     url = "https://example.com/page"
-    async def __aenter__(self): return self
-    async def __aexit__(self, *a): return False
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
 
 
 class FakeClient:
-    def __init__(self, *a, **kw): pass
-    async def __aenter__(self): return self
-    async def __aexit__(self, *a): return False
+    def __init__(self, *a, **kw):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
     def stream(self, method, url, **kw):
         return FakeStreamResponse()
+
     async def get(self, url, **kw):
         return FakeResponse()
 
@@ -54,13 +70,17 @@ def _patched_web_fetch():
 
 # --- urlparse / _validate_url level tests ---
 
-@pytest.mark.parametrize("dirty_url", [
-    "`https://example.com/page`",
-    " `https://example.com/page` ",
-    '"https://example.com/page"',
-    "'https://example.com/page'",
-    '  "https://example.com/page"  ',
-])
+
+@pytest.mark.parametrize(
+    "dirty_url",
+    [
+        "`https://example.com/page`",
+        " `https://example.com/page` ",
+        '"https://example.com/page"',
+        "'https://example.com/page'",
+        '  "https://example.com/page"  ',
+    ],
+)
 def test_dirty_urls_fail_validation(dirty_url):
     is_valid, msg = _validate_url(dirty_url)
     assert not is_valid
@@ -73,12 +93,14 @@ def test_clean_url_passes_validation():
 
 def test_backtick_url_produces_empty_scheme_in_urlparse():
     from urllib.parse import urlparse
+
     p = urlparse("`https://example.com/page`")
     assert p.scheme == ""
     assert p.netloc == ""
 
 
 # --- WebFetchTool.execute integration tests ---
+
 
 @pytest.mark.asyncio
 async def test_execute_strips_backticks_and_succeeds():
@@ -135,6 +157,7 @@ async def test_execute_keeps_case_insensitive_http_scheme():
 
 
 # --- startswith guard tests ---
+
 
 @pytest.mark.asyncio
 async def test_execute_rejects_non_http_url_after_cleaning():

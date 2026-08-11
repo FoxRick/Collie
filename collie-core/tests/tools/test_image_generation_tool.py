@@ -45,9 +45,7 @@ def test_image_generation_requires_fresh_provider_egress_approval(tmp_path: Path
         workspace=tmp_path,
         config=ImageGenerationToolConfig(enabled=True, provider="aihubmix"),
     )
-    request = tool.permission_request(
-        {"prompt": "edit", "reference_images": ["reference.png"]}
-    )
+    request = tool.permission_request({"prompt": "edit", "reference_images": ["reference.png"]})
     db = CollieDB(tmp_path / "collie.db")
     db.add_approval_rule(
         action="*", resource_pattern="*", effect="allow", scope_type="run", scope_value="run-1"
@@ -62,9 +60,12 @@ def test_image_generation_requires_fresh_provider_egress_approval(tmp_path: Path
         "provider": "aihubmix",
         "reference_images": ["reference.png"],
     }
-    assert PermissionEvaluator(PermissionStore(db)).evaluate(
-        ExecutionContext(run_id="run-1"), request
-    ).effect == Effect.ASK
+    assert (
+        PermissionEvaluator(PermissionStore(db))
+        .evaluate(ExecutionContext(run_id="run-1"), request)
+        .effect
+        == Effect.ASK
+    )
     db.close()
 
 

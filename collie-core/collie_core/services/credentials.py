@@ -9,10 +9,11 @@ from __future__ import annotations
 import json
 import os
 import sys
+from collections.abc import Callable
 from contextlib import suppress
 from ctypes import POINTER, Structure, byref, c_char, c_void_p, cast, wintypes
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from collie_core.db import collie_home
 
@@ -24,11 +25,12 @@ _CRYPTPROTECT_UI_FORBIDDEN = 0x1
 
 
 if sys.platform == "win32":
+
     class _DataBlob(Structure):
         _fields_ = [("cbData", wintypes.DWORD), ("pbData", POINTER(c_char))]
 
 
-def _blob(data: bytes) -> tuple["_DataBlob", object]:
+def _blob(data: bytes) -> tuple[_DataBlob, object]:
     buffer = (c_char * len(data)).from_buffer_copy(data)
     return _DataBlob(len(data), cast(buffer, POINTER(c_char))), buffer
 
@@ -132,7 +134,7 @@ class CredentialStore:
             blob = path.read_bytes()
             if not blob.startswith(_MAGIC):
                 return None
-            data = json.loads(self._unprotect(blob[len(_MAGIC):]).decode("utf-8"))
+            data = json.loads(self._unprotect(blob[len(_MAGIC) :]).decode("utf-8"))
         except (OSError, RuntimeError, UnicodeError, ValueError):
             return None
         return data if isinstance(data, dict) else None

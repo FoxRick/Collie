@@ -16,6 +16,7 @@ def db(tmp_path: Path) -> CollieDB:
     d.close()
     # Reset module-level state
     import collie_core.tools.reminders as mod
+
     mod._db = None
 
 

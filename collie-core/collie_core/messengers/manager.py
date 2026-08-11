@@ -23,7 +23,9 @@ Settings keys (collie.db):
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Awaitable, Callable
+import contextlib
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from loguru import logger
 
@@ -118,17 +120,11 @@ class MessengerManager:
             revoke(name, sender_id)
 
     def set_deliver_automations(self, name: str, deliver: bool) -> None:
-        self.db.set_setting(
-            f"messengers.{name}.deliver_automations", "1" if deliver else "0"
-        )
+        self.db.set_setting(f"messengers.{name}.deliver_automations", "1" if deliver else "0")
 
     def automation_targets(self) -> list[str]:
         """Messengers that get every automation delivered."""
-        return [
-            n
-            for n in self.channels
-            if self._flag(f"messengers.{n}.deliver_automations")
-        ]
+        return [n for n in self.channels if self._flag(f"messengers.{n}.deliver_automations")]
 
     def _config_for(self, name: str) -> dict[str, Any]:
         secrets = self._secrets.get(name, {})
@@ -201,10 +197,14 @@ class MessengerManager:
             except Exception as e:
                 logger.error("Messenger send failed on {} ({})", name, type(e).__name__)
                 self._errors[name] = str(e)
-                await self._broadcast({
-                    "type": "messenger_status", "messenger": name, "status": "error",
-                    "error": str(e),
-                })
+                await self._broadcast(
+                    {
+                        "type": "messenger_status",
+                        "messenger": name,
+                        "status": "error",
+                        "error": str(e),
+                    }
+                )
 
     async def _run_channel(self, name: str, channel: Any) -> None:
         try:
@@ -215,8 +215,7 @@ class MessengerManager:
             logger.error("Messenger {} crashed ({})", name, type(e).__name__)
             self._errors[name] = str(e)
             await self._broadcast(
-                {"type": "messenger_status", "messenger": name, "status": "error",
-                 "error": str(e)}
+                {"type": "messenger_status", "messenger": name, "status": "error", "error": str(e)}
             )
             return
         # channel.start() returned: surface a latched fatal error (e.g. an
@@ -226,24 +225,24 @@ class MessengerManager:
             logger.error("Messenger {} failed fatally: {}", name, fatal)
             self._errors[name] = str(fatal)
             await self._broadcast(
-                {"type": "messenger_status", "messenger": name, "status": "error",
-                 "error": str(fatal)}
+                {
+                    "type": "messenger_status",
+                    "messenger": name,
+                    "status": "error",
+                    "error": str(fatal),
+                }
             )
 
     async def stop(self) -> None:
         for name, task in list(self._tasks.items()):
             task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
-            except (asyncio.CancelledError, Exception):
-                pass
             self._tasks.pop(name, None)
         for name, task in list(self._drain_tasks.items()):
             task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
-            except (asyncio.CancelledError, Exception):
-                pass
             self._drain_tasks.pop(name, None)
         self._queues.clear()
         for name, channel in list(self.channels.items()):
@@ -267,9 +266,7 @@ class MessengerManager:
 
     async def _on_whatsapp_qr(self, payload: str) -> None:
         self._whatsapp_qr = payload
-        await self._broadcast(
-            {"type": "messenger_qr", "messenger": "whatsapp", "qr": payload}
-        )
+        await self._broadcast({"type": "messenger_qr", "messenger": "whatsapp", "qr": payload})
 
     async def _on_whatsapp_status(self, status: str) -> None:
         if status == "connected":
@@ -295,9 +292,7 @@ class MessengerManager:
             chat_id=str(msg.chat_id or ""),
         )
         message = self.db.add_message(conv_id, "user", msg.content)
-        await self._broadcast(
-            {"type": "message", "conversation_id": conv_id, "message": message}
-        )
+        await self._broadcast({"type": "message", "conversation_id": conv_id, "message": message})
 
     async def dispatch(self, msg: OutboundMessage) -> bool:
         """Queue an outbound bus message for its messenger. Never blocks.
@@ -315,10 +310,8 @@ class MessengerManager:
         except asyncio.QueueFull:
             # Drop the oldest queued message to keep the bound; the newest
             # state wins for streaming content.
-            try:
+            with contextlib.suppress(asyncio.QueueEmpty):
                 queue.get_nowait()
-            except asyncio.QueueEmpty:
-                pass
             queue.put_nowait(msg)
         return True
 
@@ -348,9 +341,7 @@ class MessengerManager:
             return
         await channel.send(msg)
         if PAIRING_CODE_META_KEY in (msg.metadata or {}):
-            await self._broadcast(
-                {"type": "messenger_pairing", "messenger": name}
-            )
+            await self._broadcast({"type": "messenger_pairing", "messenger": name})
             return
         await self._after_final(name, msg)
 
@@ -368,9 +359,7 @@ class MessengerManager:
         label = MESSENGERS[name]["label"]
         conv_id = self._mirror_conversation(name, label)
         message = self.db.add_message(conv_id, "assistant", msg.content)
-        await self._broadcast(
-            {"type": "message", "conversation_id": conv_id, "message": message}
-        )
+        await self._broadcast({"type": "message", "conversation_id": conv_id, "message": message})
 
     def _mirror_conversation(
         self,
@@ -455,42 +444,30 @@ class MessengerManager:
             name_keys: set[str] = set()
             stored = self.db.get_setting(f"messengers.{name}.session_keys", [])
             if isinstance(stored, list):
-                name_keys.update(
-                    value for value in stored if isinstance(value, str) and value
-                )
+                name_keys.update(value for value in stored if isinstance(value, str) and value)
             latest = self.db.get_setting(f"messengers.{name}.session_key", "")
             if isinstance(latest, str) and latest:
                 name_keys.add(latest)
             # Compatibility for mirrors created before authoritative session
             # keys were persisted. New inbound traffic replaces this fallback.
             if not name_keys:
-                chat_id = str(
-                    self.db.get_setting(f"messengers.{name}.last_chat_id", "") or ""
-                )
+                chat_id = str(self.db.get_setting(f"messengers.{name}.last_chat_id", "") or "")
                 if chat_id:
                     name_keys.add(f"{name}:{chat_id}")
             keys.update(name_keys)
         return keys
 
-    def session_target_for_conversation(
-        self, conversation_id: str
-    ) -> tuple[str, str, str] | None:
+    def session_target_for_conversation(self, conversation_id: str) -> tuple[str, str, str] | None:
         """Return latest exact (session key, channel, chat id) routing target."""
         for name in self._names_for_conversation(conversation_id):
-            session_key = str(
-                self.db.get_setting(f"messengers.{name}.session_key", "") or ""
-            )
-            chat_id = str(
-                self.db.get_setting(f"messengers.{name}.session_chat_id", "") or ""
-            )
+            session_key = str(self.db.get_setting(f"messengers.{name}.session_key", "") or "")
+            chat_id = str(self.db.get_setting(f"messengers.{name}.session_chat_id", "") or "")
             if session_key and chat_id:
                 return session_key, name, chat_id
 
             # Legacy mirrors had only the automation target. Preserve their
             # behavior until a new inbound message records the exact identity.
-            legacy_chat_id = str(
-                self.db.get_setting(f"messengers.{name}.last_chat_id", "") or ""
-            )
+            legacy_chat_id = str(self.db.get_setting(f"messengers.{name}.last_chat_id", "") or "")
             if legacy_chat_id:
                 return f"{name}:{legacy_chat_id}", name, legacy_chat_id
         return None
@@ -518,9 +495,7 @@ class MessengerManager:
             self._errors[name] = "no private chat yet — message Collie once from your phone"
             return False
         try:
-            queue.put_nowait(
-                OutboundMessage(channel=name, chat_id=chat_id, content=content)
-            )
+            queue.put_nowait(OutboundMessage(channel=name, chat_id=chat_id, content=content))
             return True
         except asyncio.QueueFull:
             self._errors[name] = "the messenger queue is full — try again shortly"
@@ -560,30 +535,30 @@ class MessengerManager:
                 connected = bool(getattr(channel, "_connected", False))
             channel = self.channels.get(name)
             fatal = str(getattr(channel, "fatal_error", None) or "") or None
-            out.append({
-                "id": name,
-                "label": meta["label"],
-                "emoji": meta["emoji"],
-                "secrets": list(meta["secrets"]),
-                "enabled": self._flag(f"messengers.{name}.enabled"),
-                "configured": self.secrets_ok(name),
-                "running": self.is_running(name),
-                "connected": connected,
-                "deliver_automations": self._flag(
-                    f"messengers.{name}.deliver_automations"
-                ),
-                "error": self._errors.get(name) or fatal,
-                "approved": get_approved(name),
-                "pending": [
-                    {"code": p["code"], "sender_id": p["sender_id"]}
-                    for p in pending_all
-                    if p.get("channel") == name
-                ],
-                "qr": self._whatsapp_qr if name == "whatsapp" else None,
-                "last_chat_id": str(
-                    self.db.get_setting(f"messengers.{name}.last_chat_id", "") or ""
-                ),
-            })
+            out.append(
+                {
+                    "id": name,
+                    "label": meta["label"],
+                    "emoji": meta["emoji"],
+                    "secrets": list(meta["secrets"]),
+                    "enabled": self._flag(f"messengers.{name}.enabled"),
+                    "configured": self.secrets_ok(name),
+                    "running": self.is_running(name),
+                    "connected": connected,
+                    "deliver_automations": self._flag(f"messengers.{name}.deliver_automations"),
+                    "error": self._errors.get(name) or fatal,
+                    "approved": get_approved(name),
+                    "pending": [
+                        {"code": p["code"], "sender_id": p["sender_id"]}
+                        for p in pending_all
+                        if p.get("channel") == name
+                    ],
+                    "qr": self._whatsapp_qr if name == "whatsapp" else None,
+                    "last_chat_id": str(
+                        self.db.get_setting(f"messengers.{name}.last_chat_id", "") or ""
+                    ),
+                }
+            )
         return out
 
     async def _broadcast(self, payload: dict[str, Any]) -> None:

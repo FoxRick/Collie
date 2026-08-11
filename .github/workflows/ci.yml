@@ -40,6 +40,12 @@ jobs:
       - name: Lint (ruff)
         run: python -m ruff check nanobot collie_core tests
 
+      - name: Format check (ruff format — Collie-owned code only)
+        # Vendored nanobot/ and the upstream test suites keep their legacy
+        # style; ruff format enforces one canonical style on the code the
+        # team writes (collie_core + tests/collie + tests/tools).
+        run: python -m ruff format --check collie_core tests/collie tests/tools
+
       - name: Test (full backend suite, with the coverage gate)
         run: |
           set -o pipefail
@@ -66,10 +72,10 @@ jobs:
           # tests/tools, tests/providers and the rest cannot regress silently.
           #
           # --cov activates the pyproject floor (coverage.report.fail_under
-          # = 42 — a deliberate headroom floor; the full suite measures ~76%
-          # on the Linux dev VM, so raising the floor is safe whenever the
-          # team wants a tighter gate). The old "70" note predated the
-          # full-suite run and was stale.
+          # = 42). The authoritative baseline lives in pyproject.toml
+          # (measured 2026-08-08 on main: ~44.45% with nanobot/webui
+          # excluded) — update that note, not this one, when coverage
+          # moves.
           python -m pytest tests -q $PET \
             --cov=nanobot --cov=collie_core --cov-report=term-missing \
             --deselect tests/collie/test_services.py::test_credential_store_roundtrip \
@@ -103,6 +109,11 @@ jobs:
 
       - name: Lint (ruff)
         run: python -m ruff check nanobot collie_core tests
+
+      - name: Format check (ruff format — Collie-owned code only)
+        # Same scope as the Linux job: Collie-owned code only, vendored
+        # nanobot/ and upstream tests keep legacy style.
+        run: python -m ruff format --check collie_core tests/collie tests/tools
 
       - name: Test (full backend suite, no deselection)
         # Windows is the supported runtime: the DPAPI/service credential

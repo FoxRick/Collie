@@ -28,8 +28,7 @@ def test_set_fact_regenerates_memory_md(store: ProfileStore) -> None:
 
 
 def test_person_and_dates_render(store: ProfileStore) -> None:
-    mom = store.add_person("Mom", relationship="mother",
-                           preferences="gardening books, red wine")
+    mom = store.add_person("Mom", relationship="mother", preferences="gardening books, red wine")
     store.add_date("03-15", "Mom's birthday", recurring=True, person_id=mom["id"])
     text = store.memory_file.read_text(encoding="utf-8")
     assert "**Mom** (mother)" in text
@@ -65,8 +64,13 @@ async def test_remember_tool_fact(store: ProfileStore) -> None:
 async def test_remember_tool_person_creates_birthday_date(store: ProfileStore) -> None:
     bind_profile_store(store)
     tool = RememberTool()
-    await tool.execute(kind="person", name="Mom", relationship="mother",
-                       birthday="03-15", gift_ideas="rose pruning set")
+    await tool.execute(
+        kind="person",
+        name="Mom",
+        relationship="mother",
+        birthday="03-15",
+        gift_ideas="rose pruning set",
+    )
     person = store.find_person("Mom")
     assert person["gift_ideas"] == "rose pruning set"
     dates = store.list_dates()
@@ -133,6 +137,7 @@ def test_tool_loader_discovers_collie_tools(store: ProfileStore) -> None:
 
 # -- permission posture -----------------------------------------------------
 
+
 def test_remember_new_fact_is_approval_free(store: ProfileStore) -> None:
     bind_profile_store(store)
     tool = RememberTool()
@@ -179,14 +184,10 @@ def test_remember_person_field_change_requires_approval(store: ProfileStore) -> 
     bind_profile_store(store)
     store.add_person("Mom", allergies="peanuts")
     tool = RememberTool()
-    request = tool.permission_request(
-        {"kind": "person", "name": "Mom", "allergies": "shellfish"}
-    )
+    request = tool.permission_request({"kind": "person", "name": "Mom", "allergies": "shellfish"})
     assert request.approval_free is False
     # Same value again is a no-op, not a rewrite.
-    request = tool.permission_request(
-        {"kind": "person", "name": "Mom", "allergies": "peanuts"}
-    )
+    request = tool.permission_request({"kind": "person", "name": "Mom", "allergies": "peanuts"})
     assert request.approval_free is True
 
 
@@ -213,6 +214,7 @@ def test_remember_unknown_kind_fails_closed(store: ProfileStore) -> None:
 
 
 # -- memory journal -----------------------------------------------------------
+
 
 def test_journal_records_fact_add_update_delete(store: ProfileStore) -> None:
     store.set("location", "Lisbon")

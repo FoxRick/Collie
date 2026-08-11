@@ -15,14 +15,27 @@ from nanobot.agent.tools.base import Tool, tool_parameters
 __all__ = ["TravelTool"]
 
 _ICONS = {
-    "flight": "✈️", "train": "🚆", "drive": "🚗", "hotel": "🏨",
-    "food": "🍽️", "sight": "📸", "activity": "🎟️", "walk": "🚶",
-    "beach": "🏖️", "museum": "🏛️", "shopping": "🛍️", "other": "📍",
+    "flight": "✈️",
+    "train": "🚆",
+    "drive": "🚗",
+    "hotel": "🏨",
+    "food": "🍽️",
+    "sight": "📸",
+    "activity": "🎟️",
+    "walk": "🚶",
+    "beach": "🏖️",
+    "museum": "🏛️",
+    "shopping": "🛍️",
+    "other": "📍",
 }
 
 _PACKING_BASE = [
-    "Passport / ID", "Phone + charger", "Toiletries", "Medications",
-    "Comfortable shoes", "Underwear + socks per day",
+    "Passport / ID",
+    "Phone + charger",
+    "Toiletries",
+    "Medications",
+    "Comfortable shoes",
+    "Underwear + socks per day",
 ]
 
 _PACKING_EXTRAS = {
@@ -35,57 +48,59 @@ _PACKING_EXTRAS = {
 }
 
 
-@tool_parameters({
-    "type": "object",
-    "properties": {
-        "action": {
-            "type": "string",
-            "enum": ["itinerary", "packing_list"],
-            "description": "build a day-by-day itinerary card, or a packing list.",
-        },
-        "destination": {"type": "string", "description": "Where the trip goes."},
-        "days": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "label": {"type": "string", "description": "e.g. 'Day 1 — Sat'."},
-                    "summary": {"type": "string", "description": "One-line plan."},
-                    "activities": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "time": {"type": "string"},
-                                "title": {"type": "string"},
-                                "kind": {
-                                    "type": "string",
-                                    "description": "flight, train, drive, hotel, "
-                                                   "food, sight, activity, walk, "
-                                                   "beach, museum, shopping, other",
+@tool_parameters(
+    {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["itinerary", "packing_list"],
+                "description": "build a day-by-day itinerary card, or a packing list.",
+            },
+            "destination": {"type": "string", "description": "Where the trip goes."},
+            "days": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "label": {"type": "string", "description": "e.g. 'Day 1 — Sat'."},
+                        "summary": {"type": "string", "description": "One-line plan."},
+                        "activities": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "time": {"type": "string"},
+                                    "title": {"type": "string"},
+                                    "kind": {
+                                        "type": "string",
+                                        "description": "flight, train, drive, hotel, "
+                                        "food, sight, activity, walk, "
+                                        "beach, museum, shopping, other",
+                                    },
                                 },
+                                "required": ["title"],
                             },
-                            "required": ["title"],
                         },
                     },
+                    "required": ["label"],
                 },
-                "required": ["label"],
+                "description": "For itinerary: the day-by-day plan.",
             },
-            "description": "For itinerary: the day-by-day plan.",
+            "trip_type": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "For packing_list: tags like beach, cold, rain, "
+                "business, hiking, city.",
+            },
+            "nights": {
+                "type": "integer",
+                "description": "For packing_list: how many nights (default 3).",
+            },
         },
-        "trip_type": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "For packing_list: tags like beach, cold, rain, "
-                           "business, hiking, city.",
-        },
-        "nights": {
-            "type": "integer",
-            "description": "For packing_list: how many nights (default 3).",
-        },
-    },
-    "required": ["action"],
-})
+        "required": ["action"],
+    }
+)
 class TravelTool(Tool):
     """Turn a trip plan into an itinerary card or packing list."""
 
@@ -117,7 +132,7 @@ class TravelTool(Tool):
         return True
 
     @classmethod
-    def create(cls, ctx: Any) -> "TravelTool":
+    def create(cls, ctx: Any) -> TravelTool:
         return cls()
 
     async def execute(self, **kwargs: Any) -> Any:
@@ -130,8 +145,7 @@ class TravelTool(Tool):
                 return self.error("Where are we headed? I need a destination.")
             if not isinstance(raw_days, list) or not raw_days:
                 return self.error(
-                    "Give me the day-by-day plan (label + activities) and I'll "
-                    "lay it out."
+                    "Give me the day-by-day plan (label + activities) and I'll lay it out."
                 )
             days: list[dict[str, Any]] = []
             for entry in raw_days:
@@ -142,21 +156,27 @@ class TravelTool(Tool):
                     if not isinstance(act, dict) or not act.get("title"):
                         continue
                     kind = str(act.get("kind") or "other").strip().lower()
-                    activities.append({
-                        "icon": _ICONS.get(kind, _ICONS["other"]),
-                        "time": str(act.get("time") or ""),
-                        "title": str(act["title"]),
-                    })
-                days.append({
-                    "label": str(entry.get("label") or f"Day {len(days) + 1}"),
-                    "summary": str(entry.get("summary") or ""),
-                    "activities": activities,
-                })
-            return json.dumps({
-                "card_type": "travel",
-                "destination": destination,
-                "days": days,
-            })
+                    activities.append(
+                        {
+                            "icon": _ICONS.get(kind, _ICONS["other"]),
+                            "time": str(act.get("time") or ""),
+                            "title": str(act["title"]),
+                        }
+                    )
+                days.append(
+                    {
+                        "label": str(entry.get("label") or f"Day {len(days) + 1}"),
+                        "summary": str(entry.get("summary") or ""),
+                        "activities": activities,
+                    }
+                )
+            return json.dumps(
+                {
+                    "card_type": "travel",
+                    "destination": destination,
+                    "days": days,
+                }
+            )
 
         if action == "packing_list":
             try:
@@ -164,24 +184,20 @@ class TravelTool(Tool):
             except (TypeError, ValueError):
                 nights = 3
             tags = [
-                str(t).strip().lower()
-                for t in (kwargs.get("trip_type") or [])
-                if str(t).strip()
+                str(t).strip().lower() for t in (kwargs.get("trip_type") or []) if str(t).strip()
             ]
             items = list(_PACKING_BASE)
-            items[items.index("Underwear + socks per day")] = (
-                f"Underwear + socks × {nights + 1}"
-            )
+            items[items.index("Underwear + socks per day")] = f"Underwear + socks × {nights + 1}"
             for tag in tags:
                 for extra in _PACKING_EXTRAS.get(tag, []):
                     if extra not in items:
                         items.append(extra)
-            lines = [f"Packing list ({nights} nights"
-                     + (f", {', '.join(tags)}" if tags else "") + "):"]
+            lines = [
+                f"Packing list ({nights} nights" + (f", {', '.join(tags)}" if tags else "") + "):"
+            ]
             lines += [f"  • {item}" for item in items]
             return "\n".join(lines)
 
         return self.error(
-            f"Not sure what to do with action '{action}'. Try itinerary or "
-            "packing_list."
+            f"Not sure what to do with action '{action}'. Try itinerary or packing_list."
         )

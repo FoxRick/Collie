@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from collie_core.permissions.broker import PermissionDeniedError
 from collie_core.permissions.models import ExecutionContext
@@ -64,8 +65,12 @@ CORE_COMMANDS: tuple[CommandSpec, ...] = (
     ),
     CommandSpec("agents", "Show your specialist agents", "/agents", "Capabilities"),
     CommandSpec("skills", "Show Collie's reusable skills", "/skills", "Capabilities"),
-    CommandSpec("agent", "Ask a specialist to handle a task", "/agent <name> <task>", "Capabilities"),
-    CommandSpec("skill", "Use a named skill for a request", "/skill <name> <request>", "Capabilities"),
+    CommandSpec(
+        "agent", "Ask a specialist to handle a task", "/agent <name> <task>", "Capabilities"
+    ),
+    CommandSpec(
+        "skill", "Use a named skill for a request", "/skill <name> <request>", "Capabilities"
+    ),
     CommandSpec(
         "create-agent",
         "Create a reusable specialist with review and approval",
@@ -101,9 +106,8 @@ class CommandController:
         status_provider: Callable[[], dict[str, Any]],
         model_switcher: Callable[[str], Awaitable[dict[str, Any]]] | None = None,
         providers_provider: Callable[[], list[dict[str, Any]]] | None = None,
-        model_authorizer: Callable[
-            [ExecutionContext, dict[str, Any]], Awaitable[None]
-        ] | None = None,
+        model_authorizer: Callable[[ExecutionContext, dict[str, Any]], Awaitable[None]]
+        | None = None,
     ) -> None:
         self.workspace = workspace
         self.subagents = subagent_loader
@@ -132,13 +136,15 @@ class CommandController:
         for entry in loader.list_skills(filter_unavailable=False):
             metadata = loader.get_skill_metadata(entry["name"]) or {}
             available, reason = loader.get_skill_availability(entry["name"])
-            skills.append({
-                "name": entry["name"],
-                "description": str(metadata.get("description") or entry["name"]),
-                "source": entry["source"],
-                "available": available,
-                "unavailable_reason": reason,
-            })
+            skills.append(
+                {
+                    "name": entry["name"],
+                    "description": str(metadata.get("description") or entry["name"]),
+                    "source": entry["source"],
+                    "available": available,
+                    "unavailable_reason": reason,
+                }
+            )
         return {
             "commands": [asdict(command) for command in CORE_COMMANDS],
             "agents": [
@@ -192,8 +198,9 @@ class CommandController:
 
         if command == "get-started":
             if origin != "desktop":
-                lines = ["Getting started lives in the Collie desktop app. "
-                         "Here are my commands instead:"]
+                lines = [
+                    "Getting started lives in the Collie desktop app. Here are my commands instead:"
+                ]
                 for item in CORE_COMMANDS:
                     if item.name == "help":
                         continue
@@ -220,8 +227,8 @@ class CommandController:
                         if origin == "desktop"
                         else f"My specialist agents: {names}. Use /agent <name> <task>."
                     )
-                    if items else
-                    "No specialist agents yet. Try `/create-agent <what it should do>`."
+                    if items
+                    else "No specialist agents yet. Try `/create-agent <what it should do>`."
                 ),
                 "card_type": "capability_list",
                 "card_data": {"kind": "agent", "items": items},
@@ -238,8 +245,8 @@ class CommandController:
                         if origin == "desktop"
                         else f"My reusable skills: {names}. Use /skill <name> <request>."
                     )
-                    if items else
-                    "No skills yet. Try `/create-skill <workflow>`."
+                    if items
+                    else "No skills yet. Try `/create-skill <workflow>`."
                 ),
                 "card_type": "capability_list",
                 "card_data": {"kind": "skill", "items": items},
@@ -260,7 +267,10 @@ class CommandController:
         loop = self._loop_provider()
         if command == "compact":
             if loop is None:
-                return {"handled": True, "content": "I need a model connection before I can compact."}
+                return {
+                    "handled": True,
+                    "content": "I need a model connection before I can compact.",
+                }
             summary = await loop.consolidator.compact_idle_session(
                 session_key,
                 runtime=loop.llm_runtime(),
@@ -271,7 +281,9 @@ class CommandController:
             elif summary is None:
                 content_out = "I archived older context, but could not produce a clean summary."
             else:
-                content_out = "Context compacted. I kept the recent turns and a summary of what came before."
+                content_out = (
+                    "Context compacted. I kept the recent turns and a summary of what came before."
+                )
             return {"handled": True, "content": content_out}
 
         if command == "status":
@@ -346,7 +358,7 @@ class CommandController:
                     "handled": True,
                     "content": "I could not match that agent. Try `/agents` and pick one.",
                 }
-            task = arguments[len(chosen):].strip(" \t:-")
+            task = arguments[len(chosen) :].strip(" \t:-")
             if not task:
                 return {
                     "handled": True,
@@ -380,7 +392,7 @@ class CommandController:
                     "handled": True,
                     "content": "I could not match that skill. Try `/skills` and pick one.",
                 }
-            request = arguments[len(chosen):].strip(" \t:-")
+            request = arguments[len(chosen) :].strip(" \t:-")
             return {
                 "handled": False,
                 "forward_prompt": (
@@ -455,18 +467,14 @@ class CommandController:
                 except PermissionDeniedError as error:
                     return {
                         "handled": True,
-                        "content": (
-                            "I can't switch models right now: "
-                            f"{error}"
-                        ),
+                        "content": (f"I can't switch models right now: {error}"),
                     }
             result = await self._model_switcher(arguments)
             if not result.get("switched"):
                 return {
                     "handled": True,
                     "content": (
-                        "I couldn't switch models: "
-                        f"{result.get('error') or 'unknown error'}"
+                        f"I couldn't switch models: {result.get('error') or 'unknown error'}"
                     ),
                 }
             model = str(result.get("model") or arguments)
@@ -492,11 +500,7 @@ class CommandController:
 
         status = self._status_provider()
         model = str(status.get("model") or "").strip()
-        providers = (
-            self._providers_provider()
-            if self._providers_provider is not None
-            else []
-        )
+        providers = self._providers_provider() if self._providers_provider is not None else []
         lines = [f"**Current model:** {model or 'not connected'}"]
         if providers:
             lines.append("")
@@ -504,14 +508,10 @@ class CommandController:
             for provider in providers:
                 marker = " (active)" if provider.get("is_default") else ""
                 provider_model = provider.get("model") or "default"
-                provider_name = (
-                    provider.get("runtime_name") or provider.get("name") or "?"
-                )
+                provider_name = provider.get("runtime_name") or provider.get("name") or "?"
                 lines.append(f"- **{provider_name}**: {provider_model}{marker}")
             lines.append("")
-            lines.append(
-                "Switch with `/model <model-id>` — e.g. `/model deepseek-v4-flash`."
-            )
+            lines.append("Switch with `/model <model-id>` — e.g. `/model deepseek-v4-flash`.")
         else:
             lines.append("No providers configured yet. Add one in Settings first.")
         return {

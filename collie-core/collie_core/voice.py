@@ -53,8 +53,7 @@ def _decode_wav_data_url(data_url: str) -> tuple[list[float], int]:
         audio = [sample / 32768.0 for sample in values]
     else:
         audio = [
-            (values[index] + values[index + 1]) / 65536.0
-            for index in range(0, len(values) - 1, 2)
+            (values[index] + values[index + 1]) / 65536.0 for index in range(0, len(values) - 1, 2)
         ]
     if not audio:
         raise VoiceInputError("I did not hear anything in that recording.")

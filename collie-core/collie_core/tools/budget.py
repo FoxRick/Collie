@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from collie_core.permissions.models import PermissionRequest, Risk
@@ -19,7 +19,7 @@ __all__ = ["BudgetTool"]
 
 
 def _this_month() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m")
+    return datetime.now(UTC).strftime("%Y-%m")
 
 
 def _card(db: Any, month: str) -> str:
@@ -34,47 +34,51 @@ def _card(db: Any, month: str) -> str:
         }
         for name in names
     ]
-    return json.dumps({
-        "card_type": "budget",
-        "month": month,
-        "categories": categories,
-        "total_spent": round(sum(spent_rows.values()), 2),
-        "total_budget": round(sum(budgets.values()), 2),
-    })
+    return json.dumps(
+        {
+            "card_type": "budget",
+            "month": month,
+            "categories": categories,
+            "total_spent": round(sum(spent_rows.values()), 2),
+            "total_budget": round(sum(budgets.values()), 2),
+        }
+    )
 
 
-@tool_parameters({
-    "type": "object",
-    "properties": {
-        "action": {
-            "type": "string",
-            "enum": ["log_expense", "summary", "set_budget"],
-            "description": "log an expense, show this month's breakdown, or set "
-                           "a monthly budget for a category.",
+@tool_parameters(
+    {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["log_expense", "summary", "set_budget"],
+                "description": "log an expense, show this month's breakdown, or set "
+                "a monthly budget for a category.",
+            },
+            "amount": {
+                "type": "number",
+                "description": "For log_expense/set_budget: the amount.",
+            },
+            "category": {
+                "type": "string",
+                "description": "e.g. Groceries, Rent, Fun, Transport, Eating out.",
+            },
+            "description": {
+                "type": "string",
+                "description": "For log_expense: what it was.",
+            },
+            "date": {
+                "type": "string",
+                "description": "For log_expense: date YYYY-MM-DD (default today).",
+            },
+            "month": {
+                "type": "string",
+                "description": "For summary: month YYYY-MM (default this month).",
+            },
         },
-        "amount": {
-            "type": "number",
-            "description": "For log_expense/set_budget: the amount.",
-        },
-        "category": {
-            "type": "string",
-            "description": "e.g. Groceries, Rent, Fun, Transport, Eating out.",
-        },
-        "description": {
-            "type": "string",
-            "description": "For log_expense: what it was.",
-        },
-        "date": {
-            "type": "string",
-            "description": "For log_expense: date YYYY-MM-DD (default today).",
-        },
-        "month": {
-            "type": "string",
-            "description": "For summary: month YYYY-MM (default this month).",
-        },
-    },
-    "required": ["action"],
-})
+        "required": ["action"],
+    }
+)
 class BudgetTool(Tool):
     """Track spending — log expenses, budgets, monthly breakdowns."""
 
@@ -105,7 +109,7 @@ class BudgetTool(Tool):
         return life_db() is not None
 
     @classmethod
-    def create(cls, ctx: Any) -> "BudgetTool":
+    def create(cls, ctx: Any) -> BudgetTool:
         return cls()
 
     async def execute(self, **kwargs: Any) -> Any:
@@ -149,6 +153,5 @@ class BudgetTool(Tool):
             return _card(db, _this_month())
 
         return self.error(
-            f"Not sure what to do with action '{action}'. Try log_expense, "
-            "summary, or set_budget."
+            f"Not sure what to do with action '{action}'. Try log_expense, summary, or set_budget."
         )

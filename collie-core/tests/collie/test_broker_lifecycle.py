@@ -108,9 +108,7 @@ async def test_authorize_reject_raises(broker: ApprovalBroker) -> None:
 @pytest.mark.asyncio
 async def test_authorize_timeout_denies(broker: ApprovalBroker) -> None:
     with pytest.raises(PermissionDeniedError, match="timed out"):
-        await broker.authorize(
-            ExecutionContext(), _tool_call(), FakeTool(), {"text": "hi"}
-        )
+        await broker.authorize(ExecutionContext(), _tool_call(), FakeTool(), {"text": "hi"})
     rows = broker.db.list_pending_approvals()
     assert rows == []
 

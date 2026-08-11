@@ -21,7 +21,14 @@ from nanobot.security.workspace_access import (
 )
 
 _REAL_GETADDRINFO = socket.getaddrinfo
-_PROXY_ENV_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")
+_PROXY_ENV_VARS = (
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -59,7 +66,9 @@ def _patch_web_fetch_fake_client(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
             return None
 
         def json(self):
-            return {"data": {"title": "Example", "content": "Hello", "url": "https://example.com/page"}}
+            return {
+                "data": {"title": "Example", "content": "Hello", "url": "https://example.com/page"}
+            }
 
     class FakeClient:
         def __init__(self, *args, **kwargs):
@@ -99,8 +108,10 @@ async def test_web_fetch_blocks_private_ip():
 @pytest.mark.asyncio
 async def test_web_fetch_blocks_localhost():
     tool = WebFetchTool()
+
     def _resolve_localhost(hostname, port, family=0, type_=0):
         return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("127.0.0.1", 0))]
+
     with patch("nanobot.security.network.socket.getaddrinfo", _resolve_localhost):
         result = await tool.execute(url="http://localhost/admin")
     data = json.loads(result)

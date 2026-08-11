@@ -63,8 +63,7 @@ def test_sync_discovers_hand_written_files(loader: SubagentLoader) -> None:
         "---\nname: Researcher\ndescription: Digs deep.\n---\n\nYou research.\n",
         encoding="utf-8",
     )
-    (loader.dir / "bare.md").write_text("Just a prompt, no frontmatter.\n",
-                                        encoding="utf-8")
+    (loader.dir / "bare.md").write_text("Just a prompt, no frontmatter.\n", encoding="utf-8")
     rows = loader.sync()
     by_name = {r["name"]: r for r in rows}
     assert by_name["Researcher"]["description"] == "Digs deep."
@@ -156,10 +155,14 @@ class FakeManager:
 def _bind_request_ctx():
     from nanobot.agent.tools.context import RequestContext, bind_request_context
 
-    return bind_request_context(RequestContext(
-        channel="collie", chat_id="c1", session_key="collie:c1",
-        runtime=object(),  # type: ignore[arg-type]
-    ))
+    return bind_request_context(
+        RequestContext(
+            channel="collie",
+            chat_id="c1",
+            session_key="collie:c1",
+            runtime=object(),  # type: ignore[arg-type]
+        )
+    )
 
 
 async def test_call_subagent_spawns_with_prompt(loader: SubagentLoader) -> None:
@@ -281,9 +284,7 @@ async def test_subagent_ipc_crud(tmp_path: Path) -> None:
     async def fake_writer(name: str, description: str) -> str:
         return f"You are {name}, written by the model. {description}"
 
-    srv = CollieIPCServer(
-        db, port=_free_port(), subagent_loader=loader, prompt_writer=fake_writer
-    )
+    srv = CollieIPCServer(db, port=_free_port(), subagent_loader=loader, prompt_writer=fake_writer)
     await srv.start()
     try:
         ws = await _connect(srv)
@@ -292,24 +293,28 @@ async def test_subagent_ipc_crud(tmp_path: Path) -> None:
         assert reply["data"]["subagents"] == []
         assert len(reply["data"]["starters"]) == 4
 
-        reply = await _roundtrip(ws, type="create_subagent", id="2",
-                                 name="Trip Planner", description="plans trips")
+        reply = await _roundtrip(
+            ws, type="create_subagent", id="2", name="Trip Planner", description="plans trips"
+        )
         sub = reply["data"]["subagent"]
         assert reply["data"]["prompt_written_by_collie"] is True
         assert "written by the model" in sub["system_prompt"]
 
-        reply = await _roundtrip(ws, type="update_subagent", id="3",
-                                  subagent_id=sub["id"],
-                                  system_prompt="You plan trips carefully.",
-                                  execution_posture="inherit")
+        reply = await _roundtrip(
+            ws,
+            type="update_subagent",
+            id="3",
+            subagent_id=sub["id"],
+            system_prompt="You plan trips carefully.",
+            execution_posture="inherit",
+        )
         assert reply["data"]["subagent"]["system_prompt"] == "You plan trips carefully."
         assert reply["data"]["subagent"]["execution_posture"] == "inherit"
 
         reply = await _roundtrip(ws, type="create_subagent", id="4", name="")
         assert reply["type"] == "error"
 
-        reply = await _roundtrip(ws, type="delete_subagent", id="5",
-                                 subagent_id=sub["id"])
+        reply = await _roundtrip(ws, type="delete_subagent", id="5", subagent_id=sub["id"])
         assert reply["data"]["deleted"] is True
 
         reply = await _roundtrip(ws, type="list_subagents", id="6")
@@ -334,8 +339,9 @@ async def test_subagent_ipc_prompt_writer_failure_falls_back(tmp_path: Path) -> 
     await srv.start()
     try:
         ws = await _connect(srv)
-        reply = await _roundtrip(ws, type="create_subagent", id="1",
-                                 name="Coach", description="coaches writing")
+        reply = await _roundtrip(
+            ws, type="create_subagent", id="1", name="Coach", description="coaches writing"
+        )
         sub = reply["data"]["subagent"]
         assert reply["data"]["prompt_written_by_collie"] is False
         assert "Coach" in sub["system_prompt"]

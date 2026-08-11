@@ -89,9 +89,7 @@ class V2AssetError(RuntimeError):
     """The desktop pet's preserved production asset bundle is unavailable."""
 
 
-def quantize_pointer_direction(
-    delta_x: float, delta_y: float, dead_zone: float = 16
-) -> int | None:
+def quantize_pointer_direction(delta_x: float, delta_y: float, dead_zone: float = 16) -> int | None:
     """Quantize a screen-coordinate pointer vector clockwise from up."""
     if hypot(delta_x, delta_y) <= dead_zone:
         return None
@@ -112,7 +110,9 @@ def asset_paths(asset_dir: Path = ASSET_DIR) -> dict[AssetKind, Path]:
             raise V2AssetError(f"Missing Collie v2 {kind} asset: {path}")
         digest = sha256(path.read_bytes()).hexdigest()
         if digest != ASSET_SHA256[kind]:
-            raise V2AssetError(f"Collie v2 {kind} asset hash did not match the preservation manifest")
+            raise V2AssetError(
+                f"Collie v2 {kind} asset hash did not match the preservation manifest"
+            )
         if Image is None:
             raise V2AssetError("Pillow is required to load Collie v2 assets")
         with Image.open(path) as source:
@@ -206,9 +206,7 @@ class V2AnimationController:
         self.click_cooldown_ends_at = now + CLICK_COOLDOWN_MS
         return True
 
-    def start_directional_motion(
-        self, state: Literal["walk_right", "walk_left"], now: int
-    ) -> bool:
+    def start_directional_motion(self, state: Literal["walk_right", "walk_left"], now: int) -> bool:
         """Start a bounded desktop walk without masquerading as engine work."""
         if self.base_state != "idle" or self.transient is not None:
             return False
@@ -262,8 +260,10 @@ class V2AnimationController:
         return AnimationSnapshot(self.base_state, "idle", self.base_changed_at, None)
 
     def _is_deep_work(self, now: int) -> bool:
-        return self.base_state == "working" and self.work_started_at is not None and (
-            now - self.work_started_at >= DEEP_WORK_THRESHOLD_MS
+        return (
+            self.base_state == "working"
+            and self.work_started_at is not None
+            and (now - self.work_started_at >= DEEP_WORK_THRESHOLD_MS)
         )
 
     def _expire_transient(self, now: int) -> None:

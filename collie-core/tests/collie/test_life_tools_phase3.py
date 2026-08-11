@@ -65,10 +65,13 @@ def test_health_upsert_per_day(db: CollieDB) -> None:
 
 async def test_shopping_tool_flow(db: CollieDB) -> None:
     tool = ShoppingTool()
-    result = await tool.execute(action="add", items=[
-        {"name": "Milk", "category": "Dairy", "quantity": "2L"},
-        {"name": "Apples", "category": "Produce"},
-    ])
+    result = await tool.execute(
+        action="add",
+        items=[
+            {"name": "Milk", "category": "Dairy", "quantity": "2L"},
+            {"name": "Apples", "category": "Produce"},
+        ],
+    )
     card = json.loads(result)
     assert card["card_type"] == "shopping_list"
     assert card["remaining"] == 2
@@ -96,7 +99,9 @@ async def test_budget_tool_flow(db: CollieDB) -> None:
     tool = BudgetTool()
     await tool.execute(action="set_budget", category="Groceries", amount=300)
     result = await tool.execute(
-        action="log_expense", amount=45.5, category="Groceries",
+        action="log_expense",
+        amount=45.5,
+        category="Groceries",
         description="weekly shop",
     )
     card = json.loads(result)
@@ -124,9 +129,7 @@ async def test_budget_default_date_and_summary_share_utc_month(
     monkeypatch.setattr(db_module, "utc_now", lambda: "2026-07-31T16:30:00+00:00")
     monkeypatch.setattr(budget_module, "datetime", BoundaryDateTime)
 
-    result = await BudgetTool().execute(
-        action="log_expense", amount=12.5, category="Transport"
-    )
+    result = await BudgetTool().execute(action="log_expense", amount=12.5, category="Transport")
     card = json.loads(result)
 
     assert card["month"] == "2026-07"
@@ -172,8 +175,11 @@ async def test_health_tool_rejects_unknown_metric(db: CollieDB) -> None:
 async def test_contacts_tool_flow(db: CollieDB) -> None:
     tool = ContactsTool()
     result = await tool.execute(
-        action="upsert", name="Mom", relationship="mother",
-        birthday="March 15", preferences="gardening books, red wine",
+        action="upsert",
+        name="Mom",
+        relationship="mother",
+        birthday="March 15",
+        preferences="gardening books, red wine",
     )
     assert "remember" in result.lower()
     result = await tool.execute(action="find", name="Mom")
@@ -181,7 +187,9 @@ async def test_contacts_tool_flow(db: CollieDB) -> None:
     result = await tool.execute(action="gift_ideas", name="Mom")
     assert "gardening books" in result
     result = await tool.execute(
-        action="upsert", name="Mom", gift_ideas="rose pruning shears",
+        action="upsert",
+        name="Mom",
+        gift_ideas="rose pruning shears",
     )
     assert "Updated" in result
     result = await tool.execute(action="list")
@@ -200,7 +208,8 @@ async def test_contacts_tool_unknown_person(db: CollieDB) -> None:
 async def test_travel_itinerary_card() -> None:
     tool = TravelTool()
     result = await tool.execute(
-        action="itinerary", destination="Barcelona",
+        action="itinerary",
+        destination="Barcelona",
         days=[
             {
                 "label": "Day 1 — Sat",
@@ -223,7 +232,9 @@ async def test_travel_itinerary_card() -> None:
 async def test_travel_packing_list() -> None:
     tool = TravelTool()
     result = await tool.execute(
-        action="packing_list", nights=5, trip_type=["beach", "rain"],
+        action="packing_list",
+        nights=5,
+        trip_type=["beach", "rain"],
     )
     assert "Swimsuit" in result
     assert "Rain jacket" in result
@@ -244,7 +255,8 @@ async def test_home_documents_presentations_stubs() -> None:
 
 async def test_presentations_outline_works_offline() -> None:
     result = await PresentationsTool().execute(
-        action="outline", topic="Dog Parks",
+        action="outline",
+        topic="Dog Parks",
         slides=[
             {"title": "Why dog parks", "bullets": ["exercise", "socializing"]},
             {"title": "Best practices"},

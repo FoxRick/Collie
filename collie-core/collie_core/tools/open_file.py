@@ -39,16 +39,52 @@ __all__ = ["OpenFileTool"]
 _OPENABLE_SUFFIXES = frozenset(
     {
         # documents & data
-        ".md", ".txt", ".pdf", ".docx", ".xlsx", ".pptx", ".csv", ".rtf",
-        ".html", ".htm", ".json", ".xml", ".yaml", ".yml", ".log", ".toml",
+        ".md",
+        ".txt",
+        ".pdf",
+        ".docx",
+        ".xlsx",
+        ".pptx",
+        ".csv",
+        ".rtf",
+        ".html",
+        ".htm",
+        ".json",
+        ".xml",
+        ".yaml",
+        ".yml",
+        ".log",
+        ".toml",
         ".ini",
         # images
-        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".ico",
-        ".avif", ".tif", ".tiff",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".bmp",
+        ".svg",
+        ".ico",
+        ".avif",
+        ".tif",
+        ".tiff",
         # audio
-        ".mp3", ".wav", ".m4a", ".ogg", ".oga", ".flac", ".opus", ".aac",
+        ".mp3",
+        ".wav",
+        ".m4a",
+        ".ogg",
+        ".oga",
+        ".flac",
+        ".opus",
+        ".aac",
         # video
-        ".mp4", ".mov", ".webm", ".mkv", ".avi", ".m4v", ".ogv",
+        ".mp4",
+        ".mov",
+        ".webm",
+        ".mkv",
+        ".avi",
+        ".m4v",
+        ".ogv",
     }
 )
 
@@ -57,10 +93,31 @@ _OPENABLE_SUFFIXES = frozenset(
 # execute code or redirect to an arbitrary target.
 _BLOCKED_SUFFIXES = frozenset(
     {
-        ".appref-ms", ".bat", ".cpl", ".cmd", ".com", ".exe", ".gadget",
-        ".hta", ".jar", ".jse", ".lnk", ".msi", ".msp", ".pif", ".ps1",
-        ".psm1", ".reg", ".scr", ".sh", ".bash", ".url", ".vbe", ".vbs",
-        ".wsf", ".wsh",
+        ".appref-ms",
+        ".bat",
+        ".cpl",
+        ".cmd",
+        ".com",
+        ".exe",
+        ".gadget",
+        ".hta",
+        ".jar",
+        ".jse",
+        ".lnk",
+        ".msi",
+        ".msp",
+        ".pif",
+        ".ps1",
+        ".psm1",
+        ".reg",
+        ".scr",
+        ".sh",
+        ".bash",
+        ".url",
+        ".vbe",
+        ".vbs",
+        ".wsf",
+        ".wsh",
     }
 )
 
@@ -97,7 +154,9 @@ def _open_with_default_app(path: Path) -> None:
         return
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout or "").strip()
-        raise _OpenError(f"The default app could not open it (exit {completed.returncode}). {detail}")
+        raise _OpenError(
+            f"The default app could not open it (exit {completed.returncode}). {detail}"
+        )
 
 
 @tool_parameters(
@@ -201,6 +260,4 @@ class OpenFileTool(Tool):
             _open_with_default_app(target)
         except (_OpenError, OSError) as exc:
             return ToolResult.error(f"I couldn't open that {kind}: {exc}")
-        return ToolResult(
-            json.dumps({"opened": str(target), "kind": kind, "default_app": True})
-        )
+        return ToolResult(json.dumps({"opened": str(target), "kind": kind, "default_app": True}))

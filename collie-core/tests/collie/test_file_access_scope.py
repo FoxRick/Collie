@@ -252,15 +252,18 @@ async def test_ipc_forwards_validated_file_scope_without_changing_project_select
     server = CollieIPCServer(db, chat_runner=runner)
     connection = _Connection()
     try:
-        await server._cmd_chat(connection, {
-            "id": "file-scope",
-            "content": "Review these folders",
-            "project_path": str(project),
-            "file_access_scope": {
-                "mode": "chosen_folders",
-                "roots": [str(chosen), str(chosen)],
+        await server._cmd_chat(
+            connection,
+            {
+                "id": "file-scope",
+                "content": "Review these folders",
+                "project_path": str(project),
+                "file_access_scope": {
+                    "mode": "chosen_folders",
+                    "roots": [str(chosen), str(chosen)],
+                },
             },
-        })
+        )
         await asyncio.wait_for(called.wait(), timeout=1)
     finally:
         await asyncio.gather(*server._chat_tasks.values(), return_exceptions=True)
@@ -280,20 +283,25 @@ async def test_ipc_rejects_invalid_file_scope_before_creating_conversation(tmp_p
     server = CollieIPCServer(db, chat_runner=None)
     connection = _Connection()
     try:
-        await server._cmd_chat(connection, {
-            "id": "bad-file-scope",
-            "content": "Read it",
-            "file_access_scope": {"mode": "selected_folder", "roots": ["C:/not-used"]},
-        })
+        await server._cmd_chat(
+            connection,
+            {
+                "id": "bad-file-scope",
+                "content": "Read it",
+                "file_access_scope": {"mode": "selected_folder", "roots": ["C:/not-used"]},
+            },
+        )
         assert db.list_conversations() == []
     finally:
         db.close()
 
-    assert connection.frames == [{
-        "type": "error",
-        "id": "bad-file-scope",
-        "message": "That file access choice is not available: selected_folder does not accept roots",
-    }]
+    assert connection.frames == [
+        {
+            "type": "error",
+            "id": "bad-file-scope",
+            "message": "That file access choice is not available: selected_folder does not accept roots",
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -318,17 +326,22 @@ async def test_selected_folder_scope_survives_ipc_to_agent_validation(tmp_path: 
     runtime.loop = loop
     runtime.db = db
     runtime._conversation_target = lambda conversation_id: (
-        f"desktop:{conversation_id}", "collie", conversation_id
+        f"desktop:{conversation_id}",
+        "collie",
+        conversation_id,
     )
     server = CollieIPCServer(db, chat_runner=runtime._chat)
     connection = _Connection()
     try:
-        await server._cmd_chat(connection, {
-            "id": "selected-folder",
-            "content": "Review this folder",
-            "project_path": str(project),
-            "file_access_scope": {"mode": "selected_folder"},
-        })
+        await server._cmd_chat(
+            connection,
+            {
+                "id": "selected-folder",
+                "content": "Review this folder",
+                "project_path": str(project),
+                "file_access_scope": {"mode": "selected_folder"},
+            },
+        )
         for _ in range(100):
             if loop.scope is not None:
                 break
@@ -363,16 +376,21 @@ async def test_general_chat_selected_folder_uses_runtime_default_workspace(tmp_p
     runtime.loop = loop
     runtime.db = db
     runtime._conversation_target = lambda conversation_id: (
-        f"desktop:{conversation_id}", "collie", conversation_id
+        f"desktop:{conversation_id}",
+        "collie",
+        conversation_id,
     )
     server = CollieIPCServer(db, chat_runner=runtime._chat)
     connection = _Connection()
     try:
-        await server._cmd_chat(connection, {
-            "id": "general-chat-selected-folder",
-            "content": "Review my workspace",
-            "file_access_scope": {"mode": "selected_folder"},
-        })
+        await server._cmd_chat(
+            connection,
+            {
+                "id": "general-chat-selected-folder",
+                "content": "Review my workspace",
+                "file_access_scope": {"mode": "selected_folder"},
+            },
+        )
         for _ in range(100):
             if loop.scope is not None:
                 break
@@ -403,7 +421,9 @@ async def test_runtime_passes_local_file_scope_to_the_agent_loop(tmp_path: Path)
     runtime.loop = loop
     runtime.db = db
     runtime._conversation_target = lambda conversation_id: (
-        f"desktop:{conversation_id}", "collie", conversation_id
+        f"desktop:{conversation_id}",
+        "collie",
+        conversation_id,
     )
 
     async def noop(*_args, **_kwargs) -> None:

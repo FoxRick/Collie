@@ -31,18 +31,21 @@ def _free_port() -> int:
 async def _fake_openai_app() -> web.Application:
     async def chat_completions(request: web.Request) -> web.Response:
         body = await request.json()
-        return web.json_response({
-            "id": "chatcmpl-fake",
-            "object": "chat.completion",
-            "model": body["model"],
-            "choices": [{
-                "index": 0,
-                "message": {"role": "assistant", "content": "Hi! All set."},
-                "finish_reason": "stop",
-            }],
-            "usage": {"prompt_tokens": 10, "completion_tokens": 4,
-                      "total_tokens": 14},
-        })
+        return web.json_response(
+            {
+                "id": "chatcmpl-fake",
+                "object": "chat.completion",
+                "model": body["model"],
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "Hi! All set."},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
+            }
+        )
 
     app = web.Application()
     app.router.add_post("/v1/chat/completions", chat_completions)
@@ -68,9 +71,7 @@ async def test_phase3_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
         connected_requests.append(dict(mcp_servers))
         return {}
 
-    monkeypatch.setattr(
-        "nanobot.agent.tools.mcp.connect_mcp_servers", fake_connect
-    )
+    monkeypatch.setattr("nanobot.agent.tools.mcp.connect_mcp_servers", fake_connect)
 
     llm_port = _free_port()
     runner = web.AppRunner(await _fake_openai_app())
@@ -109,8 +110,9 @@ async def test_phase3_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
         async with websockets.connect(f"ws://127.0.0.1:{ipc_port}") as ws:
             assert json.loads(await ws.recv())["type"] == "ready"
 
-            reply = await _roundtrip(ws, type="set_api_key", id="k",
-                                     provider="custom", key="sk-fake")
+            reply = await _roundtrip(
+                ws, type="set_api_key", id="k", provider="custom", key="sk-fake"
+            )
             assert reply["type"] == "ok"
             reply = await _roundtrip(ws, type="configure", id="c1")
             assert reply["data"]["configured"] is True
@@ -122,38 +124,71 @@ async def test_phase3_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
             assert all(service["status"] == "coming_soon" for service in services)
             assert not any(service["available"] for service in services)
 
-            reply = await _roundtrip(ws, type="connect_service", id="s2",
-                                     service_id="todoist",
-                                     credentials={"todoist_token": "tok-e2e"})
+            reply = await _roundtrip(
+                ws,
+                type="connect_service",
+                id="s2",
+                service_id="todoist",
+                credentials={"todoist_token": "tok-e2e"},
+            )
             assert reply["type"] == "error", reply
             assert runtime.services.mcp_servers_for_config() == {}
 
             # -- all Collie tools registered on the live loop ----------------
             tool_names = {
-                name for name in ("weather", "reminders", "remember", "calendar",
-                                  "email", "notes", "shopping_list", "budget",
-                                  "health", "recipes", "news", "travel",
-                                  "contacts", "documents",
-                                  "presentations", "call_subagent")
+                name
+                for name in (
+                    "weather",
+                    "reminders",
+                    "remember",
+                    "calendar",
+                    "email",
+                    "notes",
+                    "shopping_list",
+                    "budget",
+                    "health",
+                    "recipes",
+                    "news",
+                    "travel",
+                    "contacts",
+                    "documents",
+                    "presentations",
+                    "call_subagent",
+                )
                 if runtime.loop.tools.get(name) is not None
             }
             expected = {
-                "weather", "reminders", "remember", "calendar", "email",
-                "notes", "shopping_list", "budget", "health", "recipes",
-                "news", "travel", "contacts", "documents",
-                "presentations", "call_subagent",
+                "weather",
+                "reminders",
+                "remember",
+                "calendar",
+                "email",
+                "notes",
+                "shopping_list",
+                "budget",
+                "health",
+                "recipes",
+                "news",
+                "travel",
+                "contacts",
+                "documents",
+                "presentations",
+                "call_subagent",
             }
             missing = expected - tool_names
             assert not missing, f"missing tools: {missing}"
 
             # -- subagents: create via IPC (LLM writes the prompt) -----------
-            reply = await _roundtrip(ws, type="create_subagent", id="a1",
-                                     name="Trip Planner",
-                                     description="plans weekend trips")
+            reply = await _roundtrip(
+                ws,
+                type="create_subagent",
+                id="a1",
+                name="Trip Planner",
+                description="plans weekend trips",
+            )
             assert reply["type"] == "ok", reply
             sub = reply["data"]["subagent"]
-            md = (tmp_path / ".collie" / "workspace" / "subagents"
-                  / "trip-planner.md")
+            md = tmp_path / ".collie" / "workspace" / "subagents" / "trip-planner.md"
             assert md.exists()
             assert sub["system_prompt"]
 
@@ -167,8 +202,12 @@ async def test_phase3_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
             }
 
             # -- custom automation from natural language ---------------------
-            reply = await _roundtrip(ws, type="create_automation", id="au1",
-                                     description="every friday at 5pm review my week")
+            reply = await _roundtrip(
+                ws,
+                type="create_automation",
+                id="au1",
+                description="every friday at 5pm review my week",
+            )
             assert reply["data"]["automation"]["schedule"] == "Fri 17:00"
 
             # -- chat still round-trips with everything wired ----------------
@@ -177,8 +216,7 @@ async def test_phase3_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
             assistant = None
             for _ in range(200):
                 frame = json.loads(await asyncio.wait_for(ws.recv(), 30))
-                if (frame["type"] == "message"
-                        and frame["message"]["role"] == "assistant"):
+                if frame["type"] == "message" and frame["message"]["role"] == "assistant":
                     assistant = frame["message"]
                     break
                 if frame["type"] == "error":
@@ -187,16 +225,13 @@ async def test_phase3_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
             assert "Hi!" in assistant["content"]
 
             # -- search + export + disconnect --------------------------------
-            reply = await _roundtrip(ws, type="search_messages", id="q1",
-                                     query="hi")
-            assert any(r["conversation_id"] == conv_id
-                       for r in reply["data"]["results"])
+            reply = await _roundtrip(ws, type="search_messages", id="q1", query="hi")
+            assert any(r["conversation_id"] == conv_id for r in reply["data"]["results"])
 
             reply = await _roundtrip(ws, type="export_data", id="x1")
             assert Path(reply["data"]["path"]).exists()
 
-            reply = await _roundtrip(ws, type="disconnect_service", id="s3",
-                                     service_id="todoist")
+            reply = await _roundtrip(ws, type="disconnect_service", id="s3", service_id="todoist")
             assert reply["data"]["status"] == "disconnected"
             assert runtime.services.mcp_servers_for_config() == {}
     finally:

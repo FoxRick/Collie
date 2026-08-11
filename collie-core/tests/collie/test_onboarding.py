@@ -137,9 +137,7 @@ def _controller() -> CommandController:
 
 @pytest.mark.asyncio
 async def test_desktop_get_started_returns_starter_flag() -> None:
-    result = await _controller().execute(
-        "/get-started", session_key="s", origin="desktop"
-    )
+    result = await _controller().execute("/get-started", session_key="s", origin="desktop")
     assert result == {"handled": True, "starter_conversation": True, "content": ""}
 
 

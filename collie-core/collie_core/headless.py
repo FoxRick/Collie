@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
 import os
 import subprocess
@@ -168,10 +169,7 @@ def _git_commit() -> str:
 def _resolve_home(home_flag: str | None) -> Path:
     """Resolve --home > $COLLIE_HOME > a fresh temp dir, creating it."""
     root = home_flag or os.environ.get("COLLIE_HOME")
-    if root:
-        path = Path(root).expanduser()
-    else:
-        path = Path(tempfile.mkdtemp(prefix="collie-bench-"))
+    path = Path(root).expanduser() if root else Path(tempfile.mkdtemp(prefix="collie-bench-"))
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -183,9 +181,7 @@ def _normalize_usage(usage: dict[str, Any]) -> dict[str, int]:
         "input_tokens": int(usage.get("prompt_tokens") or 0),
         "output_tokens": int(usage.get("completion_tokens") or 0),
         "cache_read_tokens": int(
-            details.get("cached_tokens")
-            or usage.get("cache_read_input_tokens")
-            or 0
+            details.get("cached_tokens") or usage.get("cache_read_input_tokens") or 0
         ),
         "cache_write_tokens": int(
             details.get("cache_creation_input_tokens")
@@ -324,7 +320,7 @@ async def run_one(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
                 ),
                 timeout=args.timeout,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             exit_code = EXIT_TIMEOUT
             document["exit_state"] = "timeout"
             document["error"] = f"Turn timed out after {args.timeout}s."
@@ -379,10 +375,8 @@ async def run_one(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
         # Mirror run()'s shutdown ordering: cancel in-flight work first,
         # then stop telemetry, then close the database.
         if runtime is not None:
-            try:
+            with contextlib.suppress(Exception):
                 await runtime._shutdown_loop()
-            except Exception:
-                pass
             runtime.approvals.cancel_all()
             recorder = RunRecorder.active_for(runtime.db)
             if recorder is not None:

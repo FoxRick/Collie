@@ -21,7 +21,7 @@ import os
 import shutil
 import threading
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +34,7 @@ _LOCK = threading.Lock()
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def _safe_conversation_id(conversation_id: str) -> str | None:
@@ -75,7 +75,7 @@ def _save_manifest(conversation_dir: Path, entries: list[dict[str, Any]]) -> Non
 
 def _sweep() -> None:
     """Drop entries older than the retention window (lazy, on write)."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=_RETENTION_DAYS)
+    cutoff = datetime.now(UTC) - timedelta(days=_RETENTION_DAYS)
     root = collie_home() / _UNDO_DIR_NAME
     if not root.is_dir():
         return
@@ -91,7 +91,7 @@ def _sweep() -> None:
             except (TypeError, ValueError):
                 timestamp = None
             if timestamp is not None and timestamp.tzinfo is None:
-                timestamp = timestamp.replace(tzinfo=timezone.utc)
+                timestamp = timestamp.replace(tzinfo=UTC)
             if timestamp is not None and timestamp < cutoff:
                 shadow = conversation_dir / f"{entry.get('id')}.orig"
                 shadow.unlink(missing_ok=True)

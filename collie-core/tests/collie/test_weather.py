@@ -17,13 +17,15 @@ def _make_response(current: dict | None = None, daily: dict | None = None) -> di
 
 def _make_geo_response(name: str = "Berlin", country: str = "Germany") -> dict:
     return {
-        "results": [{
-            "name": name,
-            "country": country,
-            "latitude": 52.52,
-            "longitude": 13.41,
-            "timezone": "Europe/Berlin",
-        }],
+        "results": [
+            {
+                "name": name,
+                "country": country,
+                "latitude": 52.52,
+                "longitude": 13.41,
+                "timezone": "Europe/Berlin",
+            }
+        ],
     }
 
 
@@ -51,7 +53,9 @@ _DAILY = {
 async def test_weather_current() -> None:
     tool = WeatherTool()
 
-    with (patch("collie_core.tools.weather._api_get") as mock_get,):
+    with (
+        patch("collie_core.tools.weather._api_get") as mock_get,
+    ):
         mock_get.side_effect = [
             _make_geo_response(),
             _make_response(current=_CURRENT),
@@ -76,7 +80,9 @@ async def test_weather_current() -> None:
 async def test_weather_forecast() -> None:
     tool = WeatherTool()
 
-    with (patch("collie_core.tools.weather._api_get") as mock_get,):
+    with (
+        patch("collie_core.tools.weather._api_get") as mock_get,
+    ):
         mock_get.side_effect = [
             _make_geo_response(),
             _make_response(current=_CURRENT, daily=_DAILY),
@@ -103,7 +109,9 @@ async def test_weather_forecast() -> None:
 async def test_weather_unknown_location() -> None:
     tool = WeatherTool()
 
-    with (patch("collie_core.tools.weather._api_get") as mock_get,):
+    with (
+        patch("collie_core.tools.weather._api_get") as mock_get,
+    ):
         mock_get.return_value = {"results": []}
         result = await tool.execute(location="XyzzyNotARealPlace")
         assert "couldn't find" in str(result).lower()
@@ -120,11 +128,15 @@ async def test_weather_empty_location() -> None:
 async def test_weather_api_error() -> None:
     tool = WeatherTool()
 
-    with (patch("collie_core.tools.weather._api_get") as mock_get,):
+    with (
+        patch("collie_core.tools.weather._api_get") as mock_get,
+    ):
         mock_get.return_value = _make_geo_response()
         # Second call (forecast) fails
 
-        with (patch("collie_core.tools.weather._api_get") as mock_get2,):
+        with (
+            patch("collie_core.tools.weather._api_get") as mock_get2,
+        ):
             mock_get2.side_effect = [
                 _make_geo_response(),
                 Exception("Connection refused"),

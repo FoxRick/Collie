@@ -153,9 +153,7 @@ def test_two_database_connections_return_one_execution_run(tmp_path: Path) -> No
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["runner", "provider", "active"])
-async def test_ipc_preconditions_do_not_approve_plan(
-    tmp_path: Path, failure: str
-) -> None:
+async def test_ipc_preconditions_do_not_approve_plan(tmp_path: Path, failure: str) -> None:
     db = CollieDB(tmp_path / "collie.db")
     conversation = db.create_conversation("Plan")
     plan = _create_plan(db, conversation_id=str(conversation["id"]))

@@ -62,9 +62,7 @@ class ClaudeOAuthProvider(AnthropicProvider):
     def __init__(self, default_model: str = _DEFAULT_MODEL):
         access = _current_access_token()
         if not access:
-            raise RuntimeError(
-                "Not signed in with Claude. Complete the OAuth flow first."
-            )
+            raise RuntimeError("Not signed in with Claude. Complete the OAuth flow first.")
         # Skip AnthropicProvider.__init__ client construction; build our own
         # Bearer-authenticated client instead.
         from anthropic import AsyncAnthropic

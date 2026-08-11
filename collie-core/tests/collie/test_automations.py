@@ -94,7 +94,9 @@ async def test_scheduler_fires_automation(tmp_path: Path) -> None:
     await scheduler.start()
 
     try:
-        with (patch("collie_core.automations.scheduler.datetime") as mock_dt,):
+        with (
+            patch("collie_core.automations.scheduler.datetime") as mock_dt,
+        ):
             mock_now = dt.datetime(2026, 7, 19, 12, 0, tzinfo=dt.timezone.utc)
             mock_dt.now.return_value = mock_now
             mock_dt.timezone = dt.timezone
@@ -107,6 +109,7 @@ async def test_scheduler_fires_automation(tmp_path: Path) -> None:
                 called = True
                 # Call original
                 from collie_core.automations.scheduler import _match_schedule as ms
+
                 # Use the patched datetime directly
                 mock_now_val = dt.datetime(2026, 7, 19, 12, 0, tzinfo=dt.timezone.utc)
                 autos = scheduler.db.list_automations(enabled_only=True)

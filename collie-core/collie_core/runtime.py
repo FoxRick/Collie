@@ -70,9 +70,7 @@ class CollieRuntime:
         from collie_core.versions import VersionStore
 
         self.versions = VersionStore(self.db)
-        self.profile = ProfileStore(
-            self.db, self.workspace, version_store=self.versions
-        )
+        self.profile = ProfileStore(self.db, self.workspace, version_store=self.versions)
         self.profile.regenerate_memory_md()
         bind_profile_store(self.profile)
         bind_reminders_db(self.db)
@@ -158,9 +156,7 @@ class CollieRuntime:
             gardener_runner=self._run_gardener_manual,
             thing_store=self.things,
         )
-        self.approvals = ApprovalBroker(
-            self.db, self.permission_evaluator, self.ipc.broadcast
-        )
+        self.approvals = ApprovalBroker(self.db, self.permission_evaluator, self.ipc.broadcast)
         self.ipc.approval_broker = self.approvals
         self.messengers.broadcaster = self.ipc.broadcast
         self._scheduler = AutomationScheduler(
@@ -185,13 +181,17 @@ class CollieRuntime:
         telemetry_factories = [create_telemetry_hook_factory(self.db)]
         if provider_override is not None:
             loop = AgentLoop.from_config(
-                config, bus=bus, provider=provider_override,
+                config,
+                bus=bus,
+                provider=provider_override,
                 session_manager=self._session_manager,
                 hook_factories=telemetry_factories,
             )
         else:
             loop = AgentLoop.from_config(
-                config, bus=bus, session_manager=self._session_manager,
+                config,
+                bus=bus,
+                session_manager=self._session_manager,
                 hook_factories=telemetry_factories,
             )
         # Subagents bypass the loop's turn-hook chain (they run AgentRunner
@@ -283,9 +283,7 @@ class CollieRuntime:
         match the agent tool exactly.
         """
         tool_call = SimpleNamespace(name="set_model", id="")
-        await self.approvals.authorize(
-            context, tool_call, SetModelTool.create(None), params
-        )
+        await self.approvals.authorize(context, tool_call, SetModelTool.create(None), params)
 
     @staticmethod
     def _desktop_session_key(conversation_id: str) -> str:
@@ -311,9 +309,7 @@ class CollieRuntime:
         session_key, channel, _chat_id = self._conversation_target(conversation_id)
         return session_key, "desktop" if channel == "collie" else channel
 
-    def active_subagents_for_conversation(
-        self, conversation_id: str
-    ) -> list[dict[str, Any]]:
+    def active_subagents_for_conversation(self, conversation_id: str) -> list[dict[str, Any]]:
         """List UI-safe running specialists across every mapped session."""
         if self.loop is None:
             return []
@@ -334,9 +330,7 @@ class CollieRuntime:
                 active.append(self._decorate_subagent(agent, conversation_id))
         return sorted(active, key=lambda item: float(item.get("started_at") or 0))
 
-    def recent_subagents_for_conversation(
-        self, conversation_id: str
-    ) -> list[dict[str, Any]]:
+    def recent_subagents_for_conversation(self, conversation_id: str) -> list[dict[str, Any]]:
         """List UI-safe specialists that recently finished for a conversation.
 
         Mirrors :meth:`active_subagents_for_conversation` but reads the
@@ -395,7 +389,7 @@ class CollieRuntime:
         conversation in ChatScreen.
         """
         if session_key and session_key.startswith("collie:"):
-            return session_key[len("collie:"):]
+            return session_key[len("collie:") :]
         return ""
 
     def subagent_activity(self) -> dict[str, list[dict[str, Any]]]:
@@ -413,15 +407,19 @@ class CollieRuntime:
         try:
             manager = self.loop.subagents
             for agent in manager.get_running_statuses():
-                active.append(self._decorate_subagent(
-                    agent,
-                    self._conversation_id_for_session(agent.get("session_key")),
-                ))
+                active.append(
+                    self._decorate_subagent(
+                        agent,
+                        self._conversation_id_for_session(agent.get("session_key")),
+                    )
+                )
             for agent in manager.get_recent_statuses():
-                recent.append(self._decorate_subagent(
-                    agent,
-                    self._conversation_id_for_session(agent.get("session_key")),
-                ))
+                recent.append(
+                    self._decorate_subagent(
+                        agent,
+                        self._conversation_id_for_session(agent.get("session_key")),
+                    )
+                )
         except Exception:
             logger.exception("Failed to build the subagent activity feed")
         return {"active_agents": active, "recent_agents": recent}
@@ -538,9 +536,7 @@ class CollieRuntime:
                 or parsed.password is not None
                 or parsed.fragment
             ):
-                raise ValueError(
-                    "api_base must be an http(s) URL without credentials or fragments"
-                )
+                raise ValueError("api_base must be an http(s) URL without credentials or fragments")
             runtime_name = "anthropic" if protocol == "anthropic" else "custom"
             if model is None:
                 raise ValueError("A custom endpoint requires a model ID.")
@@ -574,7 +570,7 @@ class CollieRuntime:
             _reader, writer = await asyncio.wait_for(
                 asyncio.open_connection(host, port), timeout=3.0
             )
-        except (OSError, asyncio.TimeoutError) as error:
+        except (TimeoutError, OSError) as error:
             raise ValueError(
                 "I couldn't reach that custom provider endpoint. Check the URL and try again."
             ) from error
@@ -690,9 +686,7 @@ class CollieRuntime:
                     if not normalized.get("model"):
                         normalized["model"] = catalogue_entry.get("default_model")
                 provider = self.db.configure_provider_candidate_record(**normalized)
-                configured = await self._configure_locked(
-                    probe_api_base=normalized.get("api_base")
-                )
+                configured = await self._configure_locked(probe_api_base=normalized.get("api_base"))
                 if not configured.get("configured"):
                     rollback = await self._restore_provider_snapshot_locked(transaction)
                     return {**configured, **rollback}
@@ -709,9 +703,7 @@ class CollieRuntime:
             # bad key never leaves the app half-configured.
             key_for_probe = supplied_key if supplied_key is not None else previous_key
             probe: dict[str, Any] = {}
-            if key_for_probe and (
-                catalogue_entry is not None or normalized.get("api_base")
-            ):
+            if key_for_probe and (catalogue_entry is not None or normalized.get("api_base")):
                 probe = await probe_api_key(
                     provider_id=runtime_name or secret_name,
                     api_key=str(key_for_probe),
@@ -726,9 +718,8 @@ class CollieRuntime:
                     # failure is meaningful. Custom endpoints are an advanced
                     # escape hatch — only a definitive auth rejection (401/403)
                     # is treated as a failure there.
-                    hard_fail = (
-                        error_kind == "auth"
-                        or (catalogue_entry is not None and error_kind != "invalid")
+                    hard_fail = error_kind == "auth" or (
+                        catalogue_entry is not None and error_kind != "invalid"
                     )
                     if not hard_fail:
                         logger.info(
@@ -868,11 +859,13 @@ class CollieRuntime:
                 if self.db.get_conversation(conv_id) is None:
                     continue
                 assistant = self.db.add_message(conv_id, "assistant", content)
-                await self.ipc.broadcast({
-                    "type": "message",
-                    "conversation_id": conv_id,
-                    "message": assistant,
-                })
+                await self.ipc.broadcast(
+                    {
+                        "type": "message",
+                        "conversation_id": conv_id,
+                        "message": assistant,
+                    }
+                )
                 state = "buddy" if self._subagents_running(conv_id) else "done"
                 await self.ipc.send_thinking(conv_id, state)
             except Exception:
@@ -991,16 +984,22 @@ class CollieRuntime:
             return
 
         assistant = self.db.add_message(conv_id, "assistant", content)
-        await self.ipc.broadcast({
-            "type": "message", "conversation_id": conv_id, "message": assistant,
-        })
-        await self.ipc.broadcast({
-            "type": "automation",
-            "automation_id": auto_id,
-            "name": name,
-            "conversation_id": conv_id,
-            "content": content,
-        })
+        await self.ipc.broadcast(
+            {
+                "type": "message",
+                "conversation_id": conv_id,
+                "message": assistant,
+            }
+        )
+        await self.ipc.broadcast(
+            {
+                "type": "automation",
+                "automation_id": auto_id,
+                "name": name,
+                "conversation_id": conv_id,
+                "content": content,
+            }
+        )
 
         deliveries = auto.get("delivery_channels")
         if isinstance(deliveries, str):
@@ -1008,10 +1007,7 @@ class CollieRuntime:
                 deliveries = _json.loads(deliveries)
             except (TypeError, ValueError):
                 deliveries = []
-        targets = {
-            str(d) for d in (deliveries or [])
-            if str(d) in self.messengers.channels
-        }
+        targets = {str(d) for d in (deliveries or []) if str(d) in self.messengers.channels}
         targets.update(self.messengers.automation_targets())
         for target in sorted(targets):
             await self.messengers.deliver(target, f"🔔 {name}\n\n{content}")
@@ -1039,26 +1035,29 @@ class CollieRuntime:
         if not content:
             return
         assistant = self.db.add_message(conv_id, "assistant", content)
-        await self.ipc.broadcast({
-            "type": "message", "conversation_id": conv_id, "message": assistant,
-        })
-        await self.ipc.broadcast({
-            "type": "automation",
-            "automation_id": auto_id,
-            "name": name,
-            "conversation_id": conv_id,
-            "content": content,
-        })
+        await self.ipc.broadcast(
+            {
+                "type": "message",
+                "conversation_id": conv_id,
+                "message": assistant,
+            }
+        )
+        await self.ipc.broadcast(
+            {
+                "type": "automation",
+                "automation_id": auto_id,
+                "name": name,
+                "conversation_id": conv_id,
+                "content": content,
+            }
+        )
         deliveries = auto.get("delivery_channels")
         if isinstance(deliveries, str):
             try:
                 deliveries = json.loads(deliveries)
             except (TypeError, ValueError):
                 deliveries = []
-        targets = {
-            str(d) for d in (deliveries or [])
-            if str(d) in self.messengers.channels
-        }
+        targets = {str(d) for d in (deliveries or []) if str(d) in self.messengers.channels}
         targets.update(self.messengers.automation_targets())
         for target in sorted(targets):
             await self.messengers.deliver(target, f"🔔 {name}\n\n{content}")
@@ -1146,16 +1145,22 @@ class CollieRuntime:
                 card_type="gardener_suggestion",
                 card_data={"suggestions": suggestions},
             )
-            await self.ipc.broadcast({
-                "type": "message", "conversation_id": conv_id, "message": card,
-            })
-            await self.ipc.broadcast({
-                "type": "automation",
-                "automation_id": str(auto.get("id") or ""),
-                "name": str(auto.get("name") or "Automation"),
-                "conversation_id": conv_id,
-                "content": content,
-            })
+            await self.ipc.broadcast(
+                {
+                    "type": "message",
+                    "conversation_id": conv_id,
+                    "message": card,
+                }
+            )
+            await self.ipc.broadcast(
+                {
+                    "type": "automation",
+                    "automation_id": str(auto.get("id") or ""),
+                    "name": str(auto.get("name") or "Automation"),
+                    "conversation_id": conv_id,
+                    "content": content,
+                }
+            )
             return outcome
         await self._announce_automation_result(auto, conv_id, content)
         return outcome
@@ -1168,10 +1173,8 @@ class CollieRuntime:
             # Freeze intake before taking the active-session snapshot. Without
             # this ordering, run() can consume one queued messenger message and
             # spawn a fresh _dispatch task after cancel_all_sessions() returns.
-            try:
+            with suppress(Exception):
                 loop.stop()
-            except Exception:
-                pass
         if loop_task is not None:
             loop_task.cancel()
         if loop is not None:
@@ -1184,10 +1187,8 @@ class CollieRuntime:
             except Exception:
                 logger.exception("Failed to cancel subagents during loop shutdown")
         if loop_task is not None:
-            try:
+            with suppress(asyncio.CancelledError, Exception):
                 await loop_task
-            except (asyncio.CancelledError, Exception):
-                pass
             if self._loop_task is loop_task:
                 self._loop_task = None
         if loop is not None:
@@ -1204,10 +1205,8 @@ class CollieRuntime:
                 logger.debug("Provider client close failed", exc_info=True)
         if self._outbound_task is not None:
             self._outbound_task.cancel()
-            try:
+            with suppress(asyncio.CancelledError, Exception):
                 await self._outbound_task
-            except (asyncio.CancelledError, Exception):
-                pass
             self._outbound_task = None
         self.loop = None
         # Active turns are drained above; flush their telemetry so evidence
@@ -1241,8 +1240,7 @@ class CollieRuntime:
                 {
                     "role": "user",
                     "content": (
-                        f"Subagent name: {name}\n"
-                        f"What it should be good at: {description or name}"
+                        f"Subagent name: {name}\nWhat it should be good at: {description or name}"
                     ),
                 },
             ],
@@ -1426,11 +1424,7 @@ class CollieRuntime:
         referenced: set[str] = set()
         for message in self.db.all_messages_with_attachments():
             for attachment in message.get("attachments") or []:
-                stored = (
-                    str(attachment.get("path") or "")
-                    if isinstance(attachment, dict)
-                    else ""
-                )
+                stored = str(attachment.get("path") or "") if isinstance(attachment, dict) else ""
                 if stored:
                     referenced.add(Path(stored).resolve().as_posix().lower())
         cutoff = time.time() - 24 * 3600
@@ -1462,21 +1456,23 @@ class CollieRuntime:
                         conv_id = str(conv["id"])
                         self.db.set_setting(conv_key, conv_id)
                     content = str(reminder.get("text") or "Reminder!")
-                    message = self.db.add_message(
-                        conv_id, "assistant", f"⏰ {content}"
+                    message = self.db.add_message(conv_id, "assistant", f"⏰ {content}")
+                    await self.ipc.broadcast(
+                        {
+                            "type": "message",
+                            "conversation_id": conv_id,
+                            "message": message,
+                        }
                     )
-                    await self.ipc.broadcast({
-                        "type": "message",
-                        "conversation_id": conv_id,
-                        "message": message,
-                    })
-                    await self.ipc.broadcast({
-                        "type": "automation",
-                        "automation_id": f"reminder-{reminder_id[:8]}",
-                        "name": "Reminder",
-                        "conversation_id": conv_id,
-                        "content": content,
-                    })
+                    await self.ipc.broadcast(
+                        {
+                            "type": "automation",
+                            "automation_id": f"reminder-{reminder_id[:8]}",
+                            "name": "Reminder",
+                            "conversation_id": conv_id,
+                            "content": content,
+                        }
+                    )
             except Exception:
                 logger.exception("Reminder checker failed")
             await asyncio.sleep(30)
@@ -1565,10 +1561,8 @@ def main(argv: list[str] | None = None) -> int:
     ipc_token = os.environ.get("COLLIE_IPC_TOKEN") or None
 
     runtime = CollieRuntime(port=port, ipc_token=ipc_token)
-    try:
+    with suppress(KeyboardInterrupt):
         asyncio.run(runtime.run())
-    except KeyboardInterrupt:
-        pass
     return 0
 
 

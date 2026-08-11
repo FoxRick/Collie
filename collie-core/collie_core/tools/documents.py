@@ -17,21 +17,23 @@ __all__ = ["DocumentsTool"]
 _FILE_SERVICES = ("google-drive", "dropbox")
 
 
-@tool_parameters({
-    "type": "object",
-    "properties": {
-        "action": {
-            "type": "string",
-            "enum": ["find", "read", "summarize"],
-            "description": "find a document, read one, or summarize it.",
+@tool_parameters(
+    {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["find", "read", "summarize"],
+                "description": "find a document, read one, or summarize it.",
+            },
+            "query": {
+                "type": "string",
+                "description": "The document name or what it's about.",
+            },
         },
-        "query": {
-            "type": "string",
-            "description": "The document name or what it's about.",
-        },
-    },
-    "required": ["action"],
-})
+        "required": ["action"],
+    }
+)
 class DocumentsTool(Tool):
     """Find and read documents (Google Drive / Dropbox via MCP)."""
 
@@ -61,7 +63,7 @@ class DocumentsTool(Tool):
         return True
 
     @classmethod
-    def create(cls, ctx: Any) -> "DocumentsTool":
+    def create(cls, ctx: Any) -> DocumentsTool:
         return cls()
 
     async def execute(self, **kwargs: Any) -> Any:

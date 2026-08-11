@@ -22,13 +22,14 @@ import sys
 import tkinter as tk
 from pathlib import Path
 from time import monotonic
-from typing import Dict, List, Optional, Tuple
 
 try:
     from PIL import Image, ImageTk
 except ImportError:
     Image = None
     ImageTk = None
+
+import contextlib
 
 from .sprites import (
     ANIM_STATES,
@@ -108,7 +109,7 @@ STATUS_VISIBLE_MS = 12_000
 EDGE_MARGIN = 16
 
 
-def _screen_work_area(root: tk.Misc) -> Tuple[int, int, int, int]:
+def _screen_work_area(root: tk.Misc) -> tuple[int, int, int, int]:
     """Return the usable primary-screen bounds, excluding the Windows taskbar."""
     fallback = (0, 0, root.winfo_screenwidth(), root.winfo_screenheight())
     if sys.platform != "win32":
@@ -119,9 +120,7 @@ def _screen_work_area(root: tk.Misc) -> Tuple[int, int, int, int]:
 
         rect = wintypes.RECT()
         spi_getworkarea = 0x0030
-        if ctypes.windll.user32.SystemParametersInfoW(
-            spi_getworkarea, 0, ctypes.byref(rect), 0
-        ):
+        if ctypes.windll.user32.SystemParametersInfoW(spi_getworkarea, 0, ctypes.byref(rect), 0):
             return rect.left, rect.top, rect.right, rect.bottom
     except (AttributeError, OSError):
         pass
@@ -132,7 +131,7 @@ def _ensure_settings_dir() -> None:
     SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def load_position() -> Tuple[int, int]:
+def load_position() -> tuple[int, int]:
     """Load saved pet position or default to bottom-right."""
     try:
         if SETTINGS_FILE.exists():
@@ -150,10 +149,8 @@ def save_position(x: int, y: int) -> None:
     _ensure_settings_dir()
     data = {}
     if SETTINGS_FILE.exists():
-        try:
+        with contextlib.suppress(json.JSONDecodeError, OSError):
             data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            pass
     data.update({"x": x, "y": y})
     SETTINGS_FILE.write_text(json.dumps(data), encoding="utf-8")
 
@@ -174,10 +171,8 @@ def save_scale(scale: float) -> None:
     _ensure_settings_dir()
     data = {}
     if SETTINGS_FILE.exists():
-        try:
+        with contextlib.suppress(json.JSONDecodeError, OSError):
             data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            pass
     data["scale"] = scale
     SETTINGS_FILE.write_text(json.dumps(data), encoding="utf-8")
 
@@ -187,9 +182,7 @@ class ColliePet:
 
     def __init__(self) -> None:
         if Image is None or ImageTk is None:
-            raise ImportError(
-                "Pillow is required. Install with: pip install Pillow"
-            )
+            raise ImportError("Pillow is required. Install with: pip install Pillow")
 
         self.root = tk.Tk()
         self.root.withdraw()  # Hide until ready
@@ -198,18 +191,18 @@ class ColliePet:
         self._state = "idle"
         self._frame_index = 0
         self._animating = False
-        self._anim_job: Optional[str] = None
-        self._walk_job: Optional[str] = None
+        self._anim_job: str | None = None
+        self._walk_job: str | None = None
         self._walk_generation = 0
         self._scale = load_scale()
         self._facing_right = False
         self._dragging = False
         self._drag_offset = (0, 0)
         self._drag_origin = (0, 0)
-        self._status_hide_job: Optional[str] = None
+        self._status_hide_job: str | None = None
 
-        self._v2_renderer: Optional[V2SpriteRenderer] = None
-        self._v2_controller: Optional[V2AnimationController] = None
+        self._v2_renderer: V2SpriteRenderer | None = None
+        self._v2_controller: V2AnimationController | None = None
         try:
             self._v2_renderer = V2SpriteRenderer()
             self._v2_controller = V2AnimationController("idle", self._now_ms())
@@ -217,7 +210,7 @@ class ColliePet:
             logger.warning("Collie v2 assets unavailable; using legacy fallback: %s", exc)
 
         # Generated sprite frames: state -> list of PhotoImage (scaled)
-        self._frames: Dict[str, List[ImageTk.PhotoImage]] = {}
+        self._frames: dict[str, list[ImageTk.PhotoImage]] = {}
         self._generate_all_frames()
 
         # Build window
@@ -273,16 +266,12 @@ class ColliePet:
         # shows an opaque window instead of a transparent one.
         self._chroma_key = "#010203"
         self.root.config(bg=self._chroma_key)
-        try:
+        with contextlib.suppress(tk.TclError):
             self.root.wm_attributes("-transparentcolor", self._chroma_key)
-        except tk.TclError:
-            pass
 
         # Try to keep off the taskbar (Windows)
-        try:
+        with contextlib.suppress(tk.TclError):
             self.root.wm_attributes("-toolwindow", True)
-        except tk.TclError:
-            pass
 
         self._status_label = tk.Label(
             self.root,
@@ -366,7 +355,7 @@ class ColliePet:
         self._frames.clear()
         if self._v2_renderer is not None:
             for state in V2_FRAME_SEQUENCES:
-                scaled: List[ImageTk.PhotoImage] = []
+                scaled: list[ImageTk.PhotoImage] = []
                 for pil_img in self._v2_renderer.frames_for(state):
                     if self._scale != 1.0:
                         w = max(1, int(CELL_W * self._scale))
@@ -380,7 +369,7 @@ class ColliePet:
             if gen is None:
                 continue
             pil_frames = gen()
-            scaled: List[ImageTk.PhotoImage] = []
+            scaled: list[ImageTk.PhotoImage] = []
             for pil_img in pil_frames:
                 if self._scale != 1.0:
                     w = max(1, int(CELL_W * self._scale))
@@ -527,11 +516,7 @@ class ColliePet:
 
         durations = FRAME_DURATIONS.get(self._state, [150] * len(frames))
         self._frame_index = (self._frame_index + 1) % len(frames)
-        delay = (
-            durations[self._frame_index]
-            if self._frame_index < len(durations)
-            else 150
-        )
+        delay = durations[self._frame_index] if self._frame_index < len(durations) else 150
         self._label.config(image=frames[self._frame_index])
 
         self._anim_job = self.root.after(delay, self._advance_frame)
@@ -632,10 +617,8 @@ class ColliePet:
             if self._state in LEGACY_WALK_STATES:
                 self.set_state("idle")
         elif command.startswith("size:"):
-            try:
+            with contextlib.suppress(ValueError, IndexError):
                 self._set_scale(float(command.split(":", 1)[1]))
-            except (ValueError, IndexError):
-                pass
         elif command == "quit":
             self.destroy()
 
@@ -653,14 +636,12 @@ class ColliePet:
             else:
                 self._cancel_walk()
         elif command.startswith("size:"):
-            try:
+            with contextlib.suppress(ValueError, IndexError):
                 self._set_scale(float(command.split(":", 1)[1]))
-            except (ValueError, IndexError):
-                pass
         elif command == "quit":
             self.destroy()
 
-    def _set_status(self, text: str, *, state: Optional[str] = None) -> None:
+    def _set_status(self, text: str, *, state: str | None = None) -> None:
         """Show a concise work update above the pet."""
         clean = self._format_status_text(text)
         if not clean:
@@ -714,7 +695,7 @@ class ColliePet:
         shortened = clean[: STATUS_MAX_CHARS - 1].rsplit(" ", 1)[0].rstrip(".,;:!?")
         return f"{shortened}…"
 
-    def _dismiss_status(self, _event: Optional[tk.Event] = None) -> None:
+    def _dismiss_status(self, _event: tk.Event | None = None) -> None:
         """Acknowledge and hide the current desktop announcement."""
         if self._status_hide_job is not None:
             self.root.after_cancel(self._status_hide_job)
@@ -764,10 +745,8 @@ class ColliePet:
     def _cancel_walk(self) -> None:
         self._walk_generation += 1
         if self._walk_job is not None:
-            try:
+            with contextlib.suppress(tk.TclError):
                 self.root.after_cancel(self._walk_job)
-            except tk.TclError:
-                pass
             self._walk_job = None
 
     # ------------------------------------------------------------------
@@ -948,11 +927,14 @@ class ColliePet:
         frames = self._frames.get("happy", [])
         durations = FRAME_DURATIONS.get("happy", [])
         total_ms = sum(durations[: len(frames)]) if frames else 2000
-        self.root.after(total_ms, lambda: (
-            self.set_state("idle")
-            if self.root.winfo_exists() and self._state == "happy"
-            else None
-        ))
+        self.root.after(
+            total_ms,
+            lambda: (
+                self.set_state("idle")
+                if self.root.winfo_exists() and self._state == "happy"
+                else None
+            ),
+        )
 
     def toggle_sleep(self) -> None:
         if self._v2_controller is not None:

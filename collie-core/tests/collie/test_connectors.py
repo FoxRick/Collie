@@ -324,9 +324,7 @@ def test_recheck_only_exposes_identity_returned_by_the_provider(
                 f"connector:{connection_id}",
                 {"tokens": {"access_token": "secret-access-token"}},
             )
-            return ProbeResult(
-                tools=[{"name": "search_pages", "risk": "read", "schema_hash": "h"}]
-            )
+            return ProbeResult(tools=[{"name": "search_pages", "risk": "read", "schema_hash": "h"}])
 
     manager = ConnectorManager(
         db,
@@ -388,14 +386,13 @@ def test_cancel_auth_clears_local_credentials(
 
 
 def test_tool_policy_combines_hints_names_and_conservative_defaults() -> None:
-    assert classify_connector_tool(
-        "search_pages", {"readOnlyHint": True}, trusted=True
-    ) == "read"
+    assert classify_connector_tool("search_pages", {"readOnlyHint": True}, trusted=True) == "read"
     assert classify_connector_tool("send_message", {}, trusted=True) == "important"
     assert classify_connector_tool("delete_page", {}, trusted=True) == "destructive"
-    assert classify_connector_tool(
-        "mysterious_operation", {"readOnlyHint": True}, trusted=False
-    ) == "change"
+    assert (
+        classify_connector_tool("mysterious_operation", {"readOnlyHint": True}, trusted=False)
+        == "change"
+    )
 
 
 def test_connector_approval_preference_controls_hard_approval() -> None:

@@ -60,23 +60,25 @@ def _meal_to_card(meal: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@tool_parameters({
-    "type": "object",
-    "properties": {
-        "action": {
-            "type": "string",
-            "enum": ["search", "by_ingredient", "random"],
-            "description": "search recipes by name, find meals using an "
-                           "ingredient, or fetch a random dinner idea.",
+@tool_parameters(
+    {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["search", "by_ingredient", "random"],
+                "description": "search recipes by name, find meals using an "
+                "ingredient, or fetch a random dinner idea.",
+            },
+            "query": {
+                "type": "string",
+                "description": "For search: the dish name. For by_ingredient: the "
+                "main ingredient, e.g. 'chicken'.",
+            },
         },
-        "query": {
-            "type": "string",
-            "description": "For search: the dish name. For by_ingredient: the "
-                           "main ingredient, e.g. 'chicken'.",
-        },
-    },
-    "required": ["action"],
-})
+        "required": ["action"],
+    }
+)
 class RecipesTool(Tool):
     """Find recipes — by name, by ingredient, or a surprise."""
 
@@ -107,7 +109,7 @@ class RecipesTool(Tool):
         return True
 
     @classmethod
-    def create(cls, ctx: Any) -> "RecipesTool":
+    def create(cls, ctx: Any) -> RecipesTool:
         return cls()
 
     async def execute(self, **kwargs: Any) -> Any:
@@ -138,9 +140,7 @@ class RecipesTool(Tool):
                 detail = _api_get(f"{_LOOKUP_URL}?{urlencode({'i': first_id})}")
                 full = (detail.get("meals") or [{}])[0]
                 card = _meal_to_card(full)
-                card["alternatives"] = [
-                    str(m.get("strMeal") or "") for m in meals[1:6]
-                ]
+                card["alternatives"] = [str(m.get("strMeal") or "") for m in meals[1:6]]
                 return json.dumps(card)
 
             if action == "random":
@@ -150,11 +150,8 @@ class RecipesTool(Tool):
                     return "The cookbook came up empty — try again?"
                 return json.dumps(_meal_to_card(meals[0]))
         except Exception as e:
-            return self.error(
-                f"The cookbook shelf is stuck — couldn't fetch recipes. ({e})"
-            )
+            return self.error(f"The cookbook shelf is stuck — couldn't fetch recipes. ({e})")
 
         return self.error(
-            f"Not sure what to do with action '{action}'. Try search, "
-            "by_ingredient, or random."
+            f"Not sure what to do with action '{action}'. Try search, by_ingredient, or random."
         )
