@@ -39,14 +39,14 @@ export function formatThingSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export function formatThingTime(iso: string): string {
-  let date = new Date(iso)
+export function formatThingTime(iso: string | number): string {
+  // The backend stores Unix seconds (time.time()) and ships them as JSON
+  // numbers; handle seconds AND ms in both string and number form.
+  const raw = typeof iso === 'number' ? iso : Number(iso)
+  const date = Number.isFinite(raw) && raw > 0
+    ? new Date(raw < 1e12 ? raw * 1000 : raw)
+    : new Date(iso)
   if (Number.isNaN(date.getTime())) return ''
-  // The backend stores Unix seconds (time.time()); JS Date wants ms.
-  const raw = Number(iso)
-  if (Number.isFinite(raw) && raw > 0 && raw < 1e12) {
-    date = new Date(raw * 1000)
-  }
   const now = new Date()
   const sameDay = date.toDateString() === now.toDateString()
   if (sameDay) {

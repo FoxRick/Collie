@@ -30,7 +30,8 @@ export interface Thing {
   kind: 'image' | 'document' | 'sheet' | 'pdf' | 'web' | 'file' | string
   path: string
   size_bytes: number
-  created_at: string
+  /** Unix seconds (time.time()) as shipped by the backend — may arrive as number or string. */
+  created_at: number | string
   status: string
   version: number
 }
