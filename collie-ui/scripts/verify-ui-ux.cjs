@@ -158,11 +158,6 @@ async function main() {
   await command('Log.enable')
   await command('Page.enable')
 
-  if (new URL(page.url).searchParams.has('preview')) {
-    await command('Page.reload', { ignoreCache: true })
-    await waitUntil(`Boolean(document.querySelector('body'))`)
-  }
-
   const { core, ipcProbe } = await evaluate(`(async () => {
     const { token, ...safeCore } = await window.collie.coreState()
     const ipcProbe = await new Promise((resolveProbe) => {
@@ -196,9 +191,13 @@ async function main() {
     `Boolean(document.querySelector('nav[aria-label="Primary navigation"]'))`
   )
   if (!hasApp) {
-    const previewUrl = new URL(page.url)
-    previewUrl.searchParams.set('preview', '1')
-    await command('Page.navigate', { url: previewUrl.toString() })
+    // Seed the preview flag in sessionStorage, then navigate to the SAME URL.
+    // Never a ?preview=1 query string: renderer security treats any
+    // query-string URL as untrusted (renderer-security.test.ts), which would
+    // break IPC auth and strand the app on "Checking Telegram…".
+    // sessionStorage survives navigation and keeps the trusted URL untouched.
+    await evaluate(`sessionStorage.setItem('collie.ui-ux-preview', '1')`)
+    await command('Page.navigate', { url: page.url })
     for (let attempt = 0; attempt < 60; attempt += 1) {
       const ready = await evaluate(
         `Boolean(document.querySelector('nav[aria-label="Primary navigation"]'))`

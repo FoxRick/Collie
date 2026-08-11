@@ -80,7 +80,12 @@ export default function App(): React.JSX.Element {
       }
       if (cancelled) return
       collieClient.connect()
-      if (new URLSearchParams(window.location.search).has('preview')) {
+      // The UI-verification preview flag lives in sessionStorage, NOT the URL:
+      // renderer security treats any query-string URL as untrusted (see
+      // renderer-security.test.ts), so a ?preview=1 URL would break IPC auth.
+      // sessionStorage is renderer-side state that survives navigation and
+      // keeps the trusted URL untouched.
+      if (sessionStorage.getItem('collie.ui-ux-preview') === '1') {
         setScreen('app')
         return
       }
