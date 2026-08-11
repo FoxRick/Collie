@@ -57,7 +57,7 @@ jobs:
       - name: Lint (ruff)
         run: python -m ruff check nanobot collie_core tests
 
-      - name: Test (tests/collie, with the coverage gate)
+      - name: Test (full backend suite, with the coverage gate)
         run: |
           set -o pipefail
           PET=""
@@ -66,7 +66,9 @@ jobs:
           else
             PET="--ignore=tests/collie/test_pet_status.py"
           fi
-          python -m pytest tests/collie -q $PET \
+          # Full suite (tests/), not just tests/collie — the coverage floor in
+          # pyproject.toml (fail_under = 42) is measured across everything.
+          python -m pytest tests -q $PET \
             --cov=nanobot --cov=collie_core --cov-report=term-missing \
             --deselect tests/collie/test_services.py::test_credential_store_roundtrip \
             --deselect tests/collie/test_services.py::test_connect_api_key_service \
@@ -182,13 +184,14 @@ jobs:
       - name: Core tests (Python 3.12, Windows — full suite, no deselection)
         # The Windows job stages the real supported runtime (CPython 3.12 +
         # DPAPI-backed CredentialStore), so the tests that are deselected on
-        # Linux must pass here before anything is packaged.
+        # Linux must pass here before anything is packaged. Full suite: the
+        # whole tests/ tree gates the release, not just tests/collie.
         if: runner.os == 'Windows'
         shell: bash
         working-directory: collie-core
         run: |
           set -o pipefail
-          .venv/Scripts/python -m pytest tests/collie -q
+          .venv/Scripts/python -m pytest tests -q
 
       - name: Write build provenance (requires a clean tree)
         run: npm run provenance:write
