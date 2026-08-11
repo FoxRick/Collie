@@ -1213,6 +1213,21 @@ async def test_delete_conversation_cancels_turn_and_cleans_related_rows(
         action="web_fetch", resource="http://x", risk="read",
         display={"url": "http://x"}, conversation_id=conv_id,
     )
+    # A "Your things" index exists for this conversation (the default store
+    # resolves under COLLIE_HOME) — deletion must remove it.
+    from collie_core.things.store import ThingStore
+
+    thing_store = ThingStore()
+    thing_store.register(
+        conversation_id=conv_id,
+        artifact_id="th_doomed",
+        title="Doomed flyer",
+        kind="document",
+        path=str(home / "flyer.md"),
+        size_bytes=10,
+        created_at=1720000000.0,
+    )
+    assert (thing_store.root / f"{conv_id}.json").exists()
 
     cancelled: list[str] = []
 
@@ -1246,6 +1261,9 @@ async def test_delete_conversation_cancels_turn_and_cleans_related_rows(
         # The runtime deleter was invoked for the conversation session.
         assert any(f"session:{conv_id}" in item or item == f"collie:{conv_id}"
                    for item in session_files)
+        # The "Your things" index is gone with the conversation (metadata
+        # only — the user's deliverable file stays on disk).
+        assert not (thing_store.root / f"{conv_id}.json").exists()
         # The in-flight task slot was released.
         assert conv_id not in srv._chat_tasks
         await ws.close()

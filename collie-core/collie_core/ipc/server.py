@@ -754,6 +754,16 @@ class CollieIPCServer:
             except Exception:
                 logger.exception("Failed to delete session files for {}", conv_id)
         self._prune_conversation_media(conv_id)
+        # Drop the "Your things" index for this conversation (metadata only —
+        # user deliverables stay on disk). Mirrors the _cmd_list_things fallback
+        # so a server without an injected store still cleans up.
+        try:
+            from collie_core.things.store import ThingStore
+
+            store = self._thing_store if self._thing_store is not None else ThingStore()
+            store.delete(conv_id)
+        except Exception:
+            logger.exception("Failed to delete thing index for {}", conv_id)
         self.db.delete_conversation(conv_id)
         return {"deleted": True}
 
