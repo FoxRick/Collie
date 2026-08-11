@@ -6,7 +6,8 @@
 
 **Collie is the first AI harness for non-coders**: a friendly, local-first
 personal AI for Windows that turns plain-English requests into real,
-reviewable work — and keeps you in control the whole way.
+reviewable work — and keeps you in control the whole way. No terminal.
+No prompt engineering. No forced subscription.
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow" alt="License: MIT"></a>
@@ -34,16 +35,102 @@ underneath:
 - **It asks before risky things.** Deleting, sending, paying, publishing, or
   touching your data always goes through a central approval gate — no matter
   how friendly the chat gets.
+- **It uses *your* AI — not a subscription.** Sign in with your existing
+  ChatGPT or Claude account, paste an API key (DeepSeek, OpenRouter, Groq,
+  and any OpenAI-compatible provider), or use a local model. No mandatory
+  Collie account, no forced monthly fee.
 - **It remembers — on your machine.** Collie keeps its notes, settings, and
-  history locally. There is no mandatory Collie account, and nothing is
-  silently shipped off your device.
-- **It has a dog.** A little Border Collie lives in your corner of the screen,
-  with moods and reactions of its own. (Friendly, but never in charge — the
-  permissions always are.)
+  history locally. Nothing is silently shipped off your device.
+- **It has a dog.** A little Border Collie lives in your corner of the
+  screen, with moods and reactions of its own. (Friendly, but never in
+  charge — the permissions always are.)
 
 Collie is built for people who want the leverage of agentic AI *without* the
 terminals, API keys, MCP servers, or prompt-engineering vocabulary. Experts
 are welcome too — but the normal path never requires them.
+
+## Complete feature list
+
+**💬 Chat & conversation**
+
+- Chat-first by design — streamed conversations with history and
+  attachments; no prompt syntax, no templates to learn
+- **Skeleton streaming** — you see Collie thinking as it writes, instead of a
+  frozen spinner
+- **Quick-recap cards** — long answers end with a short summary card of what
+  just happened, so you always know where you are
+- **"Remember" pill** — Collie visibly shows you when it stores something new
+  about you
+- **Starter conversation** — on first run Collie greets you, learns your
+  name, and you're talking; `/get-started` if you want a tour
+
+**🧠 Real work, reviewed**
+
+- Plain-English requests become **multi-step plans** you read and approve
+  before anything runs
+- Central **approval gate** for every consequential action — destructive,
+  financial, external writes, sends, and publishing are never silent
+- **Per-folder file consent** — grant Collie access to exactly the folders it
+  needs; in-scope work runs smoothly, everything else asks first
+- **One-tap undo** for every local file change — writes are journaled and
+  reversible
+- **"Your things" panel** — every deliverable (documents, spreadsheets,
+  files, summaries) lands in one reviewable place, named in plain language
+- **Subagent observability** — watch live agents working, then get a friendly
+  pet popup when they settle
+- **Gardener mode** — Collie proposes improvements to its own instructions
+  and memory, always as a reviewable, reversible change
+
+**🔌 Bring your own AI**
+
+- Sign in with your existing **ChatGPT or Claude** account
+- Paste any **API key** — DeepSeek, OpenRouter, Groq, and any
+  OpenAI-compatible provider
+- Use a **local model** via Ollama
+- Bundled **models.dev catalogue** — every provider and model at your
+  fingertips, auto-refreshed weekly
+- Switch models anytime, right from the chat; connections are validated
+  before you start
+
+**🧩 Connectors & services**
+
+- **Five official connectors live in alpha**: Notion, Linear, Todoist,
+  Atlassian, and Airtable
+- A curated connector catalogue — every other entry honestly labeled
+  *Coming soon* until it passes verification
+- Google and Microsoft service bundles in progress
+
+**📱 Collie wherever you are**
+
+- **Telegram messenger** with sender pairing — talk to Collie from your phone
+- WhatsApp, Slack, and Discord companions designed and on the way
+
+**⚡ Everyday tools, built in**
+
+- Files, weather, reminders, and memory — local capabilities that need no
+  extra accounts
+- **Routines & automations** — scheduled tasks that always ask before acting
+- **Skills & specialist agents as plain-text files** — read, edit, and share
+  them; no programming required
+
+**🎨 Made for humans**
+
+- A **Border Collie companion** in the corner of your screen, with moods and
+  reactions (friendly, never in charge)
+- **Collapsible sidebar** — an icon rail that gives chat more room
+- Fast, calm desktop app — Electron + React
+- **Voice input/output** on the way
+
+**🛡️ Safety & reliability**
+
+- **Local-first everything** — memory, settings, and history in local SQLite;
+  no mandatory account, no silent uploads
+- Permissions engine with a broker → classifier → evaluator → store pipeline
+- **Rollback-safe updates** — a new version must boot healthy, or Collie
+  rolls back to the last good one
+- Automatic **recovery from out-of-memory and renderer crashes**
+- **CI-qualified releases** — tagged releases pass documented clean-machine
+  and immutable-artifact checks
 
 ## What you can do with it
 
@@ -52,11 +139,24 @@ are welcome too — but the normal path never requires them.
 | **💬 Chat about anything** | Streamed conversations with history and attachments. Ask for help, delegate a task, or just talk. |
 | **🧠 Real work, reviewed** | Collie turns plain-English requests into multi-step work with visible progress and reviewable plans. |
 | **🛡️ Approval where it matters** | Consequential actions — destructive, financial, external writes, sends, publishing — stay centrally gated and approved by you. |
+| **↩️ Undo anything** | Local file changes are journaled — one tap reverts them. |
+| **📦 Your things, in one place** | Every deliverable lands in a reviewable "Your things" panel, named in plain language. |
+| **✨ Sees you thinking** | Skeleton streaming, quick-recap cards, and the "remember" pill keep you oriented. |
 | **📝 Agents, skills & routines as files** | Specialist agents, skills, and routines are plain-text files you can read, edit, and share — no programming required. |
 | **🧩 Connect the services you use** | Five official connectors are live in alpha (Notion, Linear, Todoist, Atlassian, Airtable); every other catalogue entry stays labeled **Coming soon** until it passes verification. |
 | **📱 Collie on your phone** | Talk to Collie from Telegram, wherever you are. WhatsApp, Slack, and Discord companions are designed and on the way. |
 | **📁 Everyday tools built in** | Files, weather, reminders, memory, and more — local capabilities that work without extra accounts. |
-| **🔁 Stays current** | A built-in updater means future releases can arrive in the app, no reinstalls. |
+| **🔁 Stays current** | Rollback-safe built-in updates mean future releases can arrive in the app, no reinstalls. |
+
+## Built on nanobot 🧬
+
+Collie's Python engine is an **adapted fork of
+[nanobot](https://github.com/HKUDS/nanobot)** (MIT) — the ultra-lightweight,
+open-source, self-hosted personal AI agent framework by HKUDS. We inherited
+its agent loop, providers, tools, MCP client, and WebSocket transport, keep
+the vendored engine surgical, and preserve the upstream namespace so
+improvements can flow both ways. Attribution and third-party notices live in
+[collie-core/THIRD_PARTY_NOTICES.md](collie-core/THIRD_PARTY_NOTICES.md).
 
 ## Getting started
 
@@ -114,6 +214,22 @@ Do not publish an installer from a local `dist` directory: release candidates
 must pass the documented clean-machine and immutable-artifact checks in
 [docs/operations/release/](docs/operations/release/).
 
+## Architecture
+
+```text
+collie-core/   Python 3.11+ runtime (adapted from nanobot)
+  ├─ agent loop, providers, tools, MCP client, WebSocket transport  (vendored nanobot)
+  ├─ permissions engine — broker → classifier → evaluator → store
+  ├─ SQLite settings & memory — local-first, no account
+  ├─ services + OAuth, connectors catalogue, routines & automations
+  ├─ subagents, plans, Gardener, voice, desktop Border Collie pet
+  └─ IPC server (localhost WebSocket) + Telegram messenger
+
+collie-ui/     Electron 43 + React 19 + Tailwind 4 (electron-vite)
+  ├─ electron-builder + electron-updater (rollback-safe)
+  └─ scripts/stage-core.cjs bundles the Python runtime into the app
+```
+
 ## Documentation
 
 The public docs live in this repository — start at
@@ -134,13 +250,16 @@ Public releases and announcements go through [heycollie.com](https://heycollie.c
 first; the active product decisions live in [docs/product/](docs/product/).
 Honest status of what's next:
 
-- **Shipped (alpha):** *Gardener* — a self-improvement mode that proposes
-  better instructions and cleaner memory, always as a reviewable, reversible
-  change ([foundations](docs/engineering/architecture/gardener-foundations.md),
-  [spec](docs/product/features/agent-system.md)); no sandbox replay yet.
+- **Shipped (alpha):** Gardener self-improvement mode; "Your things" panel;
+  one-tap undo for file changes; per-folder file consent; collapsible
+  sidebar; subagent observability; skeleton streaming, quick-recap cards, and
+  the remember pill; rollback-safe updates with crash recovery; onboarding
+  (paste-key connect + models.dev catalogue + starter conversation); five
+  connectors (Notion, Linear, Todoist, Atlassian, Airtable); Telegram
+  messenger.
 - **In progress:** Google and Microsoft service bundles (awaiting Collie-owned
-  OAuth app registrations), the installer pipeline, and the Windows release
-  itself.
+  OAuth app registrations), the installer pipeline, the Windows release
+  itself, and voice.
 
 ## Contributing
 
