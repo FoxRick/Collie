@@ -372,13 +372,12 @@ export default function Sidebar({
         <button
           type="button"
           onClick={toggleCollapsed}
-          className="sidebar-footer-row mx-4 mb-2 flex items-center gap-2 px-3 py-2.5 text-sm transition"
+          className="sidebar-collapse-toggle mx-4 mb-2 grid h-9 w-9 place-items-center transition"
           title={collapsed ? t('sidebar.expandNav') : t('sidebar.collapseNav')}
           aria-label={collapsed ? t('sidebar.expandNav') : t('sidebar.collapseNav')}
           aria-expanded={!collapsed}
         >
           {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-          <span>{collapsed ? t('sidebar.expandNav') : t('sidebar.collapseNav')}</span>
         </button>
         <button
           onClick={() => onNavigate('settings')}

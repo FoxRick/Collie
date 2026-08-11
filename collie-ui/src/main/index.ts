@@ -9,6 +9,12 @@ import { spawnCore, stopCore, coreState } from './python'
 import { petEnabled, petRunning, setPetEnabled, spawnPet, stopPet } from './pet'
 import { isAllowedPetCommand } from './petCommands'
 import {
+  thingOpen,
+  thingRead,
+  thingSaveCopy,
+  thingShowInFolder
+} from './things-files'
+import {
   deleteSecret,
   finalizeSecretChange,
   listSecretProviders,
@@ -434,6 +440,12 @@ function registerIpc(): void {
     activeWork.update(clampActiveWork(snapshot))
     return true
   })
+  handle('collie:thing-read', (rawPath: string) => thingRead(rawPath))
+  handle('collie:thing-open', (rawPath: string) => thingOpen(rawPath))
+  handle('collie:thing-show-in-folder', (rawPath: string) => thingShowInFolder(rawPath))
+  handle('collie:thing-save-copy', (rawPath: string, title: string) =>
+    thingSaveCopy(rawPath, title)
+  )
 }
 
 function clampActiveWork(snapshot: ActiveWorkSnapshot): ActiveWorkSnapshot {

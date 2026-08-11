@@ -63,6 +63,17 @@ const api = {
     ipcRenderer.invoke('collie:pick-file-access-folders'),
   openExternal: (url: string): Promise<void> =>
     ipcRenderer.invoke('collie:open-external', url),
+  thingRead: (path: string): Promise<{ kind: 'text' | 'image'; text?: string; dataUrl?: string }> =>
+    ipcRenderer.invoke('collie:thing-read', path),
+  thingOpen: (path: string): Promise<string> =>
+    ipcRenderer.invoke('collie:thing-open', path),
+  thingShowInFolder: (path: string): Promise<void> =>
+    ipcRenderer.invoke('collie:thing-show-in-folder', path),
+  thingSaveCopy: (
+    path: string,
+    title: string
+  ): Promise<{ saved: boolean; path?: string }> =>
+    ipcRenderer.invoke('collie:thing-save-copy', path, title),
   showWindow: (): Promise<void> =>
     ipcRenderer.invoke('collie:show-window'),
   petCommand: (command: string): Promise<boolean> =>

@@ -6,6 +6,7 @@ import type { MessageAttachment, TaskState } from '../lib/ipc'
 import MarkdownContent from './MarkdownContent'
 import { visibleStreamText } from '../lib/stream'
 import { buildTakeawayDigest } from '../lib/takeaway'
+import { useT } from '../lib/i18n'
 import TaskProgress, { isTaskTerminal } from './tasks/TaskProgress'
 
 interface Props {
@@ -41,6 +42,7 @@ function attachmentPreviewSource(attachment: MessageAttachment): string | null {
 }
 
 function MessageBubble({ role, content, streaming, settled = true, cardType, cardData, attachments, taskState }: Props): React.JSX.Element {
+  const t = useT()
   const [preview, setPreview] = useState<{ name: string; source: string } | null>(null)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const returnFocusRef = useRef<HTMLButtonElement | null>(null)
@@ -49,6 +51,10 @@ function MessageBubble({ role, content, streaming, settled = true, cardType, car
   const takeaway = useMemo(() => buildTakeawayDigest(content), [content])
   const writing = Boolean(streaming && !isUser)
   const skeletonActive = writing && visibleContent.trim().length < STREAM_SKELETON_MAX_CHARS
+  // Before the first streamed token lands, the bubble shows a clear
+  // "Collie is thinking…" cue (animated dots + label) so the frame is never
+  // an empty, shapeless strip.
+  const thinking = writing && !visibleContent
 
   const closePreview = useCallback((): void => {
     setPreview(null)
@@ -114,9 +120,19 @@ function MessageBubble({ role, content, streaming, settled = true, cardType, car
               )}
             </div>
           ) : null}
+          {thinking && (
+            <div className="collie-thinking" role="status">
+              <span className="collie-thinking-dots" aria-hidden="true">
+                <i />
+                <i />
+                <i />
+              </span>
+              <span>{t('chat.thinking')}</span>
+            </div>
+          )}
           {writing && (
             <div
-              className={`collie-skeleton ${skeletonActive ? 'collie-skeleton--active' : 'collie-skeleton--settled'}`}
+              className={`collie-skeleton ${skeletonActive ? 'collie-skeleton--active' : 'collie-skeleton--settled'} ${thinking ? 'collie-skeleton--below-thinking' : ''}`}
               aria-hidden="true"
             >
               <span className="collie-skeleton-line" />

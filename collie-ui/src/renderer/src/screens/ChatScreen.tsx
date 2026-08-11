@@ -12,6 +12,7 @@ import {
   type FileAccessScope,
   type RuntimeStatus,
   type TaskState,
+  type Thing,
   type ThinkingState
 } from '../lib/ipc'
 import Sidebar from '../components/Sidebar'
@@ -20,6 +21,8 @@ import RememberPill from '../components/RememberPill'
 import ChatInput from '../components/ChatInput'
 import CollieFace from '../components/CollieFace'
 import InteractiveColliePortrait from '../components/InteractiveColliePortrait'
+import ThingPanel from '../components/things/ThingPanel'
+import ThingsToggle from '../components/things/ThingsToggle'
 import SettingsScreen from './SettingsScreen'
 import AgentsScreen from './AgentsScreen'
 import SkillsScreen from './SkillsScreen'
@@ -159,6 +162,13 @@ export default function ChatScreen({
   const [activeRoutineRuns, setActiveRoutineRuns] = useState<Set<string>>(new Set())
   const [activityReady, setActivityReady] = useState(false)
   const [cardPreview, setCardPreview] = useState<{ card_type: string; card_data: Record<string, unknown> } | null>(null)
+  const [things, setThings] = useState<Thing[]>([])
+  const [thingsOpen, setThingsOpen] = useState(false)
+  const [thingsUnseen, setThingsUnseen] = useState<Set<string>>(new Set())
+  const thingsRef = useRef<Thing[]>([])
+  const thingsOpenRef = useRef(false)
+  /** A manual close of the panel is respected for the rest of this chat. */
+  const thingsManuallyClosedRef = useRef(false)
   const activeIdRef = useRef<string | null>(null)
   const streamRef = useRef('')
   const streamDisplayRef = useRef('')
@@ -309,6 +319,12 @@ export default function ChatScreen({
     setPlanChangeNotice('')
     setPortraitThinking(null)
     setCardPreview(null)
+    setThings([])
+    thingsRef.current = []
+    setThingsOpen(false)
+    thingsOpenRef.current = false
+    thingsManuallyClosedRef.current = false
+    setThingsUnseen(new Set())
     streamRef.current = ''
     streamDisplayRef.current = ''
     pendingAssistantRef.current = null
@@ -324,11 +340,49 @@ export default function ChatScreen({
       if (token === loadTokenRef.current) {
         setMessages(messages)
         void hydrateActiveTask(id)
+        void collieClient
+          .listThings(id)
+          .then(({ things: loaded }) => {
+            if (token !== loadTokenRef.current) return
+            thingsRef.current = loaded
+            setThings(loaded)
+          })
+          .catch(() => undefined)
       }
     } catch {
       if (token === loadTokenRef.current) setMessages([])
     }
   }, [hydrateActiveTask, rememberProject, stopStreamReveal])
+
+  const toggleThingsPanel = useCallback((): void => {
+    const next = !thingsOpenRef.current
+    thingsOpenRef.current = next
+    setThingsOpen(next)
+    if (next) {
+      // Opening the panel counts as viewing everything currently inside it.
+      setThingsUnseen(new Set())
+    } else {
+      thingsManuallyClosedRef.current = true
+    }
+  }, [])
+
+  const closeThingsPanel = useCallback((): void => {
+    thingsOpenRef.current = false
+    setThingsOpen(false)
+    thingsManuallyClosedRef.current = true
+  }, [])
+
+  const handleThingOpen = useCallback((thing: Thing): void => {
+    void window.collie.thingOpen(thing.path)
+  }, [])
+
+  const handleThingShowInFolder = useCallback((thing: Thing): void => {
+    void window.collie.thingShowInFolder(thing.path)
+  }, [])
+
+  const handleThingSaveCopy = useCallback((thing: Thing): void => {
+    void window.collie.thingSaveCopy(thing.path, thing.title).catch(() => undefined)
+  }, [])
 
   useEffect(() => () => {
     stopStreamReveal()
@@ -478,6 +532,30 @@ export default function ChatScreen({
         case 'card':
           if (event.conversation_id === current) {
             setCardPreview({ card_type: event.card_type, card_data: event.card_data })
+          }
+          break
+        case 'artifact':
+          if (event.conversation_id === current) {
+            const thing = event.artifact
+            const firstThing = thingsRef.current.length === 0
+            const existing = thingsRef.current.find((t) => t.id === thing.id)
+            thingsRef.current = [
+              thing,
+              ...thingsRef.current.filter((t) => t.id !== thing.id)
+            ]
+            setThings(thingsRef.current)
+            // A brand-new thing is unseen until the panel (or its card) is
+            // opened; a revision of an existing thing keeps its seen state.
+            if (!existing && !thingsOpenRef.current) {
+              setThingsUnseen((prev) => new Set(prev).add(thing.id))
+            }
+            // Calm default: the first thing of a chat opens the panel once;
+            // a manual close is respected for the rest of that chat.
+            if (firstThing && !thingsManuallyClosedRef.current) {
+              thingsOpenRef.current = true
+              setThingsOpen(true)
+              setThingsUnseen(new Set())
+            }
           }
           break
         case 'message': {
@@ -997,7 +1075,15 @@ export default function ChatScreen({
                 : 'New conversation'}
             </h1>
           </div>
+          {things.length > 0 && (
+            <ThingsToggle
+              unseen={thingsUnseen.size}
+              open={thingsOpen}
+              onClick={toggleThingsPanel}
+            />
+          )}
         </header>
+        <div className={`workspace-body flex min-h-0 flex-1 ${thingsOpen && things.length > 0 ? 'has-things' : ''}`}>
         <div className="conversation-panel">
           <MessageList messages={messages} streamText={streamText} streaming={streaming} cardPreview={cardPreview} />
           <RememberPill conversationId={activeId} />
@@ -1075,6 +1161,17 @@ export default function ChatScreen({
               autofocus={autoOpenStarter}
             />
           </div>
+        </div>
+        {thingsOpen && things.length > 0 && (
+          <ThingPanel
+            things={things}
+            unseenIds={thingsUnseen}
+            onClose={closeThingsPanel}
+            onOpen={handleThingOpen}
+            onSaveCopy={handleThingSaveCopy}
+            onShowInFolder={handleThingShowInFolder}
+          />
+        )}
         </div>
       </main>
       )}
