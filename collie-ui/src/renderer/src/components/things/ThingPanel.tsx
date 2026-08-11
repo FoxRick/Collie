@@ -8,6 +8,7 @@ import ThingPreview from './ThingPreview'
 interface Props {
   things: Thing[]
   unseenIds: Set<string>
+  conversationId: string
   onClose: () => void
   onOpen: (thing: Thing) => void
   onSaveCopy: (thing: Thing) => void
@@ -21,6 +22,7 @@ interface Props {
 export default function ThingPanel({
   things,
   unseenIds,
+  conversationId,
   onClose,
   onOpen,
   onSaveCopy,
@@ -59,7 +61,7 @@ export default function ThingPanel({
       </header>
 
       {selected ? (
-        <ThingPreview thing={selected} onOpen={onOpen} />
+        <ThingPreview conversationId={conversationId} thing={selected} onOpen={onOpen} />
       ) : things.length === 0 ? (
         <div className="things-panel-empty">{t('things.empty')}</div>
       ) : (

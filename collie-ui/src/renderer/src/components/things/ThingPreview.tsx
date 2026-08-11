@@ -6,6 +6,7 @@ import MarkdownContent from '../MarkdownContent'
 
 interface Props {
   thing: Thing
+  conversationId: string
   onOpen: (thing: Thing) => void
 }
 
@@ -16,7 +17,7 @@ type PreviewState =
   | { phase: 'image'; dataUrl: string }
 
 /** In-panel preview for a thing: markdown/text or image, else Open fallback. */
-export default function ThingPreview({ thing, onOpen }: Props): React.JSX.Element {
+export default function ThingPreview({ thing, conversationId, onOpen }: Props): React.JSX.Element {
   const t = useT()
   const [state, setState] = useState<PreviewState>({ phase: 'loading' })
 
@@ -24,7 +25,7 @@ export default function ThingPreview({ thing, onOpen }: Props): React.JSX.Elemen
     let cancelled = false
     setState({ phase: 'loading' })
     window.collie
-      .thingRead(thing.path)
+      .thingRead(conversationId, thing.id)
       .then((result) => {
         if (cancelled) return
         if (result.kind === 'image' && result.dataUrl) {

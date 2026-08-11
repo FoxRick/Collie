@@ -1,23 +1,30 @@
 /**
  * Main-process file operations for the "Your things" panel.
  *
- * Thing paths travel from the core's ThingStore (validated workspace/media
- * scope at registration time) through the renderer to these handlers —
- * the panel never renders a path, it only asks for Open / Save a copy… /
- * Show in folder / in-panel preview.
+ * Trust boundary: the renderer never supplies a filesystem path. It asks for
+ * a thing by (conversation_id, thing_id); the main process resolves the path
+ * from the persisted ThingStore index under COLLIE_HOME — the same index the
+ * core writes (`~/.collie/things/<conversation_id>.json`). A compromised
+ * renderer can therefore only open / preview / copy files that Collie itself
+ * registered, never arbitrary paths.
  *
- * `read` (preview) is deliberately restricted to files inside the Collie
- * home tree (workspace + media + things indexes) — a compromised renderer
- * must not be able to exfiltrate arbitrary files through the preview API.
- * Open / Show-in-folder are user-initiated OS actions and accept any path
- * the core registered, exactly like the existing `collie:open-external`.
+ * `read` (preview) is authorized purely by the registered record, so things
+ * saved from user-approved project folders preview exactly like
+ * workspace-made ones. Open / Show-in-folder are user-initiated OS actions on
+ * that same registered path, mirroring the existing `collie:open-external`
+ * posture.
  */
 import { dialog, shell } from 'electron'
-import { basename, extname, isAbsolute, join, sep } from 'path'
+import { basename, extname, isAbsolute, join } from 'path'
 import { homedir } from 'os'
+import { readFileSync } from 'fs'
 import { copyFile, readFile, realpath, stat } from 'fs/promises'
 
 const PREVIEW_MAX_BYTES = 8 * 1024 * 1024
+
+// Mirrors the core's ThingStore._SAFE_CONVERSATION_ID — a conversation id can
+// never smuggle path separators into the index filename.
+const SAFE_CONVERSATION_ID = /^[A-Za-z0-9_-]{1,128}$/
 
 const IMAGE_MIME: Record<string, string> = {
   '.png': 'image/png',
@@ -38,19 +45,64 @@ function collieHomeDir(): string {
   return process.env.COLLIE_HOME || join(homedir(), '.collie')
 }
 
-async function resolveThingPath(raw: string): Promise<string> {
-  if (typeof raw !== 'string' || !raw.trim() || !isAbsolute(raw)) {
-    throw new Error('Not a valid file path.')
+/** One record of the on-disk ThingStore index (subset of the core's shape). */
+interface ThingRecord {
+  id?: string
+  title?: string
+  kind?: string
+  path?: string
+  size_bytes?: number
+  created_at?: number | string
+  status?: string
+  version?: number
+}
+
+/**
+ * Resolve a registered thing record from the trusted on-disk index.
+ * Rejects unknown conversations/things, so renderer-supplied ids can only
+ * select from records Collie actually wrote.
+ */
+function loadThingRecord(conversationId: string, thingId: string): ThingRecord {
+  if (typeof conversationId !== 'string' || !SAFE_CONVERSATION_ID.test(conversationId)) {
+    throw new Error('Not a valid conversation.')
+  }
+  if (typeof thingId !== 'string' || !thingId.trim()) {
+    throw new Error('Not a valid thing.')
+  }
+  const indexPath = join(collieHomeDir(), 'things', `${conversationId}.json`)
+  let payload: unknown
+  try {
+    payload = JSON.parse(readFileSync(indexPath, 'utf-8'))
+  } catch {
+    throw new Error('That thing is no longer registered.')
+  }
+  const records =
+    payload && typeof payload === 'object' && Array.isArray((payload as { things?: unknown }).things)
+      ? ((payload as { things: ThingRecord[] }).things)
+      : []
+  const record = records.find((entry) => entry && entry.id === thingId)
+  if (!record || typeof record.path !== 'string' || !record.path.trim()) {
+    throw new Error('That thing is no longer registered.')
+  }
+  return record
+}
+
+/** Resolve a registered thing to a real, existing file on disk. */
+async function resolveRegisteredPath(
+  conversationId: string,
+  thingId: string
+): Promise<string> {
+  const record = loadThingRecord(conversationId, thingId)
+  const raw = record.path as string
+  if (!isAbsolute(raw)) {
+    throw new Error('That thing has an invalid file path.')
   }
   const resolved = await realpath(raw)
   const stats = await stat(resolved)
-  if (!stats.isFile()) throw new Error('Not a file.')
+  if (!stats.isFile()) {
+    throw new Error('That thing is not a file anymore.')
+  }
   return resolved
-}
-
-function insideCollieHome(resolved: string): boolean {
-  const home = join(collieHomeDir()) + sep
-  return resolved.startsWith(home)
 }
 
 export interface ThingReadResult {
@@ -59,11 +111,11 @@ export interface ThingReadResult {
   dataUrl?: string
 }
 
-export async function thingRead(rawPath: string): Promise<ThingReadResult> {
-  const resolved = await resolveThingPath(rawPath)
-  if (!insideCollieHome(resolved)) {
-    throw new Error('Preview is only available for files Collie made in its workspace.')
-  }
+export async function thingRead(
+  conversationId: string,
+  thingId: string
+): Promise<ThingReadResult> {
+  const resolved = await resolveRegisteredPath(conversationId, thingId)
   const stats = await stat(resolved)
   if (stats.size > PREVIEW_MAX_BYTES) {
     throw new Error('That file is too large to preview here — use Open instead.')
@@ -81,14 +133,20 @@ export async function thingRead(rawPath: string): Promise<ThingReadResult> {
   throw new Error('No in-panel preview for this file type — use Open instead.')
 }
 
-export async function thingOpen(rawPath: string): Promise<string> {
-  const resolved = await resolveThingPath(rawPath)
+export async function thingOpen(
+  conversationId: string,
+  thingId: string
+): Promise<string> {
+  const resolved = await resolveRegisteredPath(conversationId, thingId)
   // Returns an error message string on failure, '' on success.
   return shell.openPath(resolved)
 }
 
-export async function thingShowInFolder(rawPath: string): Promise<void> {
-  const resolved = await resolveThingPath(rawPath)
+export async function thingShowInFolder(
+  conversationId: string,
+  thingId: string
+): Promise<void> {
+  const resolved = await resolveRegisteredPath(conversationId, thingId)
   shell.showItemInFolder(resolved)
 }
 
@@ -107,13 +165,14 @@ export interface ThingSaveCopyResult {
 }
 
 export async function thingSaveCopy(
-  rawPath: string,
-  title: string
+  conversationId: string,
+  thingId: string
 ): Promise<ThingSaveCopyResult> {
-  const resolved = await resolveThingPath(rawPath)
+  const record = loadThingRecord(conversationId, thingId)
+  const resolved = await resolveRegisteredPath(conversationId, thingId)
   const options = {
     title: 'Save a copy…',
-    defaultPath: join(homedir(), 'Documents', safeBaseName(resolved, title))
+    defaultPath: join(homedir(), 'Documents', safeBaseName(resolved, record.title || ''))
   }
   const result = await dialog.showSaveDialog(options)
   if (result.canceled || !result.filePath) return { saved: false }

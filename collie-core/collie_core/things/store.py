@@ -85,6 +85,32 @@ class ThingStore:
         """All things for a conversation, newest first (empty for unknown)."""
         return self._load(conversation_id)
 
+    def get(
+        self, conversation_id: str, thing_id: str
+    ) -> ThingRecord | None:
+        """One registered thing by id, or ``None``. Safe for unknown ids."""
+        for record in self._load(conversation_id):
+            if record.get("id") == thing_id:
+                return record
+        return None
+
+    def delete(self, conversation_id: str) -> bool:
+        """Drop the whole thing index for a conversation.
+
+        Metadata-only: the deliverables themselves stay on disk (they are
+        the user's files — Collie never deletes them), and deleting a
+        conversation must not make them unreachable by path. Returns True
+        when an index file existed and was removed.
+        """
+        path = self._index_path(conversation_id)
+        if not path.exists():
+            return False
+        try:
+            path.unlink()
+        except OSError:
+            return False
+        return True
+
     # -- internals ---------------------------------------------------------
 
     def _index_path(self, conversation_id: str) -> Path:

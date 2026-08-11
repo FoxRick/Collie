@@ -40,7 +40,7 @@ jobs:
       - name: Lint (ruff)
         run: python -m ruff check nanobot collie_core tests
 
-      - name: Test (tests/collie, with the coverage gate)
+      - name: Test (full backend suite, with the coverage gate)
         run: |
           set -o pipefail
           PET=""
@@ -60,11 +60,17 @@ jobs:
           #    Windows-shaped and flaky on Linux (documented in
           #    docs + repo testing notes).
           # These tests are NOT deselected on Windows — the
-          # collie-core-windows job runs the full suite (see below).
+          # collie-core-windows job runs them for real (see below).
+          #
+          # The full suite (tests/ — not just tests/collie) gates merges so
+          # tests/tools, tests/providers and the rest cannot regress silently.
           #
           # --cov activates the pyproject floor (coverage.report.fail_under
-          # = 70); without it the gate is inert.
-          python -m pytest tests/collie -q $PET \
+          # = 42 — a deliberate headroom floor; the full suite measures ~76%
+          # on the Linux dev VM, so raising the floor is safe whenever the
+          # team wants a tighter gate). The old "70" note predated the
+          # full-suite run and was stale.
+          python -m pytest tests -q $PET \
             --cov=nanobot --cov=collie_core --cov-report=term-missing \
             --deselect tests/collie/test_services.py::test_credential_store_roundtrip \
             --deselect tests/collie/test_services.py::test_connect_api_key_service \
@@ -98,7 +104,7 @@ jobs:
       - name: Lint (ruff)
         run: python -m ruff check nanobot collie_core tests
 
-      - name: Test (tests/collie — full suite, no deselection)
+      - name: Test (full backend suite, no deselection)
         # Windows is the supported runtime: the DPAPI/service credential
         # tests and the ipc escape-path test that are deselected on Linux
         # must actually pass here. tkinter ships with the setup-python
@@ -106,7 +112,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python -m pytest tests/collie -q
+          python -m pytest tests -q
 
   collie-ui:
     name: collie-ui (Node 22)

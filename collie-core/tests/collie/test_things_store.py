@@ -103,3 +103,30 @@ def test_corrupt_index_file_is_treated_as_empty(tmp_path: Path) -> None:
     assert store.list("conv-1") == []
     store.register(conversation_id="conv-1", artifact_id="th_a", **RECORD_KW)
     assert store.list("conv-1")[0]["id"] == "th_a"
+
+
+def test_get_returns_one_record_or_none(store: ThingStore) -> None:
+    store.register(conversation_id="conv-1", artifact_id="th_a", **RECORD_KW)
+    store.register(conversation_id="conv-1", artifact_id="th_b", **{**RECORD_KW, "title": "Second"})
+
+    second = store.get("conv-1", "th_b")
+    assert second is not None
+    assert second["title"] == "Second"
+    assert store.get("conv-1", "th_ghost") is None
+    assert store.get("conv-other", "th_a") is None
+
+
+def test_delete_removes_index_but_keeps_deliverables(store: ThingStore, tmp_path: Path) -> None:
+    deliverable = tmp_path / "flyer.png"
+    deliverable.write_bytes(b"png")
+    store.register(conversation_id="conv-1", artifact_id="th_a", **{**RECORD_KW, "path": str(deliverable)})
+
+    assert store.delete("conv-1") is True
+    assert store.list("conv-1") == []
+    assert not (store.root / "conv-1.json").exists()
+    # The user's file is untouched.
+    assert deliverable.exists()
+    # Other conversations are unaffected.
+    store.register(conversation_id="conv-2", artifact_id="th_b", **RECORD_KW)
+    assert store.delete("conv-1") is False  # already gone
+    assert store.list("conv-2")[0]["id"] == "th_b"

@@ -16,6 +16,7 @@ Covers ``collie_core/gardener/`` against seeded telemetry rows:
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -56,14 +57,23 @@ def workspace(tmp_path: Path) -> Path:
     return ws
 
 
+def _days_ago(days: int) -> str:
+    """ISO timestamp ``days`` days ago (UTC) — keeps seeds inside Gardener's
+    default 14-day evidence window no matter when the suite is run."""
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(
+        timespec="seconds"
+    )
+
+
 def _seed_turn(db: CollieDB, turn_id: str, status: str = "ok", **extra: Any) -> None:
+    started_at = extra.pop("started_at", _days_ago(1))
     db.record_turn_event(
         turn_id=turn_id,
         conversation_id=extra.pop("conversation_id", "conv-1"),
         turn_kind="chat",
         status=status,
-        started_at=extra.pop("started_at", "2026-07-25T10:00:00"),
-        finished_at="2026-07-25T10:00:30",
+        started_at=started_at,
+        finished_at=extra.pop("finished_at", started_at),
         **extra,
     )
 
@@ -75,8 +85,9 @@ def _seed_tool(
     tool_name: str,
     status: str = "ok",
     error_message: str | None = None,
-    started_at: str = "2026-07-25T10:00:05",
+    started_at: str | None = None,
 ) -> None:
+    started_at = started_at or _days_ago(1)
     db.record_tool_event(
         tool_id=tool_id,
         turn_id=turn_id,
@@ -84,7 +95,7 @@ def _seed_tool(
         status=status,
         error_message=error_message,
         started_at=started_at,
-        finished_at="2026-07-25T10:00:10",
+        finished_at=started_at,
     )
 
 
@@ -164,8 +175,8 @@ def test_recent_failures_counts_and_samples(db: CollieDB) -> None:
 
 def test_recent_failures_respects_since_window(db: CollieDB) -> None:
     _seed_turn(db, "t1")
-    _seed_tool(db, "old", "t1", "web_fetch", status="error", started_at="2026-06-01T10:00:05")
-    failures = recent_failures(db, since="2026-07-01T00:00:00")
+    _seed_tool(db, "old", "t1", "web_fetch", status="error", started_at=_days_ago(30))
+    failures = recent_failures(db, since=_days_ago(15))
     assert failures == []
 
 
