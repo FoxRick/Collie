@@ -373,15 +373,41 @@ export default function ChatScreen({
   }, [])
 
   const handleThingOpen = useCallback((thing: Thing): void => {
-    void window.collie.thingOpen(thing.path)
+    const conversationId = activeIdRef.current
+    if (!conversationId) return
+    window.collie
+      .thingOpen(conversationId, thing.id)
+      .then((errorMessage) => {
+        if (errorMessage) setErrorText(`I could not open "${thing.title}": ${errorMessage}`)
+      })
+      .catch((error: unknown) => {
+        setErrorText(error instanceof Error ? error.message : `I could not open "${thing.title}".`)
+      })
   }, [])
 
   const handleThingShowInFolder = useCallback((thing: Thing): void => {
-    void window.collie.thingShowInFolder(thing.path)
+    const conversationId = activeIdRef.current
+    if (!conversationId) return
+    window.collie
+      .thingShowInFolder(conversationId, thing.id)
+      .catch((error: unknown) => {
+        setErrorText(error instanceof Error ? error.message : `I could not reveal "${thing.title}".`)
+      })
   }, [])
 
   const handleThingSaveCopy = useCallback((thing: Thing): void => {
-    void window.collie.thingSaveCopy(thing.path, thing.title).catch(() => undefined)
+    const conversationId = activeIdRef.current
+    if (!conversationId) return
+    window.collie
+      .thingSaveCopy(conversationId, thing.id)
+      .then((result) => {
+        // { saved: false } means the user cancelled the save dialog — the
+        // dialog itself is the feedback, so only failures need surfacing.
+        if (!result.saved) return
+      })
+      .catch((error: unknown) => {
+        setErrorText(error instanceof Error ? error.message : `I could not save a copy of "${thing.title}".`)
+      })
   }, [])
 
   useEffect(() => () => {
@@ -944,7 +970,7 @@ export default function ChatScreen({
     async (id: string) => {
       const title =
         conversations.find((item) => item.id === id)?.title || 'this conversation'
-      if (!window.confirm(`Delete "${title}"? This removes it and its files.`)) return
+      if (!window.confirm(`Delete "${title}"? The conversation and its things are removed from Collie — the files stay on your computer.`)) return
       try {
         await collieClient.deleteConversation(id)
       } catch {
@@ -1166,6 +1192,7 @@ export default function ChatScreen({
           <ThingPanel
             things={things}
             unseenIds={thingsUnseen}
+            conversationId={activeId ?? ''}
             onClose={closeThingsPanel}
             onOpen={handleThingOpen}
             onSaveCopy={handleThingSaveCopy}

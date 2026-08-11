@@ -440,12 +440,14 @@ function registerIpc(): void {
     activeWork.update(clampActiveWork(snapshot))
     return true
   })
-  handle('collie:thing-read', (rawPath: string) => thingRead(rawPath))
-  handle('collie:thing-open', (rawPath: string) => thingOpen(rawPath))
-  handle('collie:thing-show-in-folder', (rawPath: string) => thingShowInFolder(rawPath))
-  handle('collie:thing-save-copy', (rawPath: string, title: string) =>
-    thingSaveCopy(rawPath, title)
-  )
+  handle('collie:thing-read', (conversationId: string, thingId: string) =>
+    thingRead(conversationId, thingId))
+  handle('collie:thing-open', (conversationId: string, thingId: string) =>
+    thingOpen(conversationId, thingId))
+  handle('collie:thing-show-in-folder', (conversationId: string, thingId: string) =>
+    thingShowInFolder(conversationId, thingId))
+  handle('collie:thing-save-copy', (conversationId: string, thingId: string) =>
+    thingSaveCopy(conversationId, thingId))
 }
 
 function clampActiveWork(snapshot: ActiveWorkSnapshot): ActiveWorkSnapshot {

@@ -63,17 +63,17 @@ const api = {
     ipcRenderer.invoke('collie:pick-file-access-folders'),
   openExternal: (url: string): Promise<void> =>
     ipcRenderer.invoke('collie:open-external', url),
-  thingRead: (path: string): Promise<{ kind: 'text' | 'image'; text?: string; dataUrl?: string }> =>
-    ipcRenderer.invoke('collie:thing-read', path),
-  thingOpen: (path: string): Promise<string> =>
-    ipcRenderer.invoke('collie:thing-open', path),
-  thingShowInFolder: (path: string): Promise<void> =>
-    ipcRenderer.invoke('collie:thing-show-in-folder', path),
+  thingRead: (conversationId: string, thingId: string): Promise<{ kind: 'text' | 'image'; text?: string; dataUrl?: string }> =>
+    ipcRenderer.invoke('collie:thing-read', conversationId, thingId),
+  thingOpen: (conversationId: string, thingId: string): Promise<string> =>
+    ipcRenderer.invoke('collie:thing-open', conversationId, thingId),
+  thingShowInFolder: (conversationId: string, thingId: string): Promise<void> =>
+    ipcRenderer.invoke('collie:thing-show-in-folder', conversationId, thingId),
   thingSaveCopy: (
-    path: string,
-    title: string
+    conversationId: string,
+    thingId: string
   ): Promise<{ saved: boolean; path?: string }> =>
-    ipcRenderer.invoke('collie:thing-save-copy', path, title),
+    ipcRenderer.invoke('collie:thing-save-copy', conversationId, thingId),
   showWindow: (): Promise<void> =>
     ipcRenderer.invoke('collie:show-window'),
   petCommand: (command: string): Promise<boolean> =>
