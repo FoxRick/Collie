@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from collie_core.catalog.snapshot_util import trim_live_catalogue
@@ -30,7 +30,7 @@ _MAX_PAYLOAD_BYTES = 8 * 1024 * 1024
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _fetch(url: str) -> bytes:

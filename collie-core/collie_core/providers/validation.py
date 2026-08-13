@@ -43,7 +43,9 @@ def _request(
     data = None
     if payload is not None:
         data = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(url, data=data, headers=headers, method="POST" if payload else "GET")
+    request = urllib.request.Request(
+        url, data=data, headers=headers, method="POST" if payload else "GET"
+    )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             body = response.read(_MAX_RESPONSE_BYTES + 1)
@@ -115,11 +117,7 @@ def _probe_models_endpoint(
     api_key: str,
 ) -> tuple[int, Any]:
     """Hit the model-list endpoint; returns (status, body)."""
-    headers = (
-        _anthropic_headers(api_key)
-        if protocol == "anthropic"
-        else _openai_headers(api_key)
-    )
+    headers = _anthropic_headers(api_key) if protocol == "anthropic" else _openai_headers(api_key)
     return _request(_models_url(api_base, protocol), headers=headers)
 
 
@@ -130,11 +128,7 @@ def _probe_one_token(
     model: str,
 ) -> tuple[int, Any]:
     """Hit the chat endpoint with max_tokens=1; returns (status, body)."""
-    headers = (
-        _anthropic_headers(api_key)
-        if protocol == "anthropic"
-        else _openai_headers(api_key)
-    )
+    headers = _anthropic_headers(api_key) if protocol == "anthropic" else _openai_headers(api_key)
     return _request(
         _chat_url(api_base, protocol),
         headers=headers,
@@ -190,9 +184,7 @@ async def probe_api_key(
         return {"ok": False, "error": "invalid", "detail": "no default model known for provider"}
 
     try:
-        status, body = await asyncio.to_thread(
-            _probe_models_endpoint, api_base, protocol, api_key
-        )
+        status, body = await asyncio.to_thread(_probe_models_endpoint, api_base, protocol, api_key)
     except (urllib.error.URLError, TimeoutError, OSError, ValueError) as error:
         return {"ok": False, "error": "network", "detail": str(error)}
 
@@ -245,9 +237,7 @@ async def detect_provider_for_key(
     if len(candidates) == 1:
         return {"detected": True, "provider_id": candidates[0], "reason": "prefix"}
     for provider_id in candidates:
-        result = await probe_api_key(
-            provider_id=provider_id, api_key=api_key, catalogue=catalogue
-        )
+        result = await probe_api_key(provider_id=provider_id, api_key=api_key, catalogue=catalogue)
         if result.get("ok"):
             return {"detected": True, "provider_id": provider_id, "reason": "probe"}
     return {
@@ -269,9 +259,7 @@ async def detect_models_for_base_url(
         return {"detected": False, "error": "missing_base_url", "models": []}
     if api_key:
         headers = (
-            _anthropic_headers(api_key)
-            if protocol == "anthropic"
-            else _openai_headers(api_key)
+            _anthropic_headers(api_key) if protocol == "anthropic" else _openai_headers(api_key)
         )
     else:
         headers = {"Content-Type": "application/json", "User-Agent": _USER_AGENT}

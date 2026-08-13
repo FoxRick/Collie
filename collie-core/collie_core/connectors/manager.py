@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import threading
 import uuid
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from loguru import logger
 
@@ -31,9 +32,7 @@ _ACTIVE = {
 # Failures that invalidate the stored credentials. Everything else
 # (network, tool discovery, timeouts) keeps them so a retry needs no
 # fresh sign-in.
-_CREDENTIAL_DELETING_CODES = frozenset(
-    {"oauth_cancelled", "scope_denied", "token_refresh_failed"}
-)
+_CREDENTIAL_DELETING_CODES = frozenset({"oauth_cancelled", "scope_denied", "token_refresh_failed"})
 
 
 def _json_value(value: Any, fallback: Any) -> Any:
@@ -85,9 +84,7 @@ class ConnectorManager:
             provider_id = str(row["provider_id"])
             definition = connector_def(provider_id)
             compatible = bool(
-                definition
-                and definition.available
-                and row["driver"] == definition.driver.value
+                definition and definition.available and row["driver"] == definition.driver.value
             )
             if not compatible:
                 continue
@@ -97,9 +94,7 @@ class ConnectorManager:
                 if self._has_credentials(row):
                     counts[provider_id] = counts.get(provider_id, 0) + 1
                 else:
-                    statuses.setdefault(
-                        provider_id, ConnectionStatus.AUTH_REQUIRED.value
-                    )
+                    statuses.setdefault(provider_id, ConnectionStatus.AUTH_REQUIRED.value)
             else:
                 statuses.setdefault(provider_id, str(row["status"]))
         return [
@@ -138,9 +133,7 @@ class ConnectorManager:
         """Keep one-release read compatibility for Settings -> Services."""
         from collie_core.services.manager import ServiceManager
 
-        return ServiceManager(
-            self.db, credentials=self.credentials
-        ).catalog_view()
+        return ServiceManager(self.db, credentials=self.credentials).catalog_view()
 
     def _has_credentials(self, row: dict[str, Any]) -> bool:
         """A connection is only genuinely connected when it holds a usable
@@ -153,9 +146,7 @@ class ConnectorManager:
     def _connection_view(self, row: dict[str, Any]) -> dict[str, Any]:
         definition = connector_def(str(row["provider_id"]))
         compatible = bool(
-            definition
-            and definition.available
-            and row["driver"] == definition.driver.value
+            definition and definition.available and row["driver"] == definition.driver.value
         )
         status = str(row["status"])
         last_error_code = row.get("last_error_code")
@@ -171,14 +162,11 @@ class ConnectorManager:
         # A connected row without stored credentials (token deleted, DB
         # restored without the credential files, legacy migration gap) must
         # not look healthy or bind at runtime — it needs a fresh sign-in.
-        elif status == ConnectionStatus.CONNECTED.value and not self._has_credentials(
-            row
-        ):
+        elif status == ConnectionStatus.CONNECTED.value and not self._has_credentials(row):
             status = ConnectionStatus.AUTH_REQUIRED.value
             last_error_code = "credentials_missing"
             last_error_message = (
-                "The saved credentials for this connection are missing — "
-                "sign in again."
+                "The saved credentials for this connection are missing — sign in again."
             )
         return {
             "id": row["id"],
@@ -190,9 +178,7 @@ class ConnectorManager:
             "auth_type": row["auth_type"],
             "status": status,
             "granted_scopes": _json_value(row.get("granted_scopes_json"), []),
-            "enabled_capabilities": _json_value(
-                row.get("enabled_capabilities_json"), []
-            ),
+            "enabled_capabilities": _json_value(row.get("enabled_capabilities_json"), []),
             "enabled_tools": _json_value(row.get("enabled_tools_json"), []),
             "tool_policy": _json_value(row.get("tool_policy_json"), {}),
             "remote_account_id": row.get("remote_account_id"),
@@ -203,7 +189,8 @@ class ConnectorManager:
             "last_error_message": last_error_message,
             "permissions": list(definition.permissions) if definition else [],
             "capabilities": list(definition.capabilities) if definition else [],
-            "route": "Official MCP" if definition and definition.driver == "official_mcp"
+            "route": "Official MCP"
+            if definition and definition.driver == "official_mcp"
             else "Official API",
         }
 
@@ -240,8 +227,7 @@ class ConnectorManager:
                 (
                     row
                     for row in self.db.list_connector_connections(definition.id)
-                    if row["status"] in _ACTIVE
-                    and row["id"] != replace_connection_id
+                    if row["status"] in _ACTIVE and row["id"] != replace_connection_id
                 ),
                 None,
             )
@@ -457,9 +443,7 @@ class ConnectorManager:
         )
         return self._connection_view(updated)
 
-    def remove(
-        self, connection_id: str, *, origin: str = "connectors_ui"
-    ) -> dict[str, Any]:
+    def remove(self, connection_id: str, *, origin: str = "connectors_ui") -> dict[str, Any]:
         row = self.db.get_connector_connection(connection_id)
         if row is None:
             return {"connection_id": connection_id, "status": "disconnected"}
@@ -529,9 +513,7 @@ class ConnectorManager:
                 "connectorProviderId": definition.id,
                 "connectorTrusted": True,
                 "connectorToolOverrides": definition.tool_overrides,
-                "connectorApprovalPreference": policy.get(
-                    "_approval_preference", "important"
-                ),
+                "connectorApprovalPreference": policy.get("_approval_preference", "important"),
             }
         return servers
 
@@ -540,8 +522,7 @@ class ConnectorManager:
         if definition is None or not definition.available:
             return False
         return any(
-            row["status"] == ConnectionStatus.CONNECTED.value
-            and self._has_credentials(row)
+            row["status"] == ConnectionStatus.CONNECTED.value and self._has_credentials(row)
             for row in self.db.list_connector_connections(provider_id)
         )
 

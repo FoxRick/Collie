@@ -58,9 +58,10 @@ def test_deny_preset_denies_local_writes_but_keeps_reads(tmp_path: Path) -> None
         approval_free=True,
         approve_for_me=True,
     )
-    assert evaluator.evaluate(
-        ExecutionContext(execution_mode="execute"), safe_write
-    ).effect == Effect.DENY
+    assert (
+        evaluator.evaluate(ExecutionContext(execution_mode="execute"), safe_write).effect
+        == Effect.DENY
+    )
 
     # Reads are unaffected by the deny preset.
     read = evaluator.evaluate(
@@ -76,9 +77,7 @@ def test_deny_preset_denies_local_writes_but_keeps_reads(tmp_path: Path) -> None
         effect="allow",
         scope_type="global",
     )
-    allowed = evaluator.evaluate(
-        ExecutionContext(execution_mode="execute"), safe_write
-    )
+    allowed = evaluator.evaluate(ExecutionContext(execution_mode="execute"), safe_write)
     assert allowed.effect == Effect.ALLOW
     db.close()
 
@@ -134,9 +133,7 @@ def test_structured_weekdays_and_monthly_schedules() -> None:
     assert weekdays.kind == "weekdays"
     assert monthly.kind == "monthly"
     assert monthly.day == 1
-    occurrence = next_occurrence(
-        weekdays, datetime(2026, 7, 26, 0, 0, tzinfo=timezone.utc)
-    )
+    occurrence = next_occurrence(weekdays, datetime(2026, 7, 26, 0, 0, tzinfo=timezone.utc))
     assert occurrence is not None
     assert occurrence.astimezone().tzinfo is not None
 
@@ -201,9 +198,7 @@ def test_read_outside_project_asks_for_approval(tmp_path: Path) -> None:
         summary="Read a file outside the project",
         reversible=True,
     )
-    decision = evaluator.evaluate(
-        ExecutionContext(project_path=str(project)), request
-    )
+    decision = evaluator.evaluate(ExecutionContext(project_path=str(project)), request)
     assert decision.effect == Effect.ASK
     assert "outside the active project" in decision.reason
     db.close()
@@ -222,9 +217,7 @@ def test_read_inside_project_is_auto_allowed(tmp_path: Path) -> None:
         summary="Read a file inside the project",
         reversible=True,
     )
-    decision = evaluator.evaluate(
-        ExecutionContext(project_path=str(project)), request
-    )
+    decision = evaluator.evaluate(ExecutionContext(project_path=str(project)), request)
     assert decision.effect == Effect.ALLOW
     db.close()
 
@@ -246,9 +239,7 @@ def test_read_inside_granted_local_root_is_auto_allowed(tmp_path: Path) -> None:
         reversible=True,
         redacted_parameters={"allowed_local_roots": [str(granted)]},
     )
-    decision = evaluator.evaluate(
-        ExecutionContext(project_path=str(project)), request
-    )
+    decision = evaluator.evaluate(ExecutionContext(project_path=str(project)), request)
     assert decision.effect == Effect.ALLOW
     db.close()
 
@@ -267,9 +258,7 @@ def test_read_with_full_local_file_access_is_auto_allowed(tmp_path: Path) -> Non
         reversible=True,
         redacted_parameters={"unrestricted_local_files": True},
     )
-    decision = evaluator.evaluate(
-        ExecutionContext(project_path=str(project)), request
-    )
+    decision = evaluator.evaluate(ExecutionContext(project_path=str(project)), request)
     assert decision.effect == Effect.ALLOW
     db.close()
 
@@ -284,9 +273,7 @@ def test_read_without_project_is_auto_allowed(tmp_path: Path) -> None:
         summary="Web read — no project_path set",
         reversible=True,
     )
-    decision = evaluator.evaluate(
-        ExecutionContext(project_path=None), request
-    )
+    decision = evaluator.evaluate(ExecutionContext(project_path=None), request)
     assert decision.effect == Effect.ALLOW
     db.close()
 
@@ -303,9 +290,7 @@ def test_read_non_path_resource_auto_allowed_even_with_project(tmp_path: Path) -
         summary="Weather read is not a filesystem path",
         reversible=True,
     )
-    decision = evaluator.evaluate(
-        ExecutionContext(project_path=str(project)), request
-    )
+    decision = evaluator.evaluate(ExecutionContext(project_path=str(project)), request)
     assert decision.effect == Effect.ALLOW
     db.close()
 
@@ -380,9 +365,7 @@ def test_write_outside_project_still_asks_regardless(tmp_path: Path) -> None:
         summary="Write outside project",
         reversible=True,
     )
-    decision = evaluator.evaluate(
-        ExecutionContext(project_path=str(project)), request
-    )
+    decision = evaluator.evaluate(ExecutionContext(project_path=str(project)), request)
     assert decision.effect == Effect.ASK
     db.close()
 
@@ -408,9 +391,7 @@ def test_folder_scoped_allow_grants_read_inside_folder(tmp_path: Path) -> None:
         summary="Read from an explicitly allowed shared folder",
         reversible=True,
     )
-    decision = evaluator.evaluate(
-        ExecutionContext(project_path=str(project)), request
-    )
+    decision = evaluator.evaluate(ExecutionContext(project_path=str(project)), request)
     assert decision.effect == Effect.ALLOW
     db.close()
 
@@ -475,12 +456,8 @@ def test_run_scoped_rule_matches_only_its_run(tmp_path: Path) -> None:
         scope_value="run-42",
     )
     evaluator = PermissionEvaluator(PermissionStore(db))
-    assert evaluator.evaluate(
-        ExecutionContext(run_id="run-42"), _request()
-    ).effect == Effect.ALLOW
-    assert evaluator.evaluate(
-        ExecutionContext(run_id="run-99"), _request()
-    ).effect == Effect.ASK
+    assert evaluator.evaluate(ExecutionContext(run_id="run-42"), _request()).effect == Effect.ALLOW
+    assert evaluator.evaluate(ExecutionContext(run_id="run-99"), _request()).effect == Effect.ASK
     other_resource = PermissionRequest(
         action="file.write",
         resource="different-resource",
@@ -488,16 +465,14 @@ def test_run_scoped_rule_matches_only_its_run(tmp_path: Path) -> None:
         summary="Write somewhere else",
         reversible=True,
     )
-    assert evaluator.evaluate(
-        ExecutionContext(run_id="run-42"), other_resource
-    ).effect == Effect.ASK
+    assert (
+        evaluator.evaluate(ExecutionContext(run_id="run-42"), other_resource).effect == Effect.ASK
+    )
     db.close()
 
 
 @pytest.mark.parametrize("scope_type", ["once", "service", "unknown", ""])
-def test_non_authoritative_scopes_never_match_chat(
-    tmp_path: Path, scope_type: str
-) -> None:
+def test_non_authoritative_scopes_never_match_chat(tmp_path: Path, scope_type: str) -> None:
     db = CollieDB(tmp_path / f"{scope_type or 'empty'}.sqlite")
     db.add_approval_rule(
         action="file.write",
@@ -506,9 +481,7 @@ def test_non_authoritative_scopes_never_match_chat(
         scope_type=scope_type,
         scope_value="anything",
     )
-    decision = PermissionEvaluator(PermissionStore(db)).evaluate(
-        ExecutionContext(), _request()
-    )
+    decision = PermissionEvaluator(PermissionStore(db)).evaluate(ExecutionContext(), _request())
     assert decision.effect == Effect.ASK
     db.close()
 

@@ -8,7 +8,7 @@ needed) so it works before a provider is even configured.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from collie_core.db import CollieDB
@@ -18,13 +18,23 @@ from collie_core.routines.schedule import parse_schedule as parse_structured_sch
 __all__ = ["create_custom_automation", "parse_schedule"]
 
 _WEEKDAYS = {
-    "monday": "Mon", "mon": "Mon",
-    "tuesday": "Tue", "tue": "Tue", "tues": "Tue",
-    "wednesday": "Wed", "wed": "Wed",
-    "thursday": "Thu", "thu": "Thu", "thur": "Thu", "thurs": "Thu",
-    "friday": "Fri", "fri": "Fri",
-    "saturday": "Sat", "sat": "Sat",
-    "sunday": "Sun", "sun": "Sun",
+    "monday": "Mon",
+    "mon": "Mon",
+    "tuesday": "Tue",
+    "tue": "Tue",
+    "tues": "Tue",
+    "wednesday": "Wed",
+    "wed": "Wed",
+    "thursday": "Thu",
+    "thu": "Thu",
+    "thur": "Thu",
+    "thurs": "Thu",
+    "friday": "Fri",
+    "fri": "Fri",
+    "saturday": "Sat",
+    "sat": "Sat",
+    "sunday": "Sun",
+    "sun": "Sun",
 }
 
 _DAYPART_DEFAULTS = {
@@ -77,7 +87,7 @@ def _find_clock_time(text: str) -> str | None:
 
 def _looks_like_time(match: re.Match, text: str) -> bool:
     """A bare number only counts as a time when preceded by 'at'."""
-    prefix = text[max(0, match.start() - 3):match.start()]
+    prefix = text[max(0, match.start() - 3) : match.start()]
     return prefix.strip().endswith("at")
 
 
@@ -131,7 +141,7 @@ def create_custom_automation(
             f"{exc}"
         ) from exc
     schedule = parse_schedule(description) or structured.time.strftime("%H:%M")
-    next_run = next_occurrence(structured, datetime.now(timezone.utc))
+    next_run = next_occurrence(structured, datetime.now(UTC))
 
     label = (name or "").strip()
     if not label:

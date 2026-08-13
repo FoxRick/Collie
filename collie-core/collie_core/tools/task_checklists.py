@@ -55,11 +55,12 @@ def _event(task: dict[str, Any]) -> str:
 
 
 def _create_review_metadata_errors(params: dict[str, Any]) -> list[str]:
-    errors = [f"{name} is required for create" for name in _CREATE_REVIEW_FIELDS if name not in params]
+    errors = [
+        f"{name} is required for create" for name in _CREATE_REVIEW_FIELDS if name not in params
+    ]
     services = params.get("services")
     if "services" in params and (
-        not isinstance(services, list)
-        or not all(isinstance(service, str) for service in services)
+        not isinstance(services, list) or not all(isinstance(service, str) for service in services)
     ):
         errors.append("services must be a list of strings")
     for name in _CREATE_REVIEW_FIELDS[1:]:
@@ -230,7 +231,9 @@ class ManageTaskChecklistTool(Tool):
                         "This work needs review first. Use present_plan and wait for approval."
                     )
                 if _db.get_active_task(conversation_id) is not None:
-                    raise ValueError("Finish or cancel the current task before creating another one.")
+                    raise ValueError(
+                        "Finish or cancel the current task before creating another one."
+                    )
                 task = _db.create_task_checklist(
                     conversation_id=conversation_id,
                     goal=str(kwargs.get("goal") or ""),
@@ -257,9 +260,7 @@ class ManageTaskChecklistTool(Tool):
                     title=kwargs.get("title"),
                 )
             elif operation == "complete":
-                task = _db.complete_task_checklist(
-                    task_id, expected_revision=int(revision)
-                )
+                task = _db.complete_task_checklist(task_id, expected_revision=int(revision))
             elif operation == "cancel":
                 task = _db.cancel_task_checklist(
                     task_id,
@@ -281,9 +282,8 @@ class ManageTaskChecklistTool(Tool):
             task = _db.get_active_task(conversation_id) if _db is not None else None
             active = ""
             if task is not None:
-                active = (
-                    "\nCurrent authoritative task snapshot:\n"
-                    + json.dumps(_renderer_task(task), ensure_ascii=False)
+                active = "\nCurrent authoritative task snapshot:\n" + json.dumps(
+                    _renderer_task(task), ensure_ascii=False
                 )
             return RuntimeContextBlock(
                 source="task-checklists",

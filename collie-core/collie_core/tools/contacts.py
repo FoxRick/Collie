@@ -30,25 +30,27 @@ def _person_lines(person: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-@tool_parameters({
-    "type": "object",
-    "properties": {
-        "action": {
-            "type": "string",
-            "enum": ["find", "list", "upsert", "gift_ideas"],
-            "description": "find a person, list everyone, add/update details, "
-                           "or pull gift ideas for someone.",
+@tool_parameters(
+    {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["find", "list", "upsert", "gift_ideas"],
+                "description": "find a person, list everyone, add/update details, "
+                "or pull gift ideas for someone.",
+            },
+            "name": {"type": "string", "description": "The person's name."},
+            "relationship": {"type": "string", "description": "e.g. mom, partner, boss."},
+            "birthday": {"type": "string", "description": "e.g. 'March 15' or '1990-03-15'."},
+            "allergies": {"type": "string"},
+            "preferences": {"type": "string", "description": "What they like."},
+            "gift_ideas": {"type": "string"},
+            "notes": {"type": "string"},
         },
-        "name": {"type": "string", "description": "The person's name."},
-        "relationship": {"type": "string", "description": "e.g. mom, partner, boss."},
-        "birthday": {"type": "string", "description": "e.g. 'March 15' or '1990-03-15'."},
-        "allergies": {"type": "string"},
-        "preferences": {"type": "string", "description": "What they like."},
-        "gift_ideas": {"type": "string"},
-        "notes": {"type": "string"},
-    },
-    "required": ["action"],
-})
+        "required": ["action"],
+    }
+)
 class ContactsTool(Tool):
     """The user's people — find, remember, suggest gifts."""
 
@@ -102,7 +104,7 @@ class ContactsTool(Tool):
         return life_db() is not None
 
     @classmethod
-    def create(cls, ctx: Any) -> "ContactsTool":
+    def create(cls, ctx: Any) -> ContactsTool:
         return cls()
 
     async def execute(self, **kwargs: Any) -> Any:
@@ -116,10 +118,7 @@ class ContactsTool(Tool):
         if action == "list":
             people = db.list_people()
             if not people:
-                return (
-                    "I don't know anyone yet! Tell me about your people and "
-                    "I'll remember them."
-                )
+                return "I don't know anyone yet! Tell me about your people and I'll remember them."
             return "\n\n".join(_person_lines(p) for p in people)
 
         if action == "find":
@@ -135,8 +134,14 @@ class ContactsTool(Tool):
                 return self.error("Whose details am I saving?")
             fields = {
                 key: str(kwargs[key]).strip()
-                for key in ("relationship", "birthday", "allergies",
-                            "preferences", "gift_ideas", "notes")
+                for key in (
+                    "relationship",
+                    "birthday",
+                    "allergies",
+                    "preferences",
+                    "gift_ideas",
+                    "notes",
+                )
                 if kwargs.get(key)
             }
             person = db.find_person(name)
@@ -167,6 +172,5 @@ class ContactsTool(Tool):
             return "\n".join(bits)
 
         return self.error(
-            f"Not sure what to do with action '{action}'. Try find, list, "
-            "upsert, or gift_ideas."
+            f"Not sure what to do with action '{action}'. Try find, list, upsert, or gift_ideas."
         )

@@ -15,7 +15,9 @@ def _wav_data_url(samples: list[int], *, rate: int = 16_000) -> str:
         output.setnchannels(1)
         output.setsampwidth(2)
         output.setframerate(rate)
-        output.writeframes(b"".join(sample.to_bytes(2, "little", signed=True) for sample in samples))
+        output.writeframes(
+            b"".join(sample.to_bytes(2, "little", signed=True) for sample in samples)
+        )
     return "data:audio/wav;base64," + base64.b64encode(buffer.getvalue()).decode()
 
 

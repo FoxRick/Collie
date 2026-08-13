@@ -35,17 +35,19 @@ async def probe_packaged_mcp(root: Path | None = None) -> list[str]:
         raise RuntimeError(f"Packaged MCP probe server is missing: {server}")
 
     params = StdioServerParameters(command=str(node), args=[str(server)])
-    async with stdio_client(params) as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
-            result = await session.list_tools()
-            names = [tool.name for tool in result.tools]
-            if PROBE_TOOL not in names:
-                raise RuntimeError("Packaged MCP server did not advertise its probe tool.")
-            called = await session.call_tool(PROBE_TOOL, arguments={})
-            if called.isError:
-                raise RuntimeError("Packaged MCP probe tool returned an error.")
-            return names
+    async with (
+        stdio_client(params) as (read_stream, write_stream),
+        ClientSession(read_stream, write_stream) as session,
+    ):
+        await session.initialize()
+        result = await session.list_tools()
+        names = [tool.name for tool in result.tools]
+        if PROBE_TOOL not in names:
+            raise RuntimeError("Packaged MCP server did not advertise its probe tool.")
+        called = await session.call_tool(PROBE_TOOL, arguments={})
+        if called.isError:
+            raise RuntimeError("Packaged MCP probe tool returned an error.")
+        return names
 
 
 def main() -> None:

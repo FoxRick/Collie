@@ -64,9 +64,7 @@ async def test_invalid_model_is_rejected_before_mutation(runtime: CollieRuntime)
     old = _seed_working_provider(runtime)
     before = runtime.db.all_settings()
 
-    result = await runtime._configure_provider_candidate(
-        _candidate(model="model with whitespace")
-    )
+    result = await runtime._configure_provider_candidate(_candidate(model="model with whitespace"))
 
     assert result["configured"] is False
     assert "model ID" in result["error"]

@@ -63,12 +63,15 @@ def test_messenger_session_identity_persists_across_manager_recreation(
     conversation_id = str(db.create_conversation(f"{label} mirror")["id"])
     db.set_setting(f"messengers.{name}.conversation_id", conversation_id)
 
-    assert manager._mirror_conversation(  # noqa: SLF001 - exercises persisted inbound identity
-        name,
-        label,
-        session_key=session_key,
-        chat_id=chat_id,
-    ) == conversation_id
+    assert (
+        manager._mirror_conversation(  # noqa: SLF001 - exercises persisted inbound identity
+            name,
+            label,
+            session_key=session_key,
+            chat_id=chat_id,
+        )
+        == conversation_id
+    )
     assert db.get_setting(f"messengers.{name}.session_keys") == [session_key]
     assert db.get_setting(f"messengers.{name}.session_key") == session_key
     assert db.get_setting(f"messengers.{name}.session_chat_id") == chat_id
@@ -240,7 +243,9 @@ async def test_runtime_lists_stops_and_deletes_work_across_all_conversation_sess
 
 
 @pytest.mark.asyncio
-async def test_agent_loop_cancel_all_sessions_drains_root_turn_and_exact_session_subagents() -> None:
+async def test_agent_loop_cancel_all_sessions_drains_root_turn_and_exact_session_subagents() -> (
+    None
+):
     loop = AgentLoop.__new__(AgentLoop)
     manager = SubagentManager.__new__(SubagentManager)
     stopped: list[str] = []
@@ -259,12 +264,10 @@ async def test_agent_loop_cancel_all_sessions_drains_root_turn_and_exact_session
     }
     await asyncio.sleep(0)
     manager._running_tasks = {
-        f"subagent-{index}": task
-        for index, task in enumerate(subagent_tasks.values())
+        f"subagent-{index}": task for index, task in enumerate(subagent_tasks.values())
     }
     manager._session_tasks = {
-        session_key: {f"subagent-{index}"}
-        for index, session_key in enumerate(subagent_tasks)
+        session_key: {f"subagent-{index}"} for index, session_key in enumerate(subagent_tasks)
     }
     loop.subagents = manager
     loop._active_tasks = {root_key: [root_task]}
@@ -342,9 +345,7 @@ async def test_subagent_cancel_all_drains_every_task_and_runtime_shutdown_uses_i
     assert sorted(stopped) == ["first", "second"]
 
     shutdown_order: list[str] = []
-    cancel_all_sessions = AsyncMock(
-        side_effect=lambda: shutdown_order.append("sessions") or 3
-    )
+    cancel_all_sessions = AsyncMock(side_effect=lambda: shutdown_order.append("sessions") or 3)
     cancel_all = AsyncMock(side_effect=lambda: shutdown_order.append("subagents") or 2)
     stop = MagicMock(side_effect=lambda: shutdown_order.append("stop"))
     close_provider = MagicMock(side_effect=lambda: shutdown_order.append("provider-close"))

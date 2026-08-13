@@ -86,10 +86,7 @@ def test_v12_adds_hash_columns_on_fresh_db(tmp_path: Path) -> None:
     db = CollieDB(tmp_path / "collie.db")
     try:
         assert db.schema_version == 14
-        columns = {
-            row["name"]
-            for row in db._rows("PRAGMA table_info(turn_events)")
-        }
+        columns = {row["name"] for row in db._rows("PRAGMA table_info(turn_events)")}
         assert {"prompt_hash", "tool_schema_hash", "config_hash"} <= columns
     finally:
         db.close()
@@ -185,22 +182,27 @@ async def _fake_openai_app() -> web.Application:
                 "id": "chatcmpl-fake",
                 "object": "chat.completion.chunk",
                 "model": body["model"],
-                "choices": [{"index": 0, "delta": {"content": "ok"},
-                             "finish_reason": "stop"}],
+                "choices": [{"index": 0, "delta": {"content": "ok"}, "finish_reason": "stop"}],
             }
             await resp.write(f"data: {json.dumps(payload)}\n\n".encode())
             await resp.write(b"data: [DONE]\n\n")
             await resp.write_eof()
             return resp
-        return web.json_response({
-            "id": "chatcmpl-fake",
-            "object": "chat.completion",
-            "model": body["model"],
-            "choices": [{"index": 0,
-                         "message": {"role": "assistant", "content": "ok"},
-                         "finish_reason": "stop"}],
-            "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12},
-        })
+        return web.json_response(
+            {
+                "id": "chatcmpl-fake",
+                "object": "chat.completion",
+                "model": body["model"],
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "ok"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12},
+            }
+        )
 
     app = web.Application()
     app.router.add_post("/v1/chat/completions", chat_completions)
@@ -208,9 +210,7 @@ async def _fake_openai_app() -> web.Application:
 
 
 @pytest.mark.asyncio
-async def test_run_record_has_hash_columns(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_run_record_has_hash_columns(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A real turn through the runtime records non-NULL hashes."""
     import collie_core.headless as headless
     from collie_core.telemetry.recorder import RunRecorder
@@ -224,14 +224,18 @@ async def test_run_record_has_hash_columns(
     site = web.TCPSite(runner, "127.0.0.1", llm_port)
     await site.start()
     try:
-        exit_code, document = await headless.run_one(headless._parse_args([
-            "--task=hello",
-            f"--home={tmp_path / 'bench-home'}",
-            "--model=collie-test-model",
-            "--provider=custom",
-            f"--api-base=http://127.0.0.1:{llm_port}/v1",
-            "--api-key-env=COLLIE_BENCH_KEY",
-        ]))
+        exit_code, document = await headless.run_one(
+            headless._parse_args(
+                [
+                    "--task=hello",
+                    f"--home={tmp_path / 'bench-home'}",
+                    "--model=collie-test-model",
+                    "--provider=custom",
+                    f"--api-base=http://127.0.0.1:{llm_port}/v1",
+                    "--api-key-env=COLLIE_BENCH_KEY",
+                ]
+            )
+        )
     finally:
         await runner.cleanup()
 

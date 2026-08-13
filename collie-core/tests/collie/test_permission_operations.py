@@ -113,8 +113,18 @@ def test_ordinary_work_bypasses_stale_review_gate_but_not_plan_mode(tmp_path: Pa
     db = CollieDB(tmp_path / "collie.db")
     request = NotesTool().permission_request({"action": "create"})
     evaluator = _evaluator(db, gated=True)
-    assert evaluator.evaluate(ExecutionContext(conversation_id="c", execution_mode="execute"), request).effect == Effect.ALLOW
-    assert evaluator.evaluate(ExecutionContext(conversation_id="c", execution_mode="plan"), request).effect == Effect.DENY
+    assert (
+        evaluator.evaluate(
+            ExecutionContext(conversation_id="c", execution_mode="execute"), request
+        ).effect
+        == Effect.ALLOW
+    )
+    assert (
+        evaluator.evaluate(
+            ExecutionContext(conversation_id="c", execution_mode="plan"), request
+        ).effect
+        == Effect.DENY
+    )
     db.close()
 
 
@@ -125,28 +135,52 @@ def test_run_wide_approval_needs_explicit_eligibility(tmp_path: Path) -> None:
     )
     evaluator = _evaluator(db)
     unknown_local = PermissionRequest(
-        action="tool.future_write", resource="x", risk=Risk.LOCAL_WRITE,
-        summary="Future write", reversible=True,
+        action="tool.future_write",
+        resource="x",
+        risk=Risk.LOCAL_WRITE,
+        summary="Future write",
+        reversible=True,
     )
     unknown_mcp = PermissionRequest(
-        action="mcp.unknown", resource="server", risk=Risk.EXTERNAL_WRITE,
-        summary="Unknown MCP", reversible=True, approve_for_me=True,
+        action="mcp.unknown",
+        resource="server",
+        risk=Risk.EXTERNAL_WRITE,
+        summary="Unknown MCP",
+        reversible=True,
+        approve_for_me=True,
     )
     recurring = PermissionRequest(
-        action=" Routine.create ", resource="daily", risk=Risk.LOCAL_WRITE,
-        summary="Create routine", reversible=True, approve_for_me=True,
+        action=" Routine.create ",
+        resource="daily",
+        risk=Risk.LOCAL_WRITE,
+        summary="Create routine",
+        reversible=True,
+        approve_for_me=True,
     )
     capability = PermissionRequest(
-        action="capability.skill.create", resource="skill", risk=Risk.LOCAL_WRITE,
-        summary="Create skill", reversible=True, approve_for_me=True,
+        action="capability.skill.create",
+        resource="skill",
+        risk=Risk.LOCAL_WRITE,
+        summary="Create skill",
+        reversible=True,
+        approve_for_me=True,
     )
     bounded_file_write = PermissionRequest(
-        action="local_file.write", resource="C:/project/report.md", risk=Risk.LOCAL_WRITE,
-        summary="Save local file", reversible=False, approve_for_me=True,
+        action="local_file.write",
+        resource="C:/project/report.md",
+        risk=Risk.LOCAL_WRITE,
+        summary="Save local file",
+        reversible=False,
+        approve_for_me=True,
     )
     mis_tagged_hard = PermissionRequest(
-        action=" External.Publish ", resource="destination", risk=Risk.LOCAL_WRITE,
-        summary="Publish", reversible=True, approval_free=True, approve_for_me=True,
+        action=" External.Publish ",
+        resource="destination",
+        risk=Risk.LOCAL_WRITE,
+        summary="Publish",
+        reversible=True,
+        approval_free=True,
+        approve_for_me=True,
     )
     ordinary = NotesTool().permission_request({"action": "create"})
     context = ExecutionContext(run_id="run-1")
@@ -164,8 +198,11 @@ def test_allow_run_rejects_an_ineligible_pending_request(tmp_path: Path) -> None
     db = CollieDB(tmp_path / "collie.db")
     broker = ApprovalBroker(db, _evaluator(db))
     row = db.create_approval_request(
-        action="mcp.unknown", resource="server", risk=Risk.EXTERNAL_WRITE,
-        display={"summary": "Unknown MCP", "approve_for_me_eligible": False}, run_id="run-1",
+        action="mcp.unknown",
+        resource="server",
+        risk=Risk.EXTERNAL_WRITE,
+        display={"summary": "Unknown MCP", "approve_for_me_eligible": False},
+        run_id="run-1",
     )
 
     async def resolve() -> None:

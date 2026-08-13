@@ -19,8 +19,8 @@ import sqlite3
 import threading
 import uuid
 from collections.abc import Iterator
-from contextlib import contextmanager
-from datetime import date, datetime, timezone
+from contextlib import contextmanager, suppress
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +34,7 @@ def collie_home() -> Path:
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def new_id() -> str:
@@ -604,7 +604,7 @@ class CollieDB:
         with self._lock:
             self._conn.close()
 
-    def __enter__(self) -> "CollieDB":
+    def __enter__(self) -> CollieDB:
         return self
 
     def __exit__(self, *exc: object) -> None:
@@ -772,9 +772,7 @@ class CollieDB:
     def list_conversations(self, include_archived: bool = False) -> list[dict[str, Any]]:
         if include_archived:
             return self._rows("SELECT * FROM conversations ORDER BY updated_at DESC")
-        return self._rows(
-            "SELECT * FROM conversations WHERE archived = 0 ORDER BY updated_at DESC"
-        )
+        return self._rows("SELECT * FROM conversations WHERE archived = 0 ORDER BY updated_at DESC")
 
     def rename_conversation(self, conv_id: str, title: str) -> None:
         with self._write() as conn:
@@ -799,15 +797,11 @@ class CollieDB:
                 "(SELECT id FROM task_checklists WHERE conversation_id = ?)",
                 (conv_id,),
             )
-            conn.execute(
-                "DELETE FROM task_checklists WHERE conversation_id = ?", (conv_id,)
-            )
+            conn.execute("DELETE FROM task_checklists WHERE conversation_id = ?", (conv_id,))
             conn.execute(
                 "DELETE FROM conversation_review_gates WHERE conversation_id = ?", (conv_id,)
             )
-            conn.execute(
-                "DELETE FROM plan_change_requests WHERE conversation_id = ?", (conv_id,)
-            )
+            conn.execute("DELETE FROM plan_change_requests WHERE conversation_id = ?", (conv_id,))
             conn.execute(
                 "DELETE FROM run_steps WHERE run_id IN "
                 "(SELECT id FROM runs WHERE conversation_id = ?)",
@@ -815,9 +809,7 @@ class CollieDB:
             )
             conn.execute("DELETE FROM runs WHERE conversation_id = ?", (conv_id,))
             conn.execute("DELETE FROM plans WHERE conversation_id = ?", (conv_id,))
-            conn.execute(
-                "DELETE FROM approval_requests WHERE conversation_id = ?", (conv_id,)
-            )
+            conn.execute("DELETE FROM approval_requests WHERE conversation_id = ?", (conv_id,))
             conn.execute("DELETE FROM messages WHERE conversation_id = ?", (conv_id,))
             conn.execute("DELETE FROM conversations WHERE id = ?", (conv_id,))
 
@@ -864,9 +856,17 @@ class CollieDB:
                 "UPDATE conversations SET updated_at = ? WHERE id = ?",
                 (now, conversation_id),
             )
-        return {"id": mid, "conversation_id": conversation_id, "role": role,
-                "content": content, "card_type": card_type, "card_data": card_data,
-                "task_state": task_state, "attachments": attachments, "created_at": now}
+        return {
+            "id": mid,
+            "conversation_id": conversation_id,
+            "role": role,
+            "content": content,
+            "card_type": card_type,
+            "card_data": card_data,
+            "task_state": task_state,
+            "attachments": attachments,
+            "created_at": now,
+        }
 
     def get_messages(self, conversation_id: str, limit: int | None = None) -> list[dict[str, Any]]:
         sql = "SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at, rowid"
@@ -883,14 +883,10 @@ class CollieDB:
             params = (conversation_id, limit, offset)
         rows = self._rows(sql, params)
         for r in rows:
-            for field in (
-                "tool_calls", "tool_results", "card_data", "task_state", "attachments"
-            ):
+            for field in ("tool_calls", "tool_results", "card_data", "task_state", "attachments"):
                 if r.get(field):
-                    try:
+                    with suppress(TypeError, ValueError):
                         r[field] = json.loads(r[field])
-                    except (TypeError, ValueError):
-                        pass
         return rows
 
     def delete_message(self, msg_id: str) -> None:
@@ -900,8 +896,7 @@ class CollieDB:
     def all_messages_with_attachments(self) -> list[dict[str, Any]]:
         """Every message that references stored media, with attachments parsed."""
         rows = self._rows(
-            "SELECT conversation_id, attachments FROM messages "
-            "WHERE attachments IS NOT NULL"
+            "SELECT conversation_id, attachments FROM messages WHERE attachments IS NOT NULL"
         )
         for row in rows:
             if row.get("attachments"):
@@ -974,8 +969,18 @@ class CollieDB:
                 "INSERT INTO people (id, name, relationship, birthday, allergies, "
                 "preferences, gift_ideas, notes, created_at, updated_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (pid, name, relationship, birthday, allergies, preferences,
-                 gift_ideas, notes, now, now),
+                (
+                    pid,
+                    name,
+                    relationship,
+                    birthday,
+                    allergies,
+                    preferences,
+                    gift_ideas,
+                    notes,
+                    now,
+                    now,
+                ),
             )
         return self.get_person(pid)  # type: ignore[return-value]
 
@@ -983,25 +988,28 @@ class CollieDB:
         return self._row("SELECT * FROM people WHERE id = ?", (person_id,))
 
     def find_person(self, name: str) -> dict[str, Any] | None:
-        return self._row(
-            "SELECT * FROM people WHERE lower(name) = lower(?) LIMIT 1", (name,)
-        )
+        return self._row("SELECT * FROM people WHERE lower(name) = lower(?) LIMIT 1", (name,))
 
     def list_people(self) -> list[dict[str, Any]]:
         return self._rows("SELECT * FROM people ORDER BY name COLLATE NOCASE")
 
     def update_person(self, person_id: str, **fields: Any) -> None:
-        allowed = {"name", "relationship", "birthday", "allergies",
-                   "preferences", "gift_ideas", "notes"}
+        allowed = {
+            "name",
+            "relationship",
+            "birthday",
+            "allergies",
+            "preferences",
+            "gift_ideas",
+            "notes",
+        }
         updates = {k: v for k, v in fields.items() if k in allowed}
         if not updates:
             return
         sets = ", ".join(f"{k} = ?" for k in updates)
         params = (*updates.values(), utc_now(), person_id)
         with self._write() as conn:
-            conn.execute(
-                f"UPDATE people SET {sets}, updated_at = ? WHERE id = ?", params
-            )
+            conn.execute(f"UPDATE people SET {sets}, updated_at = ? WHERE id = ?", params)
 
     def delete_person(self, person_id: str) -> None:
         with self._write() as conn:
@@ -1025,8 +1033,15 @@ class CollieDB:
             conn.execute(
                 "INSERT INTO important_dates (id, date, label, recurring, "
                 "reminder_days_before, person_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (did, date, label, 1 if recurring else 0,
-                 reminder_days_before, person_id, utc_now()),
+                (
+                    did,
+                    date,
+                    label,
+                    1 if recurring else 0,
+                    reminder_days_before,
+                    person_id,
+                    utc_now(),
+                ),
             )
         return self._row("SELECT * FROM important_dates WHERE id = ?", (did,))  # type: ignore[return-value]
 
@@ -1074,15 +1089,11 @@ class CollieDB:
 
     def list_memory_journal(self, limit: int = 100) -> list[dict[str, Any]]:
         """Most recent journal entries first, newest on top."""
-        rows = self._rows(
-            "SELECT * FROM memory_journal ORDER BY id DESC LIMIT ?", (limit,)
-        )
+        rows = self._rows("SELECT * FROM memory_journal ORDER BY id DESC LIMIT ?", (limit,))
         for row in rows:
             if row.get("value"):
-                try:
+                with suppress(TypeError, ValueError):
                     row["value"] = json.loads(row["value"])
-                except (TypeError, ValueError):
-                    pass
         return rows
 
     # -- reminders ---------------------------------------------------------------------------
@@ -1171,12 +1182,9 @@ class CollieDB:
             sql += " AND checked = 0"
         return self._rows(sql + " ORDER BY category, created_at", (list_name,))
 
-    def find_shopping_item(
-        self, item: str, list_name: str = "Groceries"
-    ) -> dict[str, Any] | None:
+    def find_shopping_item(self, item: str, list_name: str = "Groceries") -> dict[str, Any] | None:
         return self._row(
-            "SELECT * FROM shopping_items WHERE list_name = ? AND "
-            "lower(item) = lower(?) LIMIT 1",
+            "SELECT * FROM shopping_items WHERE list_name = ? AND lower(item) = lower(?) LIMIT 1",
             (list_name, item),
         )
 
@@ -1233,8 +1241,14 @@ class CollieDB:
             conn.execute(
                 "INSERT INTO expenses (id, amount, category, description, spent_at, "
                 "created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (eid, amount, category or "Other", description,
-                 spent_at or utc_now()[:10], utc_now()),
+                (
+                    eid,
+                    amount,
+                    category or "Other",
+                    description,
+                    spent_at or utc_now()[:10],
+                    utc_now(),
+                ),
             )
         return self._row("SELECT * FROM expenses WHERE id = ?", (eid,))  # type: ignore[return-value]
 
@@ -1328,18 +1342,24 @@ class CollieDB:
                 "action_config, enabled, delivery_channels, created_at, timezone, "
                 "schedule_json, next_run_at, plan_id, plan_version, routine_status, updated_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (aid, name, description, schedule, action_type,
-                 json.dumps(action_config) if action_config is not None else None,
-                 1 if enabled else 0,
-                 json.dumps(delivery_channels) if delivery_channels is not None else None,
-                 now,
-                 timezone_name,
-                 json.dumps(schedule_json) if schedule_json is not None else None,
-                 next_run_at,
-                 plan_id,
-                 plan_version,
-                 "enabled" if enabled else "paused",
-                 now),
+                (
+                    aid,
+                    name,
+                    description,
+                    schedule,
+                    action_type,
+                    json.dumps(action_config) if action_config is not None else None,
+                    1 if enabled else 0,
+                    json.dumps(delivery_channels) if delivery_channels is not None else None,
+                    now,
+                    timezone_name,
+                    json.dumps(schedule_json) if schedule_json is not None else None,
+                    next_run_at,
+                    plan_id,
+                    plan_version,
+                    "enabled" if enabled else "paused",
+                    now,
+                ),
             )
         return self._row("SELECT * FROM automations WHERE id = ?", (aid,))  # type: ignore[return-value]
 
@@ -1440,15 +1460,20 @@ class CollieDB:
     ) -> dict[str, Any]:
         """Persist a review-first gate until an approved plan is claimed."""
         normalized = list(
-            dict.fromkeys(str(reason or "").strip() for reason in reasons if str(reason or "").strip())
+            dict.fromkeys(
+                str(reason or "").strip() for reason in reasons if str(reason or "").strip()
+            )
         )
         if not normalized:
             raise ValueError("A conversation review gate needs at least one reason.")
         declared_at = utc_now()
         with self._write_immediate() as conn:
-            if conn.execute(
-                "SELECT 1 FROM conversations WHERE id = ?", (conversation_id,)
-            ).fetchone() is None:
+            if (
+                conn.execute(
+                    "SELECT 1 FROM conversations WHERE id = ?", (conversation_id,)
+                ).fetchone()
+                is None
+            ):
                 raise ValueError("This conversation no longer exists.")
             conn.execute(
                 "INSERT INTO conversation_review_gates "
@@ -1463,9 +1488,7 @@ class CollieDB:
             "declared_at": declared_at,
         }
 
-    def get_conversation_review_gate(
-        self, conversation_id: str
-    ) -> dict[str, Any] | None:
+    def get_conversation_review_gate(self, conversation_id: str) -> dict[str, Any] | None:
         row = self._row(
             "SELECT conversation_id, reasons_json, declared_at "
             "FROM conversation_review_gates WHERE conversation_id = ?",
@@ -1494,19 +1517,14 @@ class CollieDB:
     _CHECKLIST_STEP_STATUSES = frozenset(
         {"pending", "in_progress", "completed", "blocked", "skipped", "failed"}
     )
-    _CHECKLIST_TERMINAL_STATUSES = frozenset(
-        {"completed", "blocked", "failed", "cancelled"}
-    )
+    _CHECKLIST_TERMINAL_STATUSES = frozenset({"completed", "blocked", "failed", "cancelled"})
 
     @staticmethod
-    def _checklist_task_with(
-        conn: sqlite3.Connection, checklist: sqlite3.Row
-    ) -> dict[str, Any]:
+    def _checklist_task_with(conn: sqlite3.Connection, checklist: sqlite3.Row) -> dict[str, Any]:
         steps = [
             dict(row)
             for row in conn.execute(
-                "SELECT * FROM task_checklist_steps WHERE checklist_id = ? "
-                "ORDER BY ordinal",
+                "SELECT * FROM task_checklist_steps WHERE checklist_id = ? ORDER BY ordinal",
                 (checklist["id"],),
             ).fetchall()
         ]
@@ -1567,9 +1585,12 @@ class CollieDB:
         now = utc_now()
         try:
             with self._write_immediate() as conn:
-                if conn.execute(
-                    "SELECT 1 FROM conversations WHERE id = ?", (conversation_id,)
-                ).fetchone() is None:
+                if (
+                    conn.execute(
+                        "SELECT 1 FROM conversations WHERE id = ?", (conversation_id,)
+                    ).fetchone()
+                    is None
+                ):
                     raise ValueError("This conversation no longer exists.")
                 conn.execute(
                     "INSERT INTO task_checklists (id, conversation_id, goal, status, "
@@ -1792,9 +1813,7 @@ class CollieDB:
             assert row is not None
             return self._checklist_task_with(conn, row)
 
-    def fail_task_checklist(
-        self, checklist_id: str, *, expected_revision: int
-    ) -> dict[str, Any]:
+    def fail_task_checklist(self, checklist_id: str, *, expected_revision: int) -> dict[str, Any]:
         """Fail an active checklist when a turn ends without a mutable step."""
         now = utc_now()
         with self._write_immediate() as conn:
@@ -1847,9 +1866,7 @@ class CollieDB:
         )
 
     @classmethod
-    def _plan_run_task_with(
-        cls, conn: sqlite3.Connection, run: sqlite3.Row
-    ) -> dict[str, Any]:
+    def _plan_run_task_with(cls, conn: sqlite3.Connection, run: sqlite3.Row) -> dict[str, Any]:
         raw_steps = conn.execute(
             "SELECT * FROM run_steps WHERE run_id = ? ORDER BY ordinal", (run["id"],)
         ).fetchall()
@@ -1886,16 +1903,16 @@ class CollieDB:
             (run["id"],),
         ).fetchone()
         revision = int(revision_row["revision"]) if revision_row is not None else 1
-        current = next(
-            (step["key"] for step in steps if step["status"] == "in_progress"), None
-        )
+        current = next((step["key"] for step in steps if step["status"] == "in_progress"), None)
         return {
             "id": str(run["id"]),
             "conversation_id": str(run["conversation_id"] or ""),
             "source": "plan_run",
             "status": task_status,
             "revision": revision,
-            "title": str((plan["title"] if plan else None) or (plan["goal"] if plan else None) or "Plan"),
+            "title": str(
+                (plan["title"] if plan else None) or (plan["goal"] if plan else None) or "Plan"
+            ),
             "completed_count": sum(1 for step in steps if step["status"] == "completed"),
             "total_count": len(steps),
             "current_step_key": current,
@@ -1926,9 +1943,7 @@ class CollieDB:
                 (conversation_id,),
             ).fetchone()
             return (
-                self._checklist_task_with(self._conn, checklist)
-                if checklist is not None
-                else None
+                self._checklist_task_with(self._conn, checklist) if checklist is not None else None
             )
 
     def get_current_run_step(self, run_id: str) -> dict[str, Any] | None:
@@ -2047,9 +2062,7 @@ class CollieDB:
             return dict(row)
 
     def get_plan_change_request(self, run_id: str) -> dict[str, Any] | None:
-        return self._row(
-            "SELECT * FROM plan_change_requests WHERE run_id = ?", (run_id,)
-        )
+        return self._row("SELECT * FROM plan_change_requests WHERE run_id = ?", (run_id,))
 
     def get_plan_change_context(self, conversation_id: str) -> dict[str, Any] | None:
         return self._row(
@@ -2138,9 +2151,7 @@ class CollieDB:
             if run is None:
                 raise ValueError("run not found")
             task = self._plan_run_task_with(conn, run)
-            renderer_task = {
-                key: value for key, value in task.items() if key != "conversation_id"
-            }
+            renderer_task = {key: value for key, value in task.items() if key != "conversation_id"}
             cursor = conn.execute(
                 "UPDATE plan_change_requests SET terminal_message_id = ? "
                 "WHERE run_id = ? AND terminal_message_id IS NULL",
@@ -2270,9 +2281,7 @@ class CollieDB:
         return result
 
     def get_run_by_idempotency_key(self, idempotency_key: str) -> dict[str, Any] | None:
-        return self._row(
-            "SELECT * FROM runs WHERE idempotency_key = ?", (idempotency_key,)
-        )
+        return self._row("SELECT * FROM runs WHERE idempotency_key = ?", (idempotency_key,))
 
     @classmethod
     def _cancel_active_checklist_with(
@@ -2450,9 +2459,7 @@ class CollieDB:
                 (run_id,),
             )
             self._bump_run_task_revision_with(conn, run_id)
-            refreshed_run = conn.execute(
-                "SELECT * FROM runs WHERE id = ?", (run_id,)
-            ).fetchone()
+            refreshed_run = conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
             assert refreshed_run is not None
             return {
                 "plan": self._plan_result(plan_row),
@@ -2462,8 +2469,7 @@ class CollieDB:
     def attach_plan_to_routine(self, plan_id: str, version: int, routine_id: str) -> None:
         with self._write() as conn:
             conn.execute(
-                "UPDATE plans SET routine_id = ?, updated_at = ? "
-                "WHERE id = ? AND version = ?",
+                "UPDATE plans SET routine_id = ?, updated_at = ? WHERE id = ? AND version = ?",
                 (routine_id, utc_now(), plan_id, version),
             )
 
@@ -2583,18 +2589,14 @@ class CollieDB:
         if seeded:
             self._bump_run_task_revision_with(conn, run_id)
 
-    def _seed_run_steps(
-        self, run_id: str, plan_id: str | None, plan_version: int | None
-    ) -> None:
+    def _seed_run_steps(self, run_id: str, plan_id: str | None, plan_version: int | None) -> None:
         with self._write() as conn:
             self._seed_run_steps_with(conn, run_id, plan_id, plan_version)
 
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         return self._row("SELECT * FROM runs WHERE id = ?", (run_id,))
 
-    def list_runs(
-        self, *, routine_id: str | None = None, limit: int = 100
-    ) -> list[dict[str, Any]]:
+    def list_runs(self, *, routine_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
         if routine_id:
             return self._rows(
                 "SELECT * FROM runs WHERE routine_id = ? ORDER BY created_at DESC LIMIT ?",
@@ -2682,11 +2684,9 @@ class CollieDB:
                 "skipped": 2,
                 "blocked": 2,
             }
-            if (
-                existing_status is not None
-                and status_rank.get(incoming_status, -1)
-                < status_rank.get(existing_status, -1)
-            ):
+            if existing_status is not None and status_rank.get(
+                incoming_status, -1
+            ) < status_rank.get(existing_status, -1):
                 raise ValueError("A run step cannot move backwards.")
             preserve_terminal = (
                 existing_status in {"completed", "failed", "skipped", "blocked"}
@@ -2695,15 +2695,9 @@ class CollieDB:
             if preserve_terminal:
                 raise ValueError("A terminal run step cannot move backwards.")
             started = (
-                now
-                if status in {"running", "waiting", "completed", "failed", "blocked"}
-                else None
+                now if status in {"running", "waiting", "completed", "failed", "blocked"} else None
             )
-            finished = (
-                now
-                if status in {"completed", "failed", "skipped", "blocked"}
-                else None
-            )
+            finished = now if status in {"completed", "failed", "skipped", "blocked"} else None
             conn.execute(
                 "INSERT INTO run_steps (id, run_id, step_key, ordinal, title, status, "
                 "tool_name, input_summary, output_summary, started_at, finished_at, "
@@ -2736,9 +2730,7 @@ class CollieDB:
         )  # type: ignore[return-value]
 
     def list_run_steps(self, run_id: str) -> list[dict[str, Any]]:
-        return self._rows(
-            "SELECT * FROM run_steps WHERE run_id = ? ORDER BY ordinal", (run_id,)
-        )
+        return self._rows("SELECT * FROM run_steps WHERE run_id = ? ORDER BY ordinal", (run_id,))
 
     # -- approval rules and requests ---------------------------------------------------
 
@@ -2813,14 +2805,11 @@ class CollieDB:
                     utc_now(),
                 ),
             )
-        return self._row(
-            "SELECT * FROM approval_requests WHERE id = ?", (request_id,)
-        )  # type: ignore[return-value]
+        return self._row("SELECT * FROM approval_requests WHERE id = ?", (request_id,))  # type: ignore[return-value]
 
     def list_pending_approvals(self) -> list[dict[str, Any]]:
         rows = self._rows(
-            "SELECT * FROM approval_requests WHERE status = 'pending' "
-            "ORDER BY requested_at"
+            "SELECT * FROM approval_requests WHERE status = 'pending' ORDER BY requested_at"
         )
         for row in rows:
             row["display"] = json.loads(row["display_json"])
@@ -2837,9 +2826,7 @@ class CollieDB:
             )
             if cursor.rowcount != 1:
                 raise ValueError("approval request is no longer pending")
-        return self._row(
-            "SELECT * FROM approval_requests WHERE id = ?", (request_id,)
-        )  # type: ignore[return-value]
+        return self._row("SELECT * FROM approval_requests WHERE id = ?", (request_id,))  # type: ignore[return-value]
 
     # -- services ----------------------------------------------------------------------------
 
@@ -2862,8 +2849,16 @@ class CollieDB:
                 "account_info = excluded.account_info, last_error = excluded.last_error, "
                 "connected_at = CASE WHEN excluded.status = 'connected' "
                 "THEN excluded.connected_at ELSE services.connected_at END",
-                (service_id, name, provider, auth_type, status, account_info,
-                 utc_now() if status == "connected" else None, last_error),
+                (
+                    service_id,
+                    name,
+                    provider,
+                    auth_type,
+                    status,
+                    account_info,
+                    utc_now() if status == "connected" else None,
+                    last_error,
+                ),
             )
 
     def get_service(self, service_id: str) -> dict[str, Any] | None:
@@ -2966,32 +2961,22 @@ class CollieDB:
         return self.get_connector_connection(connection_id)  # type: ignore[return-value]
 
     def get_connector_connection(self, connection_id: str) -> dict[str, Any] | None:
-        return self._row(
-            "SELECT * FROM connector_connections WHERE id = ?", (connection_id,)
-        )
+        return self._row("SELECT * FROM connector_connections WHERE id = ?", (connection_id,))
 
-    def list_connector_connections(
-        self, provider_id: str | None = None
-    ) -> list[dict[str, Any]]:
+    def list_connector_connections(self, provider_id: str | None = None) -> list[dict[str, Any]]:
         if provider_id:
             return self._rows(
                 "SELECT * FROM connector_connections WHERE provider_id = ? "
                 "ORDER BY updated_at DESC",
                 (provider_id,),
             )
-        return self._rows(
-            "SELECT * FROM connector_connections ORDER BY updated_at DESC"
-        )
+        return self._rows("SELECT * FROM connector_connections ORDER BY updated_at DESC")
 
     def delete_connector_connection(self, connection_id: str) -> None:
         with self._write() as conn:
-            conn.execute(
-                "DELETE FROM connector_connections WHERE id = ?", (connection_id,)
-            )
+            conn.execute("DELETE FROM connector_connections WHERE id = ?", (connection_id,))
 
-    def replace_connector_tools(
-        self, connection_id: str, tools: list[dict[str, Any]]
-    ) -> None:
+    def replace_connector_tools(self, connection_id: str, tools: list[dict[str, Any]]) -> None:
         with self._write() as conn:
             conn.execute(
                 "DELETE FROM connector_tool_cache WHERE connection_id = ?",
@@ -3016,8 +3001,7 @@ class CollieDB:
 
     def list_connector_tools(self, connection_id: str) -> list[dict[str, Any]]:
         return self._rows(
-            "SELECT * FROM connector_tool_cache WHERE connection_id = ? "
-            "ORDER BY remote_tool_name",
+            "SELECT * FROM connector_tool_cache WHERE connection_id = ? ORDER BY remote_tool_name",
             (connection_id,),
         )
 
@@ -3249,9 +3233,7 @@ class CollieDB:
     def set_default_provider(self, provider_id: str) -> None:
         with self._write() as conn:
             conn.execute("UPDATE providers SET is_default = 0")
-            conn.execute(
-                "UPDATE providers SET is_default = 1 WHERE id = ?", (provider_id,)
-            )
+            conn.execute("UPDATE providers SET is_default = 1 WHERE id = ?", (provider_id,))
 
     def touch_provider(self, provider_id: str) -> None:
         with self._write() as conn:
@@ -3267,10 +3249,8 @@ class CollieDB:
             conn.execute("DELETE FROM usage WHERE provider_id = ?", (provider_id,))
             conn.execute("DELETE FROM providers WHERE id = ?", (provider_id,))
 
-    def record_usage(
-        self, provider_id: str, *, messages: int = 1, tokens: int = 0
-    ) -> None:
-        day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    def record_usage(self, provider_id: str, *, messages: int = 1, tokens: int = 0) -> None:
+        day = datetime.now(UTC).strftime("%Y-%m-%d")
         with self._write() as conn:
             conn.execute(
                 "INSERT INTO usage (id, provider_id, date, message_count, token_count) "
@@ -3282,7 +3262,7 @@ class CollieDB:
             )
 
     def usage_this_month(self, provider_id: str | None = None) -> dict[str, int]:
-        month_prefix = datetime.now(timezone.utc).strftime("%Y-%m") + "%"
+        month_prefix = datetime.now(UTC).strftime("%Y-%m") + "%"
         if provider_id:
             rows = self._rows(
                 "SELECT COALESCE(SUM(message_count),0) AS messages, "
@@ -3353,10 +3333,23 @@ class CollieDB:
                 WHERE id = ?
                 """,
                 (
-                    conversation_id, session_key, turn_kind, provider, model,
-                    status, error_message, tokens_in, tokens_out, latency_ms,
-                    tool_count, prompt_hash, tool_schema_hash, config_hash,
-                    started_at, finished_at, turn_id,
+                    conversation_id,
+                    session_key,
+                    turn_kind,
+                    provider,
+                    model,
+                    status,
+                    error_message,
+                    tokens_in,
+                    tokens_out,
+                    latency_ms,
+                    tool_count,
+                    prompt_hash,
+                    tool_schema_hash,
+                    config_hash,
+                    started_at,
+                    finished_at,
+                    turn_id,
                 ),
             )
             if updated.rowcount == 0:
@@ -3370,11 +3363,23 @@ class CollieDB:
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
-                        turn_id, conversation_id, session_key, turn_kind or "chat",
-                        provider, model, status or "running", error_message,
-                        tokens_in, tokens_out, latency_ms, tool_count,
-                        prompt_hash, tool_schema_hash, config_hash,
-                        started_at or utc_now(), finished_at,
+                        turn_id,
+                        conversation_id,
+                        session_key,
+                        turn_kind or "chat",
+                        provider,
+                        model,
+                        status or "running",
+                        error_message,
+                        tokens_in,
+                        tokens_out,
+                        latency_ms,
+                        tool_count,
+                        prompt_hash,
+                        tool_schema_hash,
+                        config_hash,
+                        started_at or utc_now(),
+                        finished_at,
                     ),
                 )
 
@@ -3415,8 +3420,16 @@ class CollieDB:
                 WHERE id = ?
                 """,
                 (
-                    action, resource, input_summary, output_summary, status,
-                    error_message, latency_ms, started_at, finished_at, tool_id,
+                    action,
+                    resource,
+                    input_summary,
+                    output_summary,
+                    status,
+                    error_message,
+                    latency_ms,
+                    started_at,
+                    finished_at,
+                    tool_id,
                 ),
             )
             if updated.rowcount == 0:
@@ -3429,9 +3442,18 @@ class CollieDB:
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
-                        tool_id, turn_id, tool_name, action, resource, input_summary,
-                        output_summary, status, error_message, latency_ms,
-                        started_at or utc_now(), finished_at,
+                        tool_id,
+                        turn_id,
+                        tool_name,
+                        action,
+                        resource,
+                        input_summary,
+                        output_summary,
+                        status,
+                        error_message,
+                        latency_ms,
+                        started_at or utc_now(),
+                        finished_at,
                     ),
                 )
 
@@ -3553,9 +3575,7 @@ class CollieDB:
                 "status": "applied",
             }
 
-    def latest_artifact_version(
-        self, artifact_type: str, artifact_key: str
-    ) -> int:
+    def latest_artifact_version(self, artifact_type: str, artifact_key: str) -> int:
         with self._lock:
             row = self._conn.execute(
                 "SELECT MAX(version) AS v FROM artifact_versions "
@@ -3588,9 +3608,7 @@ class CollieDB:
         )
 
     def get_artifact_version(self, version_id: str) -> dict[str, Any] | None:
-        return self._row(
-            "SELECT * FROM artifact_versions WHERE id = ?", (version_id,)
-        )
+        return self._row("SELECT * FROM artifact_versions WHERE id = ?", (version_id,))
 
     def mark_artifact_rolled_back(self, version_id: str) -> None:
         with self._write() as conn:
@@ -3629,24 +3647,16 @@ class CollieDB:
             "plan_change_requests": self._rows(
                 "SELECT * FROM plan_change_requests ORDER BY requested_at"
             ),
-            "task_checklists": self._rows(
-                "SELECT * FROM task_checklists ORDER BY created_at"
-            ),
+            "task_checklists": self._rows("SELECT * FROM task_checklists ORDER BY created_at"),
             "task_checklist_steps": self._rows(
                 "SELECT * FROM task_checklist_steps ORDER BY checklist_id, ordinal"
             ),
             "conversation_review_gates": self._rows(
                 "SELECT * FROM conversation_review_gates ORDER BY declared_at"
             ),
-            "turn_events": self._rows(
-                "SELECT * FROM turn_events ORDER BY started_at"
-            ),
-            "tool_events": self._rows(
-                "SELECT * FROM tool_events ORDER BY started_at"
-            ),
-            "memory_journal": self._rows(
-                "SELECT * FROM memory_journal ORDER BY created_at"
-            ),
+            "turn_events": self._rows("SELECT * FROM turn_events ORDER BY started_at"),
+            "tool_events": self._rows("SELECT * FROM tool_events ORDER BY started_at"),
+            "memory_journal": self._rows("SELECT * FROM memory_journal ORDER BY created_at"),
             "artifact_versions": self._rows(
                 "SELECT * FROM artifact_versions ORDER BY created_at, version"
             ),
@@ -3685,16 +3695,37 @@ class CollieDB:
             # messages (FK -> conversations), and plans/runs must go first so no
             # foreign-key violation aborts the wipe halfway.
             tables = [
-                "task_checklist_steps", "task_checklists", "conversation_review_gates",
-                "plan_change_requests", "run_task_state_revisions",
-                "tool_events", "turn_events",
+                "task_checklist_steps",
+                "task_checklists",
+                "conversation_review_gates",
+                "plan_change_requests",
+                "run_task_state_revisions",
+                "tool_events",
+                "turn_events",
                 "artifact_versions",
                 "run_steps",
-                "approval_requests", "approval_rules", "runs", "plans",
-                "messages", "conversations", "profile", "people", "important_dates",
-                "reminders", "automations", "shopping_items", "expenses", "budgets",
-                "health_logs", "services", "connector_tool_cache", "connector_connections",
-                "subagents", "usage", "providers", "settings",
+                "approval_requests",
+                "approval_rules",
+                "runs",
+                "plans",
+                "messages",
+                "conversations",
+                "profile",
+                "people",
+                "important_dates",
+                "reminders",
+                "automations",
+                "shopping_items",
+                "expenses",
+                "budgets",
+                "health_logs",
+                "services",
+                "connector_tool_cache",
+                "connector_connections",
+                "subagents",
+                "usage",
+                "providers",
+                "settings",
             ]
             with self._write() as conn:
                 for table in tables:

@@ -33,18 +33,21 @@ def _free_port() -> int:
 async def _fake_openai_app() -> web.Application:
     async def chat_completions(request: web.Request) -> web.Response:
         body = await request.json()
-        return web.json_response({
-            "id": "chatcmpl-fake",
-            "object": "chat.completion",
-            "model": body["model"],
-            "choices": [{
-                "index": 0,
-                "message": {"role": "assistant", "content": "Hi! All set."},
-                "finish_reason": "stop",
-            }],
-            "usage": {"prompt_tokens": 10, "completion_tokens": 4,
-                      "total_tokens": 14},
-        })
+        return web.json_response(
+            {
+                "id": "chatcmpl-fake",
+                "object": "chat.completion",
+                "model": body["model"],
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "Hi! All set."},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
+            }
+        )
 
     app = web.Application()
     app.router.add_post("/v1/chat/completions", chat_completions)
@@ -83,8 +86,9 @@ class FakePhoneChannel:
     async def send(self, msg: OutboundMessage):
         self.sent.append(msg)
 
-    async def send_delta(self, chat_id, delta, metadata=None, *, stream_id=None,
-                         stream_end=False, resuming=False):
+    async def send_delta(
+        self, chat_id, delta, metadata=None, *, stream_id=None, stream_end=False, resuming=False
+    ):
         pass
 
 
@@ -141,8 +145,9 @@ async def test_phase4_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
         async with websockets.connect(f"ws://127.0.0.1:{ipc_port}") as ws:
             assert json.loads(await ws.recv())["type"] == "ready"
 
-            reply = await _roundtrip(ws, type="set_api_key", id="k",
-                                     provider="custom", key="sk-fake")
+            reply = await _roundtrip(
+                ws, type="set_api_key", id="k", provider="custom", key="sk-fake"
+            )
             assert reply["type"] == "ok"
 
             # -- Telegram is the only release messenger ---------------------
@@ -152,12 +157,18 @@ async def test_phase4_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
             assert not any(m["enabled"] for m in rows.values())
 
             # -- connect Telegram: secret + enable + configure ----------------
-            reply = await _roundtrip(ws, type="set_messenger_secret", id="p2",
-                                     messenger="telegram", key="token",
-                                     value="123:fake")
+            reply = await _roundtrip(
+                ws,
+                type="set_messenger_secret",
+                id="p2",
+                messenger="telegram",
+                key="token",
+                value="123:fake",
+            )
             assert reply["type"] == "ok"
-            reply = await _roundtrip(ws, type="set_messenger", id="p3",
-                                     messenger="telegram", enabled=True)
+            reply = await _roundtrip(
+                ws, type="set_messenger", id="p3", messenger="telegram", enabled=True
+            )
             assert reply["type"] == "ok"
 
             reply = await _roundtrip(ws, type="configure", id="c1")
@@ -165,15 +176,18 @@ async def test_phase4_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
             await _wait_for(lambda: runtime.messengers.is_running("telegram"))
 
             reply = await _roundtrip(ws, type="get_messengers", id="p4")
-            tg = next(m for m in reply["data"]["messengers"]
-                      if m["id"] == "telegram")
+            tg = next(m for m in reply["data"]["messengers"] if m["id"] == "telegram")
             assert tg["enabled"] and tg["configured"] and tg["running"]
 
             # -- chat from the phone: bus round trip --------------------------
-            await runtime.loop.bus.publish_inbound(InboundMessage(
-                channel="telegram", sender_id="777", chat_id="4242",
-                content="what's up, Collie?",
-            ))
+            await runtime.loop.bus.publish_inbound(
+                InboundMessage(
+                    channel="telegram",
+                    sender_id="777",
+                    chat_id="4242",
+                    content="what's up, Collie?",
+                )
+            )
             channel = FakePhoneChannel.instances[-1]
             await _wait_for(lambda: channel.sent)
             assert "Hi!" in channel.sent[0].content
@@ -191,20 +205,18 @@ async def test_phase4_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
             code = generate_code("telegram", "31337")
             reply = await _roundtrip(ws, type="get_messengers", id="p5")
-            tg = next(m for m in reply["data"]["messengers"]
-                      if m["id"] == "telegram")
+            tg = next(m for m in reply["data"]["messengers"] if m["id"] == "telegram")
             assert any(p["code"] == code for p in tg["pending"])
 
-            reply = await _roundtrip(ws, type="approve_pairing", id="p6",
-                                     code=code)
+            reply = await _roundtrip(ws, type="approve_pairing", id="p6", code=code)
             assert reply["data"]["approved"] is True
             assert reply["data"]["confirmed"] is True
             assert is_approved("telegram", "31337")
 
             # -- automation delivery to the phone ------------------------------
-            reply = await _roundtrip(ws, type="set_messenger", id="p7",
-                                     messenger="telegram",
-                                     deliver_automations=True)
+            reply = await _roundtrip(
+                ws, type="set_messenger", id="p7", messenger="telegram", deliver_automations=True
+            )
             assert reply["type"] == "ok"
             await _wait_for(lambda: runtime.messengers.is_running("telegram"))
             channel = FakePhoneChannel.instances[-1]
@@ -212,18 +224,13 @@ async def test_phase4_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
             from collie_core.automations.scheduler import seed_builtin_automations
 
             seed_builtin_automations(db)
-            morning = next(a for a in db.list_automations()
-                           if a["id"] == "collie-morning-briefing")
+            morning = next(a for a in db.list_automations() if a["id"] == "collie-morning-briefing")
             await runtime._run_automation(morning)
 
             # Delivery goes through the async per-channel queue now.
-            await _wait_for(
-                lambda: any("🔔 Morning Briefing" in m.content for m in channel.sent)
-            )
+            await _wait_for(lambda: any("🔔 Morning Briefing" in m.content for m in channel.sent))
             assert any("🔔 Morning Briefing" in m.content for m in channel.sent)
-            briefing_conv = db.get_setting(
-                "automations.collie-morning-briefing.conversation_id"
-            )
+            briefing_conv = db.get_setting("automations.collie-morning-briefing.conversation_id")
             assert briefing_conv
             briefing_msgs = db.get_messages(briefing_conv)
             assert briefing_msgs[-1]["role"] == "assistant"

@@ -19,21 +19,24 @@ from collie_core.ipc.server import CollieIPCServer
 # -- schedule parsing --------------------------------------------------------------
 
 
-@pytest.mark.parametrize("text,expected", [
-    ("every day at 7am", "07:00"),
-    ("daily at 07:30", "07:30"),
-    ("every morning", "08:00"),
-    ("every evening remind me to stretch", "20:00"),
-    ("every friday at 5pm ask me how my week went", "Fri 17:00"),
-    ("Fridays at 10am", "Fri 10:00"),
-    ("on sunday at noon", "Sun 12:00"),
-    ("every month on the 1st at 9am", "01 09:00"),
-    ("the 15th of every month at 6:15 pm", "15 18:15"),
-    ("every tuesday", "Tue 09:00"),
-    ("at 12am daily", "00:00"),
-    ("remind me sometime", None),
-    ("", None),
-])
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("every day at 7am", "07:00"),
+        ("daily at 07:30", "07:30"),
+        ("every morning", "08:00"),
+        ("every evening remind me to stretch", "20:00"),
+        ("every friday at 5pm ask me how my week went", "Fri 17:00"),
+        ("Fridays at 10am", "Fri 10:00"),
+        ("on sunday at noon", "Sun 12:00"),
+        ("every month on the 1st at 9am", "01 09:00"),
+        ("the 15th of every month at 6:15 pm", "15 18:15"),
+        ("every tuesday", "Tue 09:00"),
+        ("at 12am daily", "00:00"),
+        ("remind me sometime", None),
+        ("", None),
+    ],
+)
 def test_parse_schedule(text: str, expected: str | None) -> None:
     assert parse_schedule(text) == expected
 
@@ -42,8 +45,9 @@ def test_create_custom_automation(tmp_path: Path) -> None:
     db = CollieDB(tmp_path / "c.db")
     try:
         row = create_custom_automation(
-            db, "Every Friday at 5pm, ask me how my week went and suggest "
-                "something fun happening this weekend in Berlin",
+            db,
+            "Every Friday at 5pm, ask me how my week went and suggest "
+            "something fun happening this weekend in Berlin",
         )
         assert row["schedule"] == "Fri 17:00"
         assert row["action_type"] == "custom"
@@ -91,22 +95,24 @@ async def test_automation_ipc_create_and_delete(tmp_path: Path) -> None:
     await srv.start()
     try:
         ws = await _connect(srv)
-        reply = await _roundtrip(ws, type="create_automation", id="1",
-                                 description="every monday at 9am plan my week")
+        reply = await _roundtrip(
+            ws, type="create_automation", id="1", description="every monday at 9am plan my week"
+        )
         auto = reply["data"]["automation"]
         assert auto["schedule"] == "Mon 09:00"
 
-        reply = await _roundtrip(ws, type="create_automation", id="2",
-                                 description="whenever you feel like it")
+        reply = await _roundtrip(
+            ws, type="create_automation", id="2", description="whenever you feel like it"
+        )
         assert reply["type"] == "error"
         assert "work out" in reply["message"] or "work out" in str(reply.get("detail"))
 
-        reply = await _roundtrip(ws, type="delete_automation", id="3",
-                                 automation_id=auto["id"])
+        reply = await _roundtrip(ws, type="delete_automation", id="3", automation_id=auto["id"])
         assert reply["data"]["deleted"] is True
 
-        reply = await _roundtrip(ws, type="delete_automation", id="4",
-                                 automation_id="collie-morning-briefing")
+        reply = await _roundtrip(
+            ws, type="delete_automation", id="4", automation_id="collie-morning-briefing"
+        )
         assert reply["type"] == "error"
         await ws.close()
     finally:

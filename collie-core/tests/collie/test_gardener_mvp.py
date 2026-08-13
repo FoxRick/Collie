@@ -60,9 +60,7 @@ def workspace(tmp_path: Path) -> Path:
 def _days_ago(days: int) -> str:
     """ISO timestamp ``days`` days ago (UTC) — keeps seeds inside Gardener's
     default 14-day evidence window no matter when the suite is run."""
-    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(
-        timespec="seconds"
-    )
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
 
 
 def _seed_turn(db: CollieDB, turn_id: str, status: str = "ok", **extra: Any) -> None:
@@ -272,9 +270,7 @@ def test_validate_suggestion_accepts_allowlisted_targets() -> None:
         ("memory_dream", "memory/MEMORY.md"),
     ],
 )
-def test_validate_suggestion_rejects_out_of_scope_targets(
-    artifact_type: str, key: str
-) -> None:
+def test_validate_suggestion_rejects_out_of_scope_targets(artifact_type: str, key: str) -> None:
     with pytest.raises(ProposalValidationError):
         validate_suggestion(
             {
@@ -529,9 +525,7 @@ def test_rollback_refuses_when_current_diverges(db: CollieDB, workspace: Path) -
     (sub_dir / "helper.md").write_text("# Helper\n\nUser's own newer edit.\n", encoding="utf-8")
 
     with pytest.raises(VersionConflictError):
-        versions.rollback(
-            "subagent", "helper.md", current_text=(sub_dir / "helper.md").read_text()
-        )
+        versions.rollback("subagent", "helper.md", current_text=(sub_dir / "helper.md").read_text())
 
 
 # -- IPC surface ------------------------------------------------------------

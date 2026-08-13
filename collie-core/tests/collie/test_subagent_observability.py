@@ -69,9 +69,13 @@ class TestSettledRetention:
     @pytest.mark.asyncio
     async def test_successful_spawn_retains_settled_status(self, tmp_path) -> None:
         sm = _manager(tmp_path)
-        sm.runner.run = AsyncMock(return_value=AgentRunResult(
-            final_content="Barcelona sorted!", messages=[], stop_reason="completed",
-        ))
+        sm.runner.run = AsyncMock(
+            return_value=AgentRunResult(
+                final_content="Barcelona sorted!",
+                messages=[],
+                stop_reason="completed",
+            )
+        )
         with patch.object(sm, "_announce_result", new_callable=AsyncMock):
             result = await sm.spawn(
                 **_spawn_kwargs("collie:conv-1", "Plan Barcelona", label="Trip Planner")
@@ -93,10 +97,14 @@ class TestSettledRetention:
     @pytest.mark.asyncio
     async def test_tool_error_records_error_outcome(self, tmp_path) -> None:
         sm = _manager(tmp_path)
-        sm.runner.run = AsyncMock(return_value=AgentRunResult(
-            final_content=None, messages=[], stop_reason="tool_error",
-            tool_events=[{"name": "read_file", "status": "error", "detail": "nope"}],
-        ))
+        sm.runner.run = AsyncMock(
+            return_value=AgentRunResult(
+                final_content=None,
+                messages=[],
+                stop_reason="tool_error",
+                tool_events=[{"name": "read_file", "status": "error", "detail": "nope"}],
+            )
+        )
         with patch.object(sm, "_announce_result", new_callable=AsyncMock):
             await sm.spawn(**_spawn_kwargs("collie:conv-1", "Do the thing"))
             await _drain(sm)
@@ -129,9 +137,7 @@ class TestSettledRetention:
 
         sm.runner.run = AsyncMock(side_effect=_slow_run)
         with patch.object(sm, "_announce_result", new_callable=AsyncMock):
-            await sm.spawn(**_spawn_kwargs(
-                "collie:conv-1", "Do the thing", label="Web Searcher"
-            ))
+            await sm.spawn(**_spawn_kwargs("collie:conv-1", "Do the thing", label="Web Searcher"))
             cancelled = await sm.cancel_by_session("collie:conv-1")
             await _drain(sm)
 
@@ -143,22 +149,28 @@ class TestSettledRetention:
         assert recent[0]["ended_at"] is not None
 
     @pytest.mark.asyncio
-    async def test_recent_rows_are_session_scoped_and_newest_first(
-        self, tmp_path
-    ) -> None:
+    async def test_recent_rows_are_session_scoped_and_newest_first(self, tmp_path) -> None:
         sm = _manager(tmp_path)
-        sm.runner.run = AsyncMock(return_value=AgentRunResult(
-            final_content="ok", messages=[], stop_reason="completed",
-        ))
+        sm.runner.run = AsyncMock(
+            return_value=AgentRunResult(
+                final_content="ok",
+                messages=[],
+                stop_reason="completed",
+            )
+        )
         with patch.object(sm, "_announce_result", new_callable=AsyncMock):
-            first = (await sm.spawn(
-                **_spawn_kwargs("collie:conv-1", "First", label="A")
-            )).split("id: ")[1].split(")")[0]
+            first = (
+                (await sm.spawn(**_spawn_kwargs("collie:conv-1", "First", label="A")))
+                .split("id: ")[1]
+                .split(")")[0]
+            )
             await _drain(sm)
             await asyncio.sleep(0.02)
-            second = (await sm.spawn(
-                **_spawn_kwargs("collie:conv-1", "Second", label="B")
-            )).split("id: ")[1].split(")")[0]
+            second = (
+                (await sm.spawn(**_spawn_kwargs("collie:conv-1", "Second", label="B")))
+                .split("id: ")[1]
+                .split(")")[0]
+            )
             await _drain(sm)
             await sm.spawn(**_spawn_kwargs("collie:conv-2", "Other conv", label="C"))
             await _drain(sm)
@@ -170,14 +182,18 @@ class TestSettledRetention:
     @pytest.mark.asyncio
     async def test_recent_retention_is_bounded(self, tmp_path) -> None:
         sm = _manager(tmp_path, recent_status_limit=3)
-        sm.runner.run = AsyncMock(return_value=AgentRunResult(
-            final_content="ok", messages=[], stop_reason="completed",
-        ))
+        sm.runner.run = AsyncMock(
+            return_value=AgentRunResult(
+                final_content="ok",
+                messages=[],
+                stop_reason="completed",
+            )
+        )
         with patch.object(sm, "_announce_result", new_callable=AsyncMock):
             for index in range(5):
-                await sm.spawn(**_spawn_kwargs(
-                    "collie:conv-1", f"Task {index}", label=f"Agent {index}"
-                ))
+                await sm.spawn(
+                    **_spawn_kwargs("collie:conv-1", f"Task {index}", label=f"Agent {index}")
+                )
                 await _drain(sm)
 
         rows = sm.get_recent_statuses_by_session("collie:conv-1")
@@ -186,28 +202,26 @@ class TestSettledRetention:
         assert [r["name"] for r in rows] == ["Agent 4", "Agent 3", "Agent 2"]
 
     def test_status_defaults_stay_optional(self) -> None:
-        status = SubagentStatus(
-            task_id="t", label="l", task_description="d", started_at=1.0
-        )
+        status = SubagentStatus(task_id="t", label="l", task_description="d", started_at=1.0)
         assert status.ended_at is None
         assert status.outcome is None
         assert status.session_key is None
 
     @pytest.mark.asyncio
-    async def test_retained_settled_records_are_lightweight_snapshots(
-        self, tmp_path
-    ) -> None:
+    async def test_retained_settled_records_are_lightweight_snapshots(self, tmp_path) -> None:
         """The bounded retention keeps a small immutable snapshot, not the
         full live status: no tool_events / usage / error payloads survive."""
         sm = _manager(tmp_path)
-        sm.runner.run = AsyncMock(return_value=AgentRunResult(
-            final_content="ok", messages=[], stop_reason="completed",
-            tool_events=[{"name": "read_file", "status": "ok", "detail": "x"}],
-        ))
+        sm.runner.run = AsyncMock(
+            return_value=AgentRunResult(
+                final_content="ok",
+                messages=[],
+                stop_reason="completed",
+                tool_events=[{"name": "read_file", "status": "ok", "detail": "x"}],
+            )
+        )
         with patch.object(sm, "_announce_result", new_callable=AsyncMock):
-            await sm.spawn(**_spawn_kwargs(
-                "collie:conv-1", "Do the thing", label="Trip Planner"
-            ))
+            await sm.spawn(**_spawn_kwargs("collie:conv-1", "Do the thing", label="Trip Planner"))
             await _drain(sm)
 
         retained = list(sm._recent_statuses)
@@ -242,12 +256,8 @@ class TestAllSessionGetters:
 
         sm.runner.run = AsyncMock(side_effect=_blocking)
         with patch.object(sm, "_announce_result", new_callable=AsyncMock):
-            await sm.spawn(**_spawn_kwargs(
-                "collie:conv-1", "Plan trip", label="Trip Planner"
-            ))
-            await sm.spawn(**_spawn_kwargs(
-                "telegram:42", "Send note", label="Messenger Helper"
-            ))
+            await sm.spawn(**_spawn_kwargs("collie:conv-1", "Plan trip", label="Trip Planner"))
+            await sm.spawn(**_spawn_kwargs("telegram:42", "Send note", label="Messenger Helper"))
             await asyncio.sleep(0.05)
 
         rows = sm.get_running_statuses()
@@ -260,13 +270,15 @@ class TestAllSessionGetters:
         await _drain(sm)
 
     @pytest.mark.asyncio
-    async def test_get_recent_statuses_covers_every_session_newest_first(
-        self, tmp_path
-    ) -> None:
+    async def test_get_recent_statuses_covers_every_session_newest_first(self, tmp_path) -> None:
         sm = _manager(tmp_path)
-        sm.runner.run = AsyncMock(return_value=AgentRunResult(
-            final_content="ok", messages=[], stop_reason="completed",
-        ))
+        sm.runner.run = AsyncMock(
+            return_value=AgentRunResult(
+                final_content="ok",
+                messages=[],
+                stop_reason="completed",
+            )
+        )
         with patch.object(sm, "_announce_result", new_callable=AsyncMock):
             await sm.spawn(**_spawn_kwargs("collie:conv-1", "First", label="A"))
             await _drain(sm)
@@ -314,19 +326,23 @@ class TestRuntimeRoster:
         runtime = CollieRuntime(port=0, db=db)
         now = time.monotonic()
 
-        runtime.loop = SimpleNamespace(subagents=_activity_manager(
-            rows_recent=[{
-                "id": "abc123",
-                "name": "Trip Planner",
-                "phase": "done",
-                "task_description": "Plan Barcelona",
-                "started_at": now - 10.0,
-                "ended_at": now - 2.0,
-                "outcome": "ok",
-                "execution_posture": "read_only",
-                "session_key": "collie:" + conv["id"],
-            }],
-        ))
+        runtime.loop = SimpleNamespace(
+            subagents=_activity_manager(
+                rows_recent=[
+                    {
+                        "id": "abc123",
+                        "name": "Trip Planner",
+                        "phase": "done",
+                        "task_description": "Plan Barcelona",
+                        "started_at": now - 10.0,
+                        "ended_at": now - 2.0,
+                        "outcome": "ok",
+                        "execution_posture": "read_only",
+                        "session_key": "collie:" + conv["id"],
+                    }
+                ],
+            )
+        )
         try:
             status = runtime._status()
             recent = status["recent_agents"]
@@ -370,23 +386,34 @@ class TestRuntimeRoster:
         runtime = CollieRuntime(port=0, db=db)
         now = time.monotonic()
         manager = _activity_manager(
-            rows_active=[{
-                "id": "live1", "name": "Trip Planner", "phase": "awaiting_tools",
-                "task_description": "Plan Barcelona", "started_at": now,
-                "execution_posture": "read_only", "session_key": "collie:conv-7",
-            }],
-            rows_recent=[{
-                "id": "done1", "name": "Budget Checker", "phase": "done",
-                "task_description": "Compare prices", "started_at": now - 30,
-                "ended_at": now - 5, "outcome": "ok",
-                "execution_posture": "read_only", "session_key": "collie:conv-7",
-            }],
+            rows_active=[
+                {
+                    "id": "live1",
+                    "name": "Trip Planner",
+                    "phase": "awaiting_tools",
+                    "task_description": "Plan Barcelona",
+                    "started_at": now,
+                    "execution_posture": "read_only",
+                    "session_key": "collie:conv-7",
+                }
+            ],
+            rows_recent=[
+                {
+                    "id": "done1",
+                    "name": "Budget Checker",
+                    "phase": "done",
+                    "task_description": "Compare prices",
+                    "started_at": now - 30,
+                    "ended_at": now - 5,
+                    "outcome": "ok",
+                    "execution_posture": "read_only",
+                    "session_key": "collie:conv-7",
+                }
+            ],
         )
         runtime.loop = SimpleNamespace(subagents=manager)
         try:
-            with patch.object(
-                db, "list_conversations", wraps=db.list_conversations
-            ) as spy:
+            with patch.object(db, "list_conversations", wraps=db.list_conversations) as spy:
                 activity = runtime.subagent_activity()
             spy.assert_not_called()
             # One all-session pass, not one pass per conversation.
@@ -397,9 +424,7 @@ class TestRuntimeRoster:
             runtime.loop = None
             db.close()
 
-    def test_messenger_session_rows_surface_without_conversation_id(
-        self, tmp_path
-    ) -> None:
+    def test_messenger_session_rows_surface_without_conversation_id(self, tmp_path) -> None:
         """Messenger session keys cannot be reverse-mapped to a desktop
         conversation, so those rows get conversation_id '' (roster-only)."""
         from collie_core.db import CollieDB
@@ -408,24 +433,36 @@ class TestRuntimeRoster:
         runtime = CollieRuntime(port=0, db=db)
         now = time.monotonic()
         manager = _activity_manager(
-            rows_active=[{
-                "id": "live1", "name": "Trip Planner", "phase": "awaiting_tools",
-                "task_description": "Plan Barcelona", "started_at": now,
-                "execution_posture": "read_only", "session_key": "collie:conv-9",
-            }],
-            rows_recent=[{
-                "id": "done1", "name": "Messenger Helper", "phase": "done",
-                "task_description": "Send note", "started_at": now - 30,
-                "ended_at": now - 5, "outcome": "ok",
-                "execution_posture": "read_only", "session_key": "telegram:42",
-            }],
+            rows_active=[
+                {
+                    "id": "live1",
+                    "name": "Trip Planner",
+                    "phase": "awaiting_tools",
+                    "task_description": "Plan Barcelona",
+                    "started_at": now,
+                    "execution_posture": "read_only",
+                    "session_key": "collie:conv-9",
+                }
+            ],
+            rows_recent=[
+                {
+                    "id": "done1",
+                    "name": "Messenger Helper",
+                    "phase": "done",
+                    "task_description": "Send note",
+                    "started_at": now - 30,
+                    "ended_at": now - 5,
+                    "outcome": "ok",
+                    "execution_posture": "read_only",
+                    "session_key": "telegram:42",
+                }
+            ],
         )
         runtime.loop = SimpleNamespace(subagents=manager)
         try:
             activity = runtime.subagent_activity()
             by_id = {
-                row["id"]: row
-                for row in activity["active_agents"] + activity["recent_agents"]
+                row["id"]: row for row in activity["active_agents"] + activity["recent_agents"]
             }
             assert by_id["live1"]["conversation_id"] == "conv-9"
             assert by_id["done1"]["conversation_id"] == ""
@@ -436,19 +473,21 @@ class TestRuntimeRoster:
 
 class TestIpcActivity:
     @pytest.mark.asyncio
-    async def test_get_subagent_activity_uses_dedicated_activity_provider(
-        self, tmp_path
-    ) -> None:
+    async def test_get_subagent_activity_uses_dedicated_activity_provider(self, tmp_path) -> None:
         db = MagicMock()
-        status_provider = MagicMock(return_value={
-            "configured": True,
-            "active_agents": [{"id": "a1"}],
-            "recent_agents": [{"id": "a2"}],
-        })
-        activity_provider = MagicMock(return_value={
-            "active_agents": [{"id": "a1", "name": "Working"}],
-            "recent_agents": [{"id": "a2", "name": "Done"}],
-        })
+        status_provider = MagicMock(
+            return_value={
+                "configured": True,
+                "active_agents": [{"id": "a1"}],
+                "recent_agents": [{"id": "a2"}],
+            }
+        )
+        activity_provider = MagicMock(
+            return_value={
+                "active_agents": [{"id": "a1", "name": "Working"}],
+                "recent_agents": [{"id": "a2", "name": "Done"}],
+            }
+        )
         srv = CollieIPCServer(
             db,
             status_provider=status_provider,
@@ -463,9 +502,7 @@ class TestIpcActivity:
         status_provider.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_get_subagent_activity_falls_back_to_status_provider(
-        self, tmp_path
-    ) -> None:
+    async def test_get_subagent_activity_falls_back_to_status_provider(self, tmp_path) -> None:
         db = MagicMock()
         srv = CollieIPCServer(
             db,

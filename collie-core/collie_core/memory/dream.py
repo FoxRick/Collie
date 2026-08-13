@@ -70,9 +70,7 @@ def _extract_file_content(response: str) -> str:
 
 def _atomic_write(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(
-        prefix="MEMORY.md.", suffix=".tmp", dir=path.parent
-    )
+    fd, tmp_name = tempfile.mkstemp(prefix="MEMORY.md.", suffix=".tmp", dir=path.parent)
     try:
         with open(fd, "w", encoding="utf-8") as handle:
             handle.write(content)

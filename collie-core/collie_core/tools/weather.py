@@ -52,8 +52,7 @@ def _api_get(url: str, timeout: int = 10) -> dict[str, Any]:
 
 
 def _geocode(location: str) -> dict[str, Any] | None:
-    params = urlencode({"name": location, "count": 1, "language": "en",
-                        "format": "json"})
+    params = urlencode({"name": location, "count": 1, "language": "en", "format": "json"})
     data = _api_get(f"{_OPEN_METEO_GEO}?{params}")
     results = data.get("results")
     if not results:
@@ -93,20 +92,22 @@ def _icon_from_code(code: int, is_day: bool = True) -> str:
     return "🌈"
 
 
-@tool_parameters({
-    "type": "object",
-    "properties": {
-        "location": {
-            "type": "string",
-            "description": "City name or coordinates, e.g. 'Berlin' or '48.85,2.35'",
+@tool_parameters(
+    {
+        "type": "object",
+        "properties": {
+            "location": {
+                "type": "string",
+                "description": "City name or coordinates, e.g. 'Berlin' or '48.85,2.35'",
+            },
+            "days": {
+                "type": "integer",
+                "description": "Number of forecast days (1-7). Omit or use 1 for current conditions only.",
+            },
         },
-        "days": {
-            "type": "integer",
-            "description": "Number of forecast days (1-7). Omit or use 1 for current conditions only.",
-        },
-    },
-    "required": ["location"],
-})
+        "required": ["location"],
+    }
+)
 class WeatherTool(Tool):
     """Get current weather or forecast for any location (open-meteo, no key needed)."""
 
@@ -132,7 +133,7 @@ class WeatherTool(Tool):
         return True
 
     @classmethod
-    def create(cls, ctx: Any) -> "WeatherTool":
+    def create(cls, ctx: Any) -> WeatherTool:
         return cls()
 
     async def execute(self, **kwargs: Any) -> Any:
@@ -150,8 +151,7 @@ class WeatherTool(Tool):
             geo = _geocode(location)
         except Exception as e:
             return self.error(
-                f"I couldn't find {location} — my weather nose is a bit off today."
-                f" ({e})"
+                f"I couldn't find {location} — my weather nose is a bit off today. ({e})"
             )
 
         if geo is None:
@@ -160,29 +160,28 @@ class WeatherTool(Tool):
                 "I know, like 'Tokyo' or 'London'?"
             )
 
-        params = urlencode({
-            "latitude": geo["lat"],
-            "longitude": geo["lon"],
-            "current": "temperature_2m,relative_humidity_2m,apparent_temperature,"
-                       "weather_code,wind_speed_10m,wind_direction_10m,is_day",
-            "daily": "weather_code,temperature_2m_max,temperature_2m_min,"
-                     "precipitation_probability_max,wind_speed_10m_max",
-            "timezone": geo["timezone"],
-            "forecast_days": str(days),
-        })
+        params = urlencode(
+            {
+                "latitude": geo["lat"],
+                "longitude": geo["lon"],
+                "current": "temperature_2m,relative_humidity_2m,apparent_temperature,"
+                "weather_code,wind_speed_10m,wind_direction_10m,is_day",
+                "daily": "weather_code,temperature_2m_max,temperature_2m_min,"
+                "precipitation_probability_max,wind_speed_10m_max",
+                "timezone": geo["timezone"],
+                "forecast_days": str(days),
+            }
+        )
 
         try:
             data = _api_get(f"{_OPEN_METEO_FORECAST}?{params}")
         except Exception as e:
             return self.error(
-                f"The weather station isn't answering — let me try again in a moment."
-                f" ({e})"
+                f"The weather station isn't answering — let me try again in a moment. ({e})"
             )
 
         if not isinstance(data, dict):
-            return self.error(
-                "The weather station sent something odd — try again in a moment."
-            )
+            return self.error("The weather station sent something odd — try again in a moment.")
         current = data.get("current", {})
         daily = data.get("daily", {})
 
@@ -225,16 +224,17 @@ class WeatherTool(Tool):
                     code_i = int(codes[i] or 0) if i < len(codes) else 0
                 except (TypeError, ValueError):
                     code_i = 0
-                forecast.append({
-                    "date": date,
-                    "high": highs[i] if i < len(highs) else None,
-                    "low": lows[i] if i < len(lows) else None,
-                    "condition": _weather_description(code_i),
-                    "rain_chance": precip[i] if i < len(precip) else None,
-                    "wind": winds[i] if i < len(winds) else None,
-                    "icon": _icon_from_code(code_i),
-                })
+                forecast.append(
+                    {
+                        "date": date,
+                        "high": highs[i] if i < len(highs) else None,
+                        "low": lows[i] if i < len(lows) else None,
+                        "condition": _weather_description(code_i),
+                        "rain_chance": precip[i] if i < len(precip) else None,
+                        "wind": winds[i] if i < len(winds) else None,
+                        "icon": _icon_from_code(code_i),
+                    }
+                )
             result["forecast"] = forecast
 
         return json.dumps(result)
-

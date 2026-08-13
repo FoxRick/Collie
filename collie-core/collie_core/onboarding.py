@@ -33,9 +33,7 @@ def _is_reasonable_name(reply: str) -> bool:
         return False
     if len(text) > _MAX_NAME_LENGTH:
         return False
-    if "\n" in text or "\r" in text:
-        return False
-    return True
+    return not ("\n" in text or "\r" in text)
 
 
 def ensure_starter_conversation(
@@ -66,9 +64,7 @@ def ensure_starter_conversation(
     return {"conversation": conversation, "greeted": True, "greeting": greeting}
 
 
-def _candidate_starter_conversation(
-    db: Any, reuse_conversation_id: str | None
-) -> dict[str, Any]:
+def _candidate_starter_conversation(db: Any, reuse_conversation_id: str | None) -> dict[str, Any]:
     """Reuse a just-created empty conversation, or make a fresh starter one."""
     if reuse_conversation_id:
         candidate = db.get_conversation(reuse_conversation_id)
@@ -78,10 +74,7 @@ def _candidate_starter_conversation(
 
 
 def is_starter_conversation(db: Any, conversation_id: str) -> bool:
-    return (
-        str(db.get_setting(STARTER_CONVERSATION_SETTING, "") or "")
-        == str(conversation_id)
-    )
+    return str(db.get_setting(STARTER_CONVERSATION_SETTING, "") or "") == str(conversation_id)
 
 
 def capture_starter_name(

@@ -20,7 +20,7 @@ apply step goes through the versioned rollback rail.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -54,9 +54,7 @@ _SOFT_CAPS: dict[str, int] = {"memory": 12_000, "profile": 12_000}
 
 def _since(days: int = 14) -> str:
     """ISO timestamp ``days`` ago (UTC), the default evidence window."""
-    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(
-        timespec="seconds"
-    )
+    return (datetime.now(UTC) - timedelta(days=days)).isoformat(timespec="seconds")
 
 
 def recent_failures(
@@ -127,9 +125,7 @@ def repeated_workflows(
             "workflow": list(key),
             "repeats": count,
         }
-        for key, count in sorted(
-            sequences.items(), key=lambda item: item[1], reverse=True
-        )
+        for key, count in sorted(sequences.items(), key=lambda item: item[1], reverse=True)
         if count >= min_repeats
     ]
 
@@ -173,9 +169,7 @@ def memory_bloat(workspace: Path) -> list[dict[str, Any]]:
             for line in text.splitlines()
             if line.strip().startswith("#") and line.strip().lstrip("#").strip()
         ]
-        dupes = {
-            heading for heading in headings if headings.count(heading) > 1
-        }
+        dupes = {heading for heading in headings if headings.count(heading) > 1}
         bloated = len(text) > _SOFT_CAPS.get(kind, 12_000) or bool(dupes)
         findings.append(
             {

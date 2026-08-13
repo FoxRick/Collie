@@ -66,11 +66,11 @@ def _configured_model_provider() -> str:
     """Return the trusted, user-configured provider label for approval copy."""
     context = current_request_context()
     metadata = context.metadata if context is not None else {}
-    permission_context = metadata.get("permission_context", {}) if isinstance(metadata, dict) else {}
+    permission_context = (
+        metadata.get("permission_context", {}) if isinstance(metadata, dict) else {}
+    )
     provider = (
-        permission_context.get("model_provider")
-        if isinstance(permission_context, dict)
-        else None
+        permission_context.get("model_provider") if isinstance(permission_context, dict) else None
     )
     return str(provider or "configured model provider").strip()
 
@@ -246,7 +246,9 @@ def _verify_expected_hash(path: Path, expected_hash: Any) -> None:
     if not isinstance(expected_hash, str) or len(expected_hash) != 64:
         raise _LocalFileError("expected_sha256 must be the 64-character hash returned by read.")
     if _content_hash(path) != expected_hash.lower():
-        raise _LocalFileError("That file changed since it was read. Read it again before replacing it.")
+        raise _LocalFileError(
+            "That file changed since it was read. Read it again before replacing it."
+        )
 
 
 def _atomic_replace(path: Path, payload: bytes) -> None:
@@ -280,7 +282,9 @@ def _atomic_create(path: Path, payload: bytes) -> None:
         # Linking is an atomic no-clobber publish on the same local volume.
         os.link(temporary, path)
     except FileExistsError as exc:
-        raise _LocalFileError("That file already exists. Use overwrite, edit, or save instead.") from exc
+        raise _LocalFileError(
+            "That file already exists. Use overwrite, edit, or save instead."
+        ) from exc
     except OSError as exc:
         raise _LocalFileError("I could not create that local text artifact safely.") from exc
     finally:
@@ -302,7 +306,11 @@ def _atomic_create(path: Path, payload: bytes) -> None:
             "new_text": {"type": ["string", "null"], "maxLength": _MAX_FILE_BYTES},
             "expected_sha256": {"type": ["string", "null"], "maxLength": 64},
             "max_chars": {"type": ["integer", "null"], "minimum": 1, "maximum": _MAX_READ_CHARS},
-            "max_entries": {"type": ["integer", "null"], "minimum": 1, "maximum": _MAX_LIST_ENTRIES},
+            "max_entries": {
+                "type": ["integer", "null"],
+                "minimum": 1,
+                "maximum": _MAX_LIST_ENTRIES,
+            },
         },
         "required": ["operation", "path"],
         "additionalProperties": False,
@@ -354,7 +362,14 @@ class LocalFilesTool(Tool):
             and operation == "create"
             or (operation == "save" and target is not None and not target.exists())
         )
-        verb = {"list": "List", "read": "Read", "create": "Create", "overwrite": "Overwrite", "edit": "Edit", "save": "Save"}.get(operation, "Use")
+        verb = {
+            "list": "List",
+            "read": "Read",
+            "create": "Create",
+            "overwrite": "Overwrite",
+            "edit": "Edit",
+            "save": "Save",
+        }.get(operation, "Use")
         if operation == "read":
             provider = _configured_model_provider()
             return PermissionRequest(
@@ -411,7 +426,9 @@ class LocalFilesTool(Tool):
     def validate_params(self, params: dict[str, Any]) -> list[str]:
         errors = super().validate_params(params)
         operation = str(params.get("operation") or "").lower()
-        if operation in {"create", "overwrite", "save"} and not isinstance(params.get("content"), str):
+        if operation in {"create", "overwrite", "save"} and not isinstance(
+            params.get("content"), str
+        ):
             errors.append(f"content is required for {operation}")
         if operation == "edit":
             if not isinstance(params.get("old_text"), str) or not params.get("old_text"):
@@ -488,7 +505,9 @@ class LocalFilesTool(Tool):
         if not path.is_dir():
             raise _LocalFileError("That path is not a folder to list.")
         entries: list[dict[str, Any]] = []
-        for entry in sorted(path.iterdir(), key=lambda item: (not item.is_dir(), item.name.casefold())):
+        for entry in sorted(
+            path.iterdir(), key=lambda item: (not item.is_dir(), item.name.casefold())
+        ):
             if len(entries) >= max_entries:
                 break
             if entry.is_symlink():
@@ -527,6 +546,8 @@ class LocalFilesTool(Tool):
         if occurrences == 0:
             raise _LocalFileError("I couldn't find that exact text to edit.")
         if occurrences != 1:
-            raise _LocalFileError("That text appears more than once. Read the file and use a more specific edit.")
+            raise _LocalFileError(
+                "That text appears more than once. Read the file and use a more specific edit."
+            )
         _atomic_replace(path, _encoded_content(text.replace(old_text, new_text, 1)))
         return ToolResult(json.dumps({"operation": "edit", "path": str(path), "local_only": True}))

@@ -18,29 +18,31 @@ __all__ = ["NotesTool"]
 _NOTES_SERVICES = ("notion", "apple-notes")
 
 
-@tool_parameters({
-    "type": "object",
-    "properties": {
-        "action": {
-            "type": "string",
-            "enum": ["create", "search", "list_recent"],
-            "description": "create a note, search notes, or list recent ones.",
+@tool_parameters(
+    {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["create", "search", "list_recent"],
+                "description": "create a note, search notes, or list recent ones.",
+            },
+            "title": {
+                "type": "string",
+                "description": "For action=create: the note's title.",
+            },
+            "content": {
+                "type": "string",
+                "description": "For action=create: the note's content.",
+            },
+            "query": {
+                "type": "string",
+                "description": "For action=search: what to look for.",
+            },
         },
-        "title": {
-            "type": "string",
-            "description": "For action=create: the note's title.",
-        },
-        "content": {
-            "type": "string",
-            "description": "For action=create: the note's content.",
-        },
-        "query": {
-            "type": "string",
-            "description": "For action=search: what to look for.",
-        },
-    },
-    "required": ["action"],
-})
+        "required": ["action"],
+    }
+)
 class NotesTool(Tool):
     """Manage notes (Apple Notes / Notion / Obsidian via MCP)."""
 
@@ -76,7 +78,7 @@ class NotesTool(Tool):
         return True
 
     @classmethod
-    def create(cls, ctx: Any) -> "NotesTool":
+    def create(cls, ctx: Any) -> NotesTool:
         return cls()
 
     async def execute(self, **kwargs: Any) -> Any:
@@ -94,19 +96,19 @@ class NotesTool(Tool):
         if action == "create":
             title = str(kwargs.get("title") or "Untitled")
             return (
-                "I'd love to save that note '{title}' for you, but you haven't "
+                f"I'd love to save that note '{title}' for you, but you haven't "
                 "connected a notes app yet! Go to **Settings → Services** and "
                 "connect Apple Notes, Notion, or Obsidian."
-            ).format(title=title)
+            )
 
         if action == "search":
             query = str(kwargs.get("query") or "")
             friendly = f' for "{query}"' if query else ""
             return (
-                "I'd search through your notes{query_hint}, but you need to "
+                f"I'd search through your notes{friendly}, but you need to "
                 "connect a notes app first. Head to **Settings → Services** — "
                 "Apple Notes, Notion, or Obsidian, one click away!"
-            ).format(query_hint=friendly)
+            )
 
         if action == "list_recent":
             return (

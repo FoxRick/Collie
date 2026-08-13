@@ -35,8 +35,14 @@ from collie_core.services.manager import (
 
 def test_catalog_is_curated_for_weekend_alpha() -> None:
     expected = {
-        "gmail", "google-calendar", "outlook", "notion", "todoist",
-        "spotify", "google-drive", "dropbox",
+        "gmail",
+        "google-calendar",
+        "outlook",
+        "notion",
+        "todoist",
+        "spotify",
+        "google-drive",
+        "dropbox",
     }
     assert {s.id for s in SERVICE_CATALOG} == expected
     assert not any(service.available for service in SERVICE_CATALOG)
@@ -80,11 +86,13 @@ class _FakeTokenEndpoint(BaseHTTPRequestHandler):
         body = self.rfile.read(length).decode()
         params = {k: v[0] for k, v in urllib.parse.parse_qs(body).items()}
         type(self).requests.append(params)
-        payload = json.dumps({
-            "access_token": f"at-{params.get('grant_type')}",
-            "refresh_token": "rt-1",
-            "expires_in": 3600,
-        }).encode()
+        payload = json.dumps(
+            {
+                "access_token": f"at-{params.get('grant_type')}",
+                "refresh_token": "rt-1",
+                "expires_in": 3600,
+            }
+        ).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
@@ -159,16 +167,14 @@ def test_oauth_flow_requires_client_id() -> None:
 def test_ensure_fresh_tokens_refreshes_expired(fake_token_server) -> None:
     token_url, handler = fake_token_server
     spec = _fake_spec(token_url)
-    stale = {"access_token": "old", "refresh_token": "rt-0",
-             "expires_at": time.time() - 10}
+    stale = {"access_token": "old", "refresh_token": "rt-0", "expires_at": time.time() - 10}
     fresh, refreshed = service_oauth.ensure_fresh_tokens(spec, stale)
     assert refreshed is True
     assert fresh["access_token"] == "at-refresh_token"
     assert handler.requests[0]["grant_type"] == "refresh_token"
 
     keep, refreshed = service_oauth.ensure_fresh_tokens(
-        spec, {"access_token": "ok", "refresh_token": "rt",
-               "expires_at": time.time() + 3600}
+        spec, {"access_token": "ok", "refresh_token": "rt", "expires_at": time.time() + 3600}
     )
     assert refreshed is False
     assert keep["access_token"] == "ok"
@@ -184,7 +190,8 @@ def manager(tmp_path: Path):
         db,
         credentials=CredentialStore(tmp_path / "creds"),
         oauth_runner=lambda spec, service_name: {
-            "access_token": "at-fake", "refresh_token": "rt-fake",
+            "access_token": "at-fake",
+            "refresh_token": "rt-fake",
             "expires_at": time.time() + 3600,
         },
         platform="win32",

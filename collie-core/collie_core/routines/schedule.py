@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import calendar
 import re
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from collie_core.routines.models import Schedule
@@ -94,9 +94,7 @@ def parse_schedule(description: str, timezone_name: str = "UTC") -> Schedule:
         return Schedule(kind="weekdays", time=clock, timezone=timezone_name)
 
     selected = tuple(
-        dict.fromkeys(
-            code for word, code in _WEEKDAYS.items() if re.search(rf"\b{word}s?\b", text)
-        )
+        dict.fromkeys(code for word, code in _WEEKDAYS.items() if re.search(rf"\b{word}s?\b", text))
     )
     if selected:
         return Schedule(
@@ -133,15 +131,15 @@ def _local_candidate(day: date, clock: time, zone: ZoneInfo) -> datetime:
 
 def next_occurrence(schedule: Schedule, after: datetime | None = None) -> datetime | None:
     """Return the first occurrence after ``after`` as an aware UTC datetime."""
-    instant = after or datetime.now(timezone.utc)
+    instant = after or datetime.now(UTC)
     if instant.tzinfo is None:
-        instant = instant.replace(tzinfo=timezone.utc)
+        instant = instant.replace(tzinfo=UTC)
     zone = ZoneInfo(schedule.timezone)
     local = instant.astimezone(zone)
 
     if schedule.kind == "once":
         candidate = _local_candidate(schedule.date, schedule.time, zone)  # type: ignore[arg-type]
-        return candidate.astimezone(timezone.utc) if candidate > local else None
+        return candidate.astimezone(UTC) if candidate > local else None
 
     if schedule.kind in {"daily", "weekdays", "weekly"}:
         for offset in range(0, 15):
@@ -154,7 +152,7 @@ def next_occurrence(schedule: Schedule, after: datetime | None = None) -> dateti
                     continue
             candidate = _local_candidate(day, schedule.time, zone)
             if candidate > local:
-                return candidate.astimezone(timezone.utc)
+                return candidate.astimezone(UTC)
         return None
 
     for month_offset in range(0, 14):
@@ -164,5 +162,5 @@ def next_occurrence(schedule: Schedule, after: datetime | None = None) -> dateti
         day = min(schedule.day or 1, last_day)
         candidate = _local_candidate(date(year, month, day), schedule.time, zone)
         if candidate > local:
-            return candidate.astimezone(timezone.utc)
+            return candidate.astimezone(UTC)
     return None

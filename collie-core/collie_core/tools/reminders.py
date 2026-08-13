@@ -44,40 +44,42 @@ def _normalize_due(value: str, *, label: str = "time") -> str:
         ) from None
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=_dt.datetime.now().astimezone().tzinfo)
-    return parsed.astimezone(_dt.timezone.utc).isoformat(timespec="seconds")
+    return parsed.astimezone(_dt.UTC).isoformat(timespec="seconds")
 
 
-@tool_parameters({
-    "type": "object",
-    "properties": {
-        "action": {
-            "type": "string",
-            "enum": ["create", "list", "complete", "snooze", "delete"],
-            "description": "What to do: create a reminder, list upcoming ones, mark complete, snooze, or delete.",
+@tool_parameters(
+    {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["create", "list", "complete", "snooze", "delete"],
+                "description": "What to do: create a reminder, list upcoming ones, mark complete, snooze, or delete.",
+            },
+            "text": {
+                "type": "string",
+                "description": "For action=create: what to remember. e.g. 'Call Mom at 3pm'.",
+            },
+            "due_at": {
+                "type": "string",
+                "description": "For action=create: ISO datetime string, e.g. '2026-07-20T15:00:00'. Collie will interpret natural-language dates and convert them.",
+            },
+            "recurrence": {
+                "type": "string",
+                "description": "For action=create: optional recurrence rule. e.g. 'daily', 'weekly', 'weekdays', or a cron expression.",
+            },
+            "reminder_id": {
+                "type": "string",
+                "description": "For action=complete/snooze/delete: the ID of the reminder.",
+            },
+            "snooze_until": {
+                "type": "string",
+                "description": "For action=snooze: ISO datetime to snooze until, e.g. '2026-07-20T16:00:00'.",
+            },
         },
-        "text": {
-            "type": "string",
-            "description": "For action=create: what to remember. e.g. 'Call Mom at 3pm'.",
-        },
-        "due_at": {
-            "type": "string",
-            "description": "For action=create: ISO datetime string, e.g. '2026-07-20T15:00:00'. Collie will interpret natural-language dates and convert them.",
-        },
-        "recurrence": {
-            "type": "string",
-            "description": "For action=create: optional recurrence rule. e.g. 'daily', 'weekly', 'weekdays', or a cron expression.",
-        },
-        "reminder_id": {
-            "type": "string",
-            "description": "For action=complete/snooze/delete: the ID of the reminder.",
-        },
-        "snooze_until": {
-            "type": "string",
-            "description": "For action=snooze: ISO datetime to snooze until, e.g. '2026-07-20T16:00:00'.",
-        },
-    },
-    "required": ["action"],
-})
+        "required": ["action"],
+    }
+)
 class RemindersTool(Tool):
     """Manage reminders — create, list, complete, snooze, delete."""
 
@@ -120,7 +122,7 @@ class RemindersTool(Tool):
         return _store() is not None
 
     @classmethod
-    def create(cls, ctx: Any) -> "RemindersTool":
+    def create(cls, ctx: Any) -> RemindersTool:
         return cls()
 
     async def execute(self, **kwargs: Any) -> Any:
@@ -138,7 +140,7 @@ class RemindersTool(Tool):
             if not due:
                 import datetime as _dt
 
-                due = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
+                due = _dt.datetime.now(_dt.UTC).isoformat(timespec="seconds")
             else:
                 try:
                     due = _normalize_due(due)
@@ -163,9 +165,7 @@ class RemindersTool(Tool):
                 if r.get("snoozed_until"):
                     status = f" [snoozed until {r['snoozed_until']}]"
                 rec = f" — repeats {r['recurrence']}" if r.get("recurrence") else ""
-                lines.append(
-                    f"  [{r['id'][:8]}] {r['text']} (due {r['due_at']}){rec}{status}"
-                )
+                lines.append(f"  [{r['id'][:8]}] {r['text']} (due {r['due_at']}){rec}{status}")
             return "\n".join(lines)
 
         if action in ("complete", "delete"):
@@ -188,7 +188,7 @@ class RemindersTool(Tool):
             if not until:
                 import datetime as _dt
 
-                until = (_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=1)).isoformat(
+                until = (_dt.datetime.now(_dt.UTC) + _dt.timedelta(hours=1)).isoformat(
                     timespec="seconds"
                 )
             else:

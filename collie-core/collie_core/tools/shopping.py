@@ -19,57 +19,63 @@ def _card(db: Any, list_name: str) -> str:
     items = db.list_shopping_items(list_name)
     categories: dict[str, list[dict[str, Any]]] = {}
     for row in items:
-        categories.setdefault(str(row.get("category") or "Other"), []).append({
-            "name": row["item"],
-            "quantity": row.get("quantity"),
-            "done": bool(row.get("checked")),
-            "id": row["id"],
-        })
-    return json.dumps({
-        "card_type": "shopping_list",
-        "list_name": list_name,
-        "categories": categories,
-        "total": len(items),
-        "remaining": sum(1 for r in items if not r.get("checked")),
-    })
+        categories.setdefault(str(row.get("category") or "Other"), []).append(
+            {
+                "name": row["item"],
+                "quantity": row.get("quantity"),
+                "done": bool(row.get("checked")),
+                "id": row["id"],
+            }
+        )
+    return json.dumps(
+        {
+            "card_type": "shopping_list",
+            "list_name": list_name,
+            "categories": categories,
+            "total": len(items),
+            "remaining": sum(1 for r in items if not r.get("checked")),
+        }
+    )
 
 
-@tool_parameters({
-    "type": "object",
-    "properties": {
-        "action": {
-            "type": "string",
-            "enum": ["add", "list", "check", "uncheck", "remove", "clear_checked"],
-            "description": "add items, show the list, check/uncheck one off, "
-                           "remove one, or clear everything already checked.",
-        },
-        "items": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "category": {
-                        "type": "string",
-                        "description": "e.g. Produce, Dairy, Pantry, Household.",
-                    },
-                    "quantity": {"type": "string", "description": "e.g. '2', '500g'."},
-                },
-                "required": ["name"],
+@tool_parameters(
+    {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["add", "list", "check", "uncheck", "remove", "clear_checked"],
+                "description": "add items, show the list, check/uncheck one off, "
+                "remove one, or clear everything already checked.",
             },
-            "description": "For action=add: one or more items to add.",
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "category": {
+                            "type": "string",
+                            "description": "e.g. Produce, Dairy, Pantry, Household.",
+                        },
+                        "quantity": {"type": "string", "description": "e.g. '2', '500g'."},
+                    },
+                    "required": ["name"],
+                },
+                "description": "For action=add: one or more items to add.",
+            },
+            "item": {
+                "type": "string",
+                "description": "For check/uncheck/remove: the item's name.",
+            },
+            "list_name": {
+                "type": "string",
+                "description": "Which list (default 'Groceries').",
+            },
         },
-        "item": {
-            "type": "string",
-            "description": "For check/uncheck/remove: the item's name.",
-        },
-        "list_name": {
-            "type": "string",
-            "description": "Which list (default 'Groceries').",
-        },
-    },
-    "required": ["action"],
-})
+        "required": ["action"],
+    }
+)
 class ShoppingTool(Tool):
     """Manage the shopping list — add, check off, clear."""
 
@@ -112,7 +118,7 @@ class ShoppingTool(Tool):
         return life_db() is not None
 
     @classmethod
-    def create(cls, ctx: Any) -> "ShoppingTool":
+    def create(cls, ctx: Any) -> ShoppingTool:
         return cls()
 
     async def execute(self, **kwargs: Any) -> Any:

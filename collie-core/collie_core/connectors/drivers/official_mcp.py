@@ -17,14 +17,10 @@ class OfficialMcpDriver:
     def __init__(self, credentials: CredentialStore) -> None:
         self.credentials = credentials
 
-    def connect_and_probe(
-        self, definition: ConnectorDefinition, connection_id: str
-    ) -> ProbeResult:
+    def connect_and_probe(self, definition: ConnectorDefinition, connection_id: str) -> ProbeResult:
         return asyncio.run(self._probe(definition, connection_id, interactive=True))
 
-    def probe(
-        self, definition: ConnectorDefinition, connection_id: str
-    ) -> ProbeResult:
+    def probe(self, definition: ConnectorDefinition, connection_id: str) -> ProbeResult:
         return asyncio.run(self._probe(definition, connection_id, interactive=False))
 
     async def _probe(
@@ -44,26 +40,26 @@ class OfficialMcpDriver:
             scopes=definition.scopes,
             interactive=interactive,
         )
-        async with httpx.AsyncClient(
-            auth=auth,
-            follow_redirects=True,
-            timeout=httpx.Timeout(30, connect=10),
-            headers={"Accept": "application/json, text/event-stream"},
-        ) as client:
-            async with streamable_http_client(
-                definition.endpoint, http_client=client
-            ) as (read, write, _):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    result = await session.list_tools()
-                    tools: list[dict[str, Any]] = [
-                        cached_tool(
-                            tool,
-                            trusted=True,
-                            overrides=definition.tool_overrides,
-                        )
-                        for tool in result.tools
-                    ]
+        async with (
+            httpx.AsyncClient(
+                auth=auth,
+                follow_redirects=True,
+                timeout=httpx.Timeout(30, connect=10),
+                headers={"Accept": "application/json, text/event-stream"},
+            ) as client,
+            streamable_http_client(definition.endpoint, http_client=client) as (read, write, _),
+            ClientSession(read, write) as session,
+        ):
+            await session.initialize()
+            result = await session.list_tools()
+            tools: list[dict[str, Any]] = [
+                cached_tool(
+                    tool,
+                    trusted=True,
+                    overrides=definition.tool_overrides,
+                )
+                for tool in result.tools
+            ]
         granted = list(definition.scopes)
         # Record the scopes the authorization server actually granted from
         # the stored token (fall back to the requested set when absent).
@@ -75,10 +71,7 @@ class OfficialMcpDriver:
                 granted = str(actual).split()
         return ProbeResult(tools=tools, granted_scopes=granted)
 
-    def revoke(
-        self, definition: ConnectorDefinition, connection_id: str
-    ) -> None:
+    def revoke(self, definition: ConnectorDefinition, connection_id: str) -> None:
         # MCP OAuth does not expose a universal revocation endpoint. Local token
         # deletion is immediate; provider-side revocation remains provider-specific.
         return
-

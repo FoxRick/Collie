@@ -95,9 +95,7 @@ def summarize(value: Any, limit: int) -> str | None:
         if value is None:
             return None
         if isinstance(value, dict):
-            text = json.dumps(
-                redact_parameters(value), ensure_ascii=False, default=str
-            )
+            text = json.dumps(redact_parameters(value), ensure_ascii=False, default=str)
         else:
             text = str(value)
         text = sanitize_text(text)
@@ -116,12 +114,10 @@ class RunRecorder:
     FIFO order.
     """
 
-    _RECORDERS: "weakref.WeakKeyDictionary[CollieDB, RunRecorder]" = (
-        weakref.WeakKeyDictionary()
-    )
+    _RECORDERS: weakref.WeakKeyDictionary[CollieDB, RunRecorder] = weakref.WeakKeyDictionary()
 
     @classmethod
-    def for_db(cls, db: CollieDB) -> "RunRecorder":
+    def for_db(cls, db: CollieDB) -> RunRecorder:
         """Return the shared live recorder for a database (creates one)."""
         recorder = cls._RECORDERS.get(db)
         if recorder is None or recorder._stopped:
@@ -130,7 +126,7 @@ class RunRecorder:
         return recorder
 
     @classmethod
-    def active_for(cls, db: CollieDB) -> "RunRecorder | None":
+    def active_for(cls, db: CollieDB) -> RunRecorder | None:
         """Return the shared live recorder for a database, if any."""
         recorder = cls._RECORDERS.get(db)
         if recorder is not None and not recorder._stopped:
@@ -143,9 +139,7 @@ class RunRecorder:
         self._suspended = False
         self.dropped_writes = 0
         self.last_turn_stats: dict[str, int] = {}
-        self._queue: queue.Queue[Callable[[], None] | None] = queue.Queue(
-            maxsize=MAX_QUEUED_WRITES
-        )
+        self._queue: queue.Queue[Callable[[], None] | None] = queue.Queue(maxsize=MAX_QUEUED_WRITES)
         self._thread = threading.Thread(
             target=self._writer_loop,
             name="collie-telemetry",
@@ -178,8 +172,7 @@ class RunRecorder:
             self.dropped_writes += 1
             if self.dropped_writes == 1:
                 logger.warning(
-                    "telemetry queue full — dropping writes "
-                    "(bounded at {})",
+                    "telemetry queue full — dropping writes (bounded at {})",
                     MAX_QUEUED_WRITES,
                 )
 
@@ -298,9 +291,7 @@ class RunRecorder:
                 db.record_turn_event(
                     turn_id=turn_id,
                     status=status,
-                    error_message=(
-                        sanitize_text(error_message) if error_message else None
-                    ),
+                    error_message=(sanitize_text(error_message) if error_message else None),
                     tokens_in=tokens_in,
                     tokens_out=tokens_out,
                     latency_ms=latency_ms,
@@ -366,13 +357,9 @@ class RunRecorder:
                     tool_name=tool_name,
                     status=status,
                     output_summary=(
-                        summarize(result, TOOL_OUTPUT_LIMIT)
-                        if status == "ok"
-                        else None
+                        summarize(result, TOOL_OUTPUT_LIMIT) if status == "ok" else None
                     ),
-                    error_message=(
-                        sanitize_text(error_message) if error_message else None
-                    ),
+                    error_message=(sanitize_text(error_message) if error_message else None),
                     latency_ms=latency_ms,
                     finished_at=finished_at,
                 )
@@ -408,9 +395,7 @@ class RunRecorder:
                     turn_id=turn_id,
                     tool_name=tool_name,
                     status=status,
-                    error_message=(
-                        sanitize_text(reason) if reason else None
-                    ),
+                    error_message=(sanitize_text(reason) if reason else None),
                     input_summary=summarize(params, TURN_INPUT_LIMIT),
                     action=action,
                     resource=sanitize_text(resource) if resource else None,

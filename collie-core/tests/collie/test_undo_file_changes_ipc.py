@@ -21,9 +21,7 @@ def _call(server: CollieIPCServer, frame: dict):
 
 
 @pytest.mark.asyncio
-async def test_undo_file_changes_restores_all_entries(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_undo_file_changes_restores_all_entries(tmp_path: Path, monkeypatch) -> None:
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("COLLIE_HOME", str(home))
@@ -41,9 +39,7 @@ async def test_undo_file_changes_restores_all_entries(
 
 
 @pytest.mark.asyncio
-async def test_undo_file_changes_empty_entry_ids_is_a_noop(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_undo_file_changes_empty_entry_ids_is_a_noop(tmp_path: Path, monkeypatch) -> None:
     """An explicit empty list undoes nothing — never a blanket undo."""
     home = tmp_path / "home"
     home.mkdir()
@@ -62,9 +58,7 @@ async def test_undo_file_changes_empty_entry_ids_is_a_noop(
 
 
 @pytest.mark.asyncio
-async def test_undo_file_changes_removes_created_file(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_undo_file_changes_removes_created_file(tmp_path: Path, monkeypatch) -> None:
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("COLLIE_HOME", str(home))
@@ -80,9 +74,7 @@ async def test_undo_file_changes_removes_created_file(
 
 
 @pytest.mark.asyncio
-async def test_undo_file_changes_is_scoped_to_conversation(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_undo_file_changes_is_scoped_to_conversation(tmp_path: Path, monkeypatch) -> None:
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("COLLIE_HOME", str(home))

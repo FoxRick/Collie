@@ -71,8 +71,8 @@ def test_migration_failure_rolls_back_atomically(
     monkeypatch.setattr(
         db_mod,
         "_MIGRATIONS",
-        list(db_mod._MIGRATIONS) + ["CREATE TABLE half_done (x INTEGER);\n"
-                                   "INSERT INTO missing_table VALUES (1);"],
+        list(db_mod._MIGRATIONS)
+        + ["CREATE TABLE half_done (x INTEGER);\nINSERT INTO missing_table VALUES (1);"],
     )
     with pytest.raises(sqlite3.OperationalError):
         CollieDB(path)
@@ -83,9 +83,7 @@ def test_migration_failure_rolls_back_atomically(
     conn = sqlite3.connect(path)
     try:
         version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
-        half = conn.execute(
-            "SELECT name FROM sqlite_master WHERE name = 'half_done'"
-        ).fetchone()
+        half = conn.execute("SELECT name FROM sqlite_master WHERE name = 'half_done'").fetchone()
     finally:
         conn.close()
     assert version == len(db_mod._MIGRATIONS) - 1
@@ -129,9 +127,7 @@ def test_v8_removes_only_legacy_system_subagent_allow(tmp_path: Path) -> None:
     assert "user" in rules
     assert "near-match" in rules
     assert migrated._row("SELECT task_state FROM messages LIMIT 1") is None
-    columns = {
-        row["name"] for row in migrated._rows("PRAGMA table_info(messages)")
-    }
+    columns = {row["name"] for row in migrated._rows("PRAGMA table_info(messages)")}
     assert "task_state" in columns
     assert migrated.schema_version == len(db_mod._MIGRATIONS)
     migrated.close()
@@ -177,10 +173,7 @@ def test_v9_upgrade_adds_plan_change_terminal_message_id(tmp_path: Path) -> None
     upgraded = CollieDB(path)
     try:
         request = upgraded.get_plan_change_request("r1")
-        columns = {
-            row["name"]
-            for row in upgraded._rows("PRAGMA table_info(plan_change_requests)")
-        }
+        columns = {row["name"] for row in upgraded._rows("PRAGMA table_info(plan_change_requests)")}
         assert upgraded.schema_version == len(db_mod._MIGRATIONS)
         assert "terminal_message_id" in columns
         assert request is not None
@@ -212,8 +205,11 @@ def test_conversations_and_messages(db: CollieDB) -> None:
 
     db.add_message(conv["id"], "user", "plan a trip to Paris")
     db.add_message(
-        conv["id"], "assistant", "Here's your itinerary!",
-        card_type="TravelCard", card_data={"days": 3},
+        conv["id"],
+        "assistant",
+        "Here's your itinerary!",
+        card_type="TravelCard",
+        card_data={"days": 3},
     )
     msgs = db.get_messages(conv["id"])
     assert [m["role"] for m in msgs] == ["user", "assistant"]
@@ -254,8 +250,9 @@ def test_profile(db: CollieDB) -> None:
 
 
 def test_people(db: CollieDB) -> None:
-    mom = db.add_person("Mom", relationship="mother", birthday="03-15",
-                        preferences="gardening books, red wine")
+    mom = db.add_person(
+        "Mom", relationship="mother", birthday="03-15", preferences="gardening books, red wine"
+    )
     assert db.find_person("mom")["id"] == mom["id"]
     db.update_person(mom["id"], gift_ideas="rose pruning set")
     assert db.get_person(mom["id"])["gift_ideas"] == "rose pruning set"
@@ -283,7 +280,9 @@ def test_reminders(db: CollieDB) -> None:
 
 def test_automations(db: CollieDB) -> None:
     a = db.add_automation(
-        "Morning Briefing", schedule="0 7 * * *", action_type="briefing",
+        "Morning Briefing",
+        schedule="0 7 * * *",
+        action_type="briefing",
         action_config={"include": ["weather", "calendar"]},
     )
     assert db.list_automations(enabled_only=True)[0]["name"] == "Morning Briefing"
@@ -297,8 +296,13 @@ def test_automations(db: CollieDB) -> None:
 
 def test_services(db: CollieDB) -> None:
     db.upsert_service("gmail", name="Gmail", provider="google", status="disconnected")
-    db.upsert_service("gmail", name="Gmail", provider="google",
-                      status="connected", account_info="user@example.com")
+    db.upsert_service(
+        "gmail",
+        name="Gmail",
+        provider="google",
+        status="connected",
+        account_info="user@example.com",
+    )
     svc = db.get_service("gmail")
     assert svc["status"] == "connected"
     assert svc["connected_at"] is not None
@@ -307,13 +311,19 @@ def test_services(db: CollieDB) -> None:
 
 
 def test_subagents(db: CollieDB) -> None:
-    s = db.upsert_subagent("Trip Planner", description="plans trips",
-                           system_prompt="You are a travel expert.",
-                           filename="trip-planner.md")
-    db.upsert_subagent("Trip Planner", subagent_id=s["id"],
-                       description="plans amazing trips",
-                       system_prompt="You are a travel expert.",
-                       filename="trip-planner.md")
+    s = db.upsert_subagent(
+        "Trip Planner",
+        description="plans trips",
+        system_prompt="You are a travel expert.",
+        filename="trip-planner.md",
+    )
+    db.upsert_subagent(
+        "Trip Planner",
+        subagent_id=s["id"],
+        description="plans amazing trips",
+        system_prompt="You are a travel expert.",
+        filename="trip-planner.md",
+    )
     subs = db.list_subagents()
     assert len(subs) == 1
     assert subs[0]["description"] == "plans amazing trips"
@@ -322,8 +332,9 @@ def test_subagents(db: CollieDB) -> None:
 
 
 def test_providers_and_usage(db: CollieDB) -> None:
-    db.upsert_provider("openai-oauth", name="ChatGPT", auth_type="oauth",
-                       model="gpt-5.6", is_default=True)
+    db.upsert_provider(
+        "openai-oauth", name="ChatGPT", auth_type="oauth", model="gpt-5.6", is_default=True
+    )
     db.upsert_provider("anthropic-key", name="Claude", auth_type="api_key")
     assert db.default_provider()["id"] == "openai-oauth"
 

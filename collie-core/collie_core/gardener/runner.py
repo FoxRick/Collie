@@ -137,8 +137,12 @@ async def run_gardener(
     workspace = Path(workspace)
     evidence = collect_evidence(db, workspace, since=since)
 
-    if not (evidence["failures"] or evidence["workflows"] or
-            evidence["user_stops"] or any(m.get("bloated") for m in evidence["memory"])):
+    if not (
+        evidence["failures"]
+        or evidence["workflows"]
+        or evidence["user_stops"]
+        or any(m.get("bloated") for m in evidence["memory"])
+    ):
         return {
             "suggestions": [],
             "rejected": [],

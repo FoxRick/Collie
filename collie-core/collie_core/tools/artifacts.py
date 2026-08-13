@@ -37,18 +37,33 @@ _MAX_TITLE_BYTES = 500
 # suffixes resolve to "file".
 _KIND_BY_SUFFIX: dict[str, str] = {
     # images
-    ".png": "image", ".jpg": "image", ".jpeg": "image", ".gif": "image",
-    ".webp": "image", ".bmp": "image", ".svg": "image", ".ico": "image",
-    ".avif": "image", ".tif": "image", ".tiff": "image",
+    ".png": "image",
+    ".jpg": "image",
+    ".jpeg": "image",
+    ".gif": "image",
+    ".webp": "image",
+    ".bmp": "image",
+    ".svg": "image",
+    ".ico": "image",
+    ".avif": "image",
+    ".tif": "image",
+    ".tiff": "image",
     # documents
-    ".md": "document", ".txt": "document", ".docx": "document", ".doc": "document",
-    ".rtf": "document", ".odt": "document",
+    ".md": "document",
+    ".txt": "document",
+    ".docx": "document",
+    ".doc": "document",
+    ".rtf": "document",
+    ".odt": "document",
     # spreadsheets
-    ".xlsx": "sheet", ".csv": "sheet", ".ods": "sheet",
+    ".xlsx": "sheet",
+    ".csv": "sheet",
+    ".ods": "sheet",
     # pdf
     ".pdf": "pdf",
     # web previews
-    ".html": "web", ".htm": "web",
+    ".html": "web",
+    ".htm": "web",
 }
 
 _thing_store: ThingStore | None = None
@@ -133,7 +148,7 @@ def _media_candidate(raw: str) -> Path | None:
                 "type": "string",
                 "description": (
                     "Short human-friendly title the user will recognize — e.g. "
-                    "\"Dog walk flyer\". No file extension, no path, no technical "
+                    '"Dog walk flyer". No file extension, no path, no technical '
                     "jargon."
                 ),
                 "minLength": 1,
@@ -171,8 +186,8 @@ class SaveThingTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "Register a finished deliverable as one of the user's \"things\" so it "
-            "appears in their \"Your things\" panel and can be opened again later. "
+            'Register a finished deliverable as one of the user\'s "things" so it '
+            'appears in their "Your things" panel and can be opened again later. '
             "Call this when you have COMPLETED a deliverable the user asked for — a "
             "flyer, document, spreadsheet, PDF, image, or web page you created or "
             "saved for them — and the file already exists on disk. Pass a short, "

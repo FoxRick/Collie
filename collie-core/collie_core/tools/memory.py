@@ -31,45 +31,47 @@ def _store() -> ProfileStore | None:
     return _profile_store
 
 
-@tool_parameters({
-    "type": "object",
-    "properties": {
-        "kind": {
-            "type": "string",
-            "enum": ["fact", "person", "date", "forget_fact", "forget_person"],
-            "description": (
-                "What to remember: 'fact' about the user, 'person' they care about, "
-                "'date' that matters, or forget_* to remove."
-            ),
+@tool_parameters(
+    {
+        "type": "object",
+        "properties": {
+            "kind": {
+                "type": "string",
+                "enum": ["fact", "person", "date", "forget_fact", "forget_person"],
+                "description": (
+                    "What to remember: 'fact' about the user, 'person' they care about, "
+                    "'date' that matters, or forget_* to remove."
+                ),
+            },
+            "key": {
+                "type": "string",
+                "description": (
+                    "For kind=fact/forget_fact: which fact. Known keys: "
+                    + ", ".join(PROFILE_KEYS)
+                    + ". Free-form keys are allowed."
+                ),
+            },
+            "value": {
+                "type": "string",
+                "description": "For kind=fact: the fact itself, phrased briefly.",
+            },
+            "name": {
+                "type": "string",
+                "description": "For kind=person/forget_person/date: the person's name.",
+            },
+            "relationship": {"type": "string", "description": "e.g. mother, partner, boss"},
+            "birthday": {"type": "string", "description": "MM-DD or YYYY-MM-DD"},
+            "allergies": {"type": "string"},
+            "preferences": {"type": "string", "description": "Likes/dislikes worth remembering"},
+            "gift_ideas": {"type": "string"},
+            "notes": {"type": "string"},
+            "date": {"type": "string", "description": "For kind=date: MM-DD or YYYY-MM-DD"},
+            "label": {"type": "string", "description": "For kind=date: what this date is"},
+            "recurring": {"type": "boolean", "description": "For kind=date: repeats yearly"},
         },
-        "key": {
-            "type": "string",
-            "description": (
-                "For kind=fact/forget_fact: which fact. Known keys: "
-                + ", ".join(PROFILE_KEYS)
-                + ". Free-form keys are allowed."
-            ),
-        },
-        "value": {
-            "type": "string",
-            "description": "For kind=fact: the fact itself, phrased briefly.",
-        },
-        "name": {
-            "type": "string",
-            "description": "For kind=person/forget_person/date: the person's name.",
-        },
-        "relationship": {"type": "string", "description": "e.g. mother, partner, boss"},
-        "birthday": {"type": "string", "description": "MM-DD or YYYY-MM-DD"},
-        "allergies": {"type": "string"},
-        "preferences": {"type": "string", "description": "Likes/dislikes worth remembering"},
-        "gift_ideas": {"type": "string"},
-        "notes": {"type": "string"},
-        "date": {"type": "string", "description": "For kind=date: MM-DD or YYYY-MM-DD"},
-        "label": {"type": "string", "description": "For kind=date: what this date is"},
-        "recurring": {"type": "boolean", "description": "For kind=date: repeats yearly"},
-    },
-    "required": ["kind"],
-})
+        "required": ["kind"],
+    }
+)
 class RememberTool(Tool):
     """Persist long-term memory into the Collie profile store."""
 
@@ -122,9 +124,7 @@ class RememberTool(Tool):
             date = str(params.get("date") or "").strip()
             existing = None
             if store is not None:
-                existing = next(
-                    (d for d in store.list_dates() if d.get("label") == label), None
-                )
+                existing = next((d for d in store.list_dates() if d.get("label") == label), None)
             conflict = existing is not None and str(existing.get("date") or "") != date
         else:
             # Unknown kinds fail closed: ask rather than auto-approve.
@@ -142,9 +142,7 @@ class RememberTool(Tool):
         )
 
     @staticmethod
-    def _person_conflicts(
-        existing: dict[str, Any] | None, params: dict[str, Any]
-    ) -> bool:
+    def _person_conflicts(existing: dict[str, Any] | None, params: dict[str, Any]) -> bool:
         """A person write conflicts when it changes an existing stored field."""
         if existing is None:
             return False
@@ -160,7 +158,7 @@ class RememberTool(Tool):
         return _store() is not None
 
     @classmethod
-    def create(cls, ctx: Any) -> "RememberTool":
+    def create(cls, ctx: Any) -> RememberTool:
         return cls()
 
     async def execute(self, **kwargs: Any) -> Any:
@@ -190,8 +188,14 @@ class RememberTool(Tool):
                 return self.error("kind=person needs 'name'.")
             fields = {
                 k: v.strip()
-                for k in ("relationship", "birthday", "allergies",
-                          "preferences", "gift_ideas", "notes")
+                for k in (
+                    "relationship",
+                    "birthday",
+                    "allergies",
+                    "preferences",
+                    "gift_ideas",
+                    "notes",
+                )
                 if isinstance((v := kwargs.get(k)), str) and v.strip()
             }
             person = store.add_person(name, **fields)
@@ -210,12 +214,9 @@ class RememberTool(Tool):
                     None,
                 )
                 if existing is None:
-                    store.add_date(birthday, label, recurring=True,
-                                   person_id=person["id"])
+                    store.add_date(birthday, label, recurring=True, person_id=person["id"])
                 else:
-                    store.update_date(
-                        existing["id"], date=birthday, label=label, recurring=True
-                    )
+                    store.update_date(existing["id"], date=birthday, label=label, recurring=True)
             return f"Remembered {name}{extra}"
 
         if kind == "forget_person":
@@ -242,8 +243,9 @@ class RememberTool(Tool):
             if name:
                 person = store.find_person(name)
                 person_id = person["id"] if person else None
-            store.add_date(date, label, recurring=bool(kwargs.get("recurring")),
-                           person_id=person_id)
+            store.add_date(
+                date, label, recurring=bool(kwargs.get("recurring")), person_id=person_id
+            )
             return f"Remembered: {label} on {date}"
 
         return self.error(f"Unknown kind: {kind!r}")

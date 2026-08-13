@@ -61,8 +61,9 @@ class FakeChannel:
     async def send(self, msg: OutboundMessage):
         self.sent.append(msg)
 
-    async def send_delta(self, chat_id, delta, metadata=None, *, stream_id=None,
-                         stream_end=False, resuming=False):
+    async def send_delta(
+        self, chat_id, delta, metadata=None, *, stream_id=None, stream_end=False, resuming=False
+    ):
         self.deltas.append((chat_id, delta, stream_end))
 
 
@@ -71,9 +72,7 @@ async def _started_manager(db, monkeypatch, *, name="telegram"):
     manager.set_enabled(name, True)
     for key in MESSENGERS[name]["secrets"]:
         manager.set_secret(name, key, "sekrit")
-    monkeypatch.setattr(
-        "nanobot.channels.registry.load_channel_class", lambda _n: FakeChannel
-    )
+    monkeypatch.setattr("nanobot.channels.registry.load_channel_class", lambda _n: FakeChannel)
     await manager.start(CollieBus())
     return manager
 
@@ -166,9 +165,7 @@ async def test_start_and_stop(db, monkeypatch) -> None:
 
 async def test_dispatch_unknown_channel(db, monkeypatch) -> None:
     manager = await _started_manager(db, monkeypatch)
-    handled = await manager.dispatch(
-        OutboundMessage(channel="collie", chat_id="c1", content="hi")
-    )
+    handled = await manager.dispatch(OutboundMessage(channel="collie", chat_id="c1", content="hi"))
     assert handled is False
     await manager.stop()
 
@@ -188,9 +185,7 @@ async def test_dispatch_final_message_mirrors_and_remembers(db, monkeypatch) -> 
     channel = manager.channels["telegram"]
     await _wait_until(lambda: len(channel.sent) == 1)
     assert channel.sent[0].content == "Hi, done!"
-    await _wait_until(
-        lambda: db.get_setting("messengers.telegram.last_chat_id") == "42"
-    )
+    await _wait_until(lambda: db.get_setting("messengers.telegram.last_chat_id") == "42")
 
     conv_id = db.get_setting("messengers.telegram.conversation_id")
     conv = db.get_conversation(conv_id)
@@ -212,7 +207,9 @@ async def test_dispatch_pairing_code_not_mirrored(db, monkeypatch) -> None:
     manager.broadcaster = broadcaster
     await manager.dispatch(
         OutboundMessage(
-            channel="telegram", chat_id="99", content="pairing code inside",
+            channel="telegram",
+            chat_id="99",
+            content="pairing code inside",
             metadata={PAIRING_CODE_META_KEY: "ABCD-EFGH"},
         )
     )
@@ -228,35 +225,53 @@ async def test_dispatch_progress_dropped_streams_forwarded(db, monkeypatch) -> N
     manager = await _started_manager(db, monkeypatch)
     channel = manager.channels["telegram"]
 
-    await manager.dispatch(OutboundMessage(
-        channel="telegram", chat_id="42", content="using tool...",
-        event=ProgressEvent(content="using tool..."),
-    ))
+    await manager.dispatch(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="42",
+            content="using tool...",
+            event=ProgressEvent(content="using tool..."),
+        )
+    )
     # Progress events are dropped by the channel worker: nothing to wait for.
     assert channel.sent == [] and channel.deltas == []
 
-    await manager.dispatch(OutboundMessage(
-        channel="telegram", chat_id="42", content="Wo",
-        event=StreamDeltaEvent(content="Wo", stream_id="s1"),
-    ))
-    await manager.dispatch(OutboundMessage(
-        channel="telegram", chat_id="42", content="of",
-        event=StreamEndEvent(content="of", stream_id="s1"),
-    ))
+    await manager.dispatch(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="42",
+            content="Wo",
+            event=StreamDeltaEvent(content="Wo", stream_id="s1"),
+        )
+    )
+    await manager.dispatch(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="42",
+            content="of",
+            event=StreamEndEvent(content="of", stream_id="s1"),
+        )
+    )
     await _wait_until(lambda: len(channel.deltas) == 2)
     assert channel.deltas == [("42", "Wo", False), ("42", "of", True)]
     assert channel.sent == []
 
     # Final streamed response: no re-send, but mirrored to the desktop
-    await manager.dispatch(OutboundMessage(
-        channel="telegram", chat_id="42", content="Hi",
-        event=StreamedResponseEvent(),
-    ))
+    await manager.dispatch(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="42",
+            content="Hi",
+            event=StreamedResponseEvent(),
+        )
+    )
     conv_id = db.get_setting("messengers.telegram.conversation_id")
     await _wait_until(
-        lambda: conv_id is not None
-        and db.get_messages(conv_id)
-        and db.get_messages(conv_id)[-1]["content"] == "Hi"
+        lambda: (
+            conv_id is not None
+            and db.get_messages(conv_id)
+            and db.get_messages(conv_id)[-1]["content"] == "Hi"
+        )
     )
     assert channel.sent == []
     messages = db.get_messages(conv_id)
@@ -275,9 +290,9 @@ async def test_on_inbound_mirrors_user_message(db, monkeypatch) -> None:
 
     manager = await _started_manager(db, monkeypatch)
     manager.broadcaster = broadcaster
-    await manager.on_inbound(InboundMessage(
-        channel="telegram", sender_id="7", chat_id="42", content="hi from phone"
-    ))
+    await manager.on_inbound(
+        InboundMessage(channel="telegram", sender_id="7", chat_id="42", content="hi from phone")
+    )
     conv_id = db.get_setting("messengers.telegram.conversation_id")
     messages = db.get_messages(conv_id)
     assert messages[-1]["role"] == "user"
@@ -287,9 +302,9 @@ async def test_on_inbound_mirrors_user_message(db, monkeypatch) -> None:
 
 async def test_on_inbound_ignores_non_messenger(db, monkeypatch) -> None:
     manager = await _started_manager(db, monkeypatch)
-    await manager.on_inbound(InboundMessage(
-        channel="websocket", sender_id="7", chat_id="42", content="hi"
-    ))
+    await manager.on_inbound(
+        InboundMessage(channel="websocket", sender_id="7", chat_id="42", content="hi")
+    )
     assert db.get_setting("messengers.websocket.conversation_id") is None
     await manager.stop()
 

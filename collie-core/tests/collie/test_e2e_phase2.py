@@ -29,14 +29,17 @@ def _free_port() -> int:
 
 # -- Card extraction unit tests ------------------------------------------------
 
+
 def test_extract_card_weather() -> None:
     """Weather tool returns JSON with card_type: the extractor finds it."""
     tool_results = [
-        json.dumps({
-            "location": "Berlin, Germany",
-            "card_type": "weather",
-            "current": {"temp": 22, "condition": "Sunny", "icon": "☀️"},
-        }),
+        json.dumps(
+            {
+                "location": "Berlin, Germany",
+                "card_type": "weather",
+                "current": {"temp": 22, "condition": "Sunny", "icon": "☀️"},
+            }
+        ),
     ]
     card_type, card_data = CollieIPCServer._extract_card(tool_results)
     assert card_type == "weather"
@@ -74,6 +77,7 @@ def test_extract_card_empty() -> None:
 
 
 # -- Settings IPC commands -----------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_read_write_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -130,6 +134,7 @@ async def test_list_toggle_automations(tmp_path: Path) -> None:
 
 # -- Phase 2 full E2E (tool call → card extraction) ---------------------------
 
+
 async def _tool_calling_fake_llm() -> web.Application:
     """Fake LLM that returns a tool_calls response to trigger the weather tool."""
 
@@ -141,44 +146,54 @@ async def _tool_calling_fake_llm() -> web.Application:
         # First turn: return a tool call
         if "weather" in last_msg or body.get("stream") is False:
             # Non-streaming tool call response
-            return web.json_response({
-                "id": "chatcmpl-phase2",
-                "object": "chat.completion",
-                "model": body.get("model", "test"),
-                "choices": [{
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": None,
-                        "tool_calls": [{
-                            "id": "call_weather_1",
-                            "type": "function",
-                            "function": {
-                                "name": "weather",
-                                "arguments": json.dumps({"location": "Berlin"}),
+            return web.json_response(
+                {
+                    "id": "chatcmpl-phase2",
+                    "object": "chat.completion",
+                    "model": body.get("model", "test"),
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": [
+                                    {
+                                        "id": "call_weather_1",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "weather",
+                                            "arguments": json.dumps({"location": "Berlin"}),
+                                        },
+                                    }
+                                ],
                             },
-                        }],
-                    },
-                    "finish_reason": "tool_calls",
-                }],
-                "usage": {"prompt_tokens": 30, "completion_tokens": 15, "total_tokens": 45},
-            })
+                            "finish_reason": "tool_calls",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 30, "completion_tokens": 15, "total_tokens": 45},
+                }
+            )
 
         # Second turn: tool results came back, give a natural response
-        return web.json_response({
-            "id": "chatcmpl-phase2-2",
-            "object": "chat.completion",
-            "model": body.get("model", "test"),
-            "choices": [{
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": "Looks like 22°C and sunny in Berlin today!",
-                },
-                "finish_reason": "stop",
-            }],
-            "usage": {"prompt_tokens": 50, "completion_tokens": 10, "total_tokens": 60},
-        })
+        return web.json_response(
+            {
+                "id": "chatcmpl-phase2-2",
+                "object": "chat.completion",
+                "model": body.get("model", "test"),
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": "Looks like 22°C and sunny in Berlin today!",
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 50, "completion_tokens": 10, "total_tokens": 60},
+            }
+        )
 
     app = web.Application()
     app.router.add_post("/v1/chat/completions", chat_completions)
@@ -209,10 +224,16 @@ async def test_phase2_tool_card_flow(tmp_path: Path, monkeypatch: pytest.MonkeyP
         async with websockets.connect(f"ws://127.0.0.1:{ipc_port}") as ws:
             await ws.recv()  # ready
 
-            await ws.send(json.dumps({
-                "type": "set_api_key", "id": "k",
-                "provider": "custom", "key": "sk-test",
-            }))
+            await ws.send(
+                json.dumps(
+                    {
+                        "type": "set_api_key",
+                        "id": "k",
+                        "provider": "custom",
+                        "key": "sk-test",
+                    }
+                )
+            )
             await ws.recv()  # ok
 
             await ws.send(json.dumps({"type": "configure", "id": "c"}))
@@ -221,9 +242,15 @@ async def test_phase2_tool_card_flow(tmp_path: Path, monkeypatch: pytest.MonkeyP
             assert reply["data"]["configured"] is True
 
             # Send a message that triggers tool calling
-            await ws.send(json.dumps({
-                "type": "chat", "id": "m1", "content": "weather in Berlin",
-            }))
+            await ws.send(
+                json.dumps(
+                    {
+                        "type": "chat",
+                        "id": "m1",
+                        "content": "weather in Berlin",
+                    }
+                )
+            )
 
             assistant = None
             conv_id = None
@@ -231,7 +258,10 @@ async def test_phase2_tool_card_flow(tmp_path: Path, monkeypatch: pytest.MonkeyP
                 frame = json.loads(await asyncio.wait_for(ws.recv(), 30))
                 if frame["type"] == "ok" and frame.get("id") == "m1":
                     conv_id = frame["data"]["conversation_id"]
-                elif frame["type"] == "message" and frame.get("message", {}).get("role") == "assistant":
+                elif (
+                    frame["type"] == "message"
+                    and frame.get("message", {}).get("role") == "assistant"
+                ):
                     assistant = frame["message"]
                     break
                 elif frame["type"] == "error":

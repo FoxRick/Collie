@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 try:
     from PIL import Image, ImageDraw
@@ -45,7 +44,7 @@ ANIM_STATES = [
 ]
 RENDER_STATES = [*ANIM_STATES, "walk_left"]
 
-FRAME_DURATIONS: Dict[str, List[int]] = {
+FRAME_DURATIONS: dict[str, list[int]] = {
     "idle": [520, 180, 520, 900],
     "working": [260, 180, 260, 520],
     "walk": [150, 150, 150, 240],
@@ -247,23 +246,23 @@ def _draw_collie_base(
     draw.circle((body_x, collar_y + sc(8)), sc(5), fill=COLLAR_GOLD)
 
 
-def _create_frame() -> Tuple[Image.Image, ImageDraw.ImageDraw]:
+def _create_frame() -> tuple[Image.Image, ImageDraw.ImageDraw]:
     img = Image.new("RGBA", (CELL_W, CELL_H), TRANSPARENT)
     draw = ImageDraw.Draw(img)
     return img, draw
 
 
-def generate_idle() -> List[Image.Image]:
+def generate_idle() -> list[Image.Image]:
     """Breathing idle loop with occasional blink (6 frames)."""
     frames = []
     # 6 frames: expand, contract, neutral x4
     body_positions = [
-        (CELL_W // 2 + 2, CELL_H // 2 + 30, True, 1.0),   # frame 0: neutral
+        (CELL_W // 2 + 2, CELL_H // 2 + 30, True, 1.0),  # frame 0: neutral
         (CELL_W // 2 + 2, CELL_H // 2 + 28, True, 1.02),  # frame 1: inhale
         (CELL_W // 2 + 2, CELL_H // 2 + 32, True, 0.98),  # frame 2: exhale
-        (CELL_W // 2 + 2, CELL_H // 2 + 30, True, 1.0),   # frame 3: neutral
-        (CELL_W // 2 + 2, CELL_H // 2 + 30, True, 1.0),   # frame 4: blink closed
-        (CELL_W // 2 + 2, CELL_H // 2 + 30, True, 1.0),   # frame 5: neutral
+        (CELL_W // 2 + 2, CELL_H // 2 + 30, True, 1.0),  # frame 3: neutral
+        (CELL_W // 2 + 2, CELL_H // 2 + 30, True, 1.0),  # frame 4: blink closed
+        (CELL_W // 2 + 2, CELL_H // 2 + 30, True, 1.0),  # frame 5: neutral
     ]
     for i, (bx, by, facing, scl) in enumerate(body_positions):
         img, draw = _create_frame()
@@ -285,11 +284,11 @@ def generate_idle() -> List[Image.Image]:
     return frames
 
 
-def generate_walk_right() -> List[Image.Image]:
+def generate_walk_right() -> list[Image.Image]:
     """Walking to the right (6 frames)."""
     frames = []
     leg_phases = [0, 0.25, 0.5, 0.75, 0.5, 0.25]
-    for i, phase in enumerate(leg_phases):
+    for _i, phase in enumerate(leg_phases):
         img, draw = _create_frame()
         bx = CELL_W // 2 + round(math.sin(phase * math.pi * 2) * 4)
         by = CELL_H // 2 + 30 + round(abs(math.cos(phase * math.pi * 2)) * 3)
@@ -298,11 +297,11 @@ def generate_walk_right() -> List[Image.Image]:
     return frames
 
 
-def generate_walk_left() -> List[Image.Image]:
+def generate_walk_left() -> list[Image.Image]:
     """Walking to the left (6 frames)."""
     frames = []
     leg_phases = [0, 0.25, 0.5, 0.75, 0.5, 0.25]
-    for i, phase in enumerate(leg_phases):
+    for _i, phase in enumerate(leg_phases):
         img, draw = _create_frame()
         bx = CELL_W // 2 - round(math.sin(phase * math.pi * 2) * 4)
         by = CELL_H // 2 + 30 + round(abs(math.cos(phase * math.pi * 2)) * 3)
@@ -311,7 +310,7 @@ def generate_walk_left() -> List[Image.Image]:
     return frames
 
 
-def generate_sit() -> List[Image.Image]:
+def generate_sit() -> list[Image.Image]:
     """Sitting pose, slight breathing (4 frames)."""
     frames = []
     for i in range(4):
@@ -324,12 +323,12 @@ def generate_sit() -> List[Image.Image]:
     return frames
 
 
-def generate_jump() -> List[Image.Image]:
+def generate_jump() -> list[Image.Image]:
     """Jump sequence: crouch, launch, peak, descend, land (5 frames)."""
     y_offsets = [10, -15, -35, -15, 10]
     scales = [0.92, 1.0, 1.05, 1.0, 0.92]
     frames = []
-    for yo, scl in zip(y_offsets, scales):
+    for yo, scl in zip(y_offsets, scales, strict=True):
         img, draw = _create_frame()
         bx = CELL_W // 2 + 2
         by = CELL_H // 2 + 30 + yo
@@ -338,7 +337,7 @@ def generate_jump() -> List[Image.Image]:
     return frames
 
 
-def generate_sleep() -> List[Image.Image]:
+def generate_sleep() -> list[Image.Image]:
     """Sleeping pose, occasional Zzz motion (2 frames)."""
     frames = []
     for i in range(2):
@@ -351,16 +350,19 @@ def generate_sleep() -> List[Image.Image]:
         _draw_collie_base(draw, bx, by, True, 0.65)
         # Zzz on frame 0
         if i == 0:
-            for zi, (zx, zy) in enumerate([(CELL_W // 2 + 50, CELL_H // 2 + 10),
-                                           (CELL_W // 2 + 60, CELL_H // 2 - 5),
-                                           (CELL_W // 2 + 70, CELL_H // 2 - 20)]):
-                draw.text((zx, zy), "Z", fill=(100, 150, 255, 255),
-                          font_size=10 + zi * 3)
+            for zi, (zx, zy) in enumerate(
+                [
+                    (CELL_W // 2 + 50, CELL_H // 2 + 10),
+                    (CELL_W // 2 + 60, CELL_H // 2 - 5),
+                    (CELL_W // 2 + 70, CELL_H // 2 - 20),
+                ]
+            ):
+                draw.text((zx, zy), "Z", fill=(100, 150, 255, 255), font_size=10 + zi * 3)
         frames.append(img)
     return frames
 
 
-def generate_wag() -> List[Image.Image]:
+def generate_wag() -> list[Image.Image]:
     """Tail wagging while standing (4 frames)."""
     frames = []
     # We vary the tail position — for simplicity we shift the whole
@@ -375,7 +377,7 @@ def generate_wag() -> List[Image.Image]:
     return frames
 
 
-def generate_run() -> List[Image.Image]:
+def generate_run() -> list[Image.Image]:
     """Fast running pose (6 frames)."""
     frames = []
     for i in range(6):
@@ -388,7 +390,7 @@ def generate_run() -> List[Image.Image]:
     return frames
 
 
-def generate_happy() -> List[Image.Image]:
+def generate_happy() -> list[Image.Image]:
     """Happy bouncing / celebration (4 frames)."""
     y_offsets = [0, -18, 0, -10]
     frames = []
@@ -422,10 +424,10 @@ ASSET_DIR = Path(__file__).with_name("assets")
 
 def _asset_frames(
     asset_name: str,
-    motion: List[Tuple[int, int, float, float]],
+    motion: list[tuple[int, int, float, float]],
     *,
     flip: bool = False,
-) -> List[Image.Image]:
+) -> list[Image.Image]:
     path = ASSET_DIR / f"collie-{asset_name}.png"
     if not path.exists() or Image is None:
         return []
@@ -436,7 +438,7 @@ def _asset_frames(
     if flip:
         source = source.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
 
-    frames: List[Image.Image] = []
+    frames: list[Image.Image] = []
     for dx, dy, scale, angle in motion:
         frame = Image.new("RGBA", (CELL_W, CELL_H), TRANSPARENT)
         pet = source.copy()
@@ -479,21 +481,23 @@ def _install_asset_generators() -> None:
         (0, -2, 1.01, 1),
     ]
 
-    STATE_GENERATORS.update({
-        "idle": lambda: _asset_frames("happy-v2", idle_motion),
-        "working": lambda: _asset_frames("play", working_motion),
-        "walk": lambda: _asset_frames("walk", walk_motion),
-        "walk_left": lambda: _asset_frames("walk", walk_motion, flip=True),
-        "sleep": lambda: _asset_frames("sleep", [(0, 0, 1.0, 0), (0, 0, 1.012, 0)]),
-        "happy": lambda: _asset_frames("happy-v2", happy_motion),
-        "concerned": lambda: _asset_frames("chase", concerned_motion),
-    })
+    STATE_GENERATORS.update(
+        {
+            "idle": lambda: _asset_frames("happy-v2", idle_motion),
+            "working": lambda: _asset_frames("play", working_motion),
+            "walk": lambda: _asset_frames("walk", walk_motion),
+            "walk_left": lambda: _asset_frames("walk", walk_motion, flip=True),
+            "sleep": lambda: _asset_frames("sleep", [(0, 0, 1.0, 0), (0, 0, 1.012, 0)]),
+            "happy": lambda: _asset_frames("happy-v2", happy_motion),
+            "concerned": lambda: _asset_frames("chase", concerned_motion),
+        }
+    )
 
 
 _install_asset_generators()
 
 
-def generate_all_sprites() -> Dict[str, List[Image.Image]]:
+def generate_all_sprites() -> dict[str, list[Image.Image]]:
     """Generate all sprite frames for all animation states."""
     if Image is None:
         raise ImportError("Pillow is required. Install with: pip install Pillow")

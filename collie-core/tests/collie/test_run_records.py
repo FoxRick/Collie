@@ -48,8 +48,7 @@ async def _wait_for(predicate, timeout: float = 5.0) -> None:
 async def _wait_for_turn(db: CollieDB) -> dict[str, Any]:
     """Wait for a finished turn row and return it (most recent first)."""
     await _wait_for(
-        lambda: bool(db.list_turn_events())
-        and db.list_turn_events()[0]["finished_at"] is not None
+        lambda: bool(db.list_turn_events()) and db.list_turn_events()[0]["finished_at"] is not None
     )
     return db.list_turn_events()[0]
 
@@ -57,8 +56,7 @@ async def _wait_for_turn(db: CollieDB) -> dict[str, Any]:
 async def _wait_for_tool(db: CollieDB) -> dict[str, Any]:
     """Wait for a finished tool row and return it (most recent first)."""
     await _wait_for(
-        lambda: bool(db.list_tool_events())
-        and db.list_tool_events()[0]["finished_at"] is not None
+        lambda: bool(db.list_tool_events()) and db.list_tool_events()[0]["finished_at"] is not None
     )
     return db.list_tool_events()[0]
 
@@ -83,12 +81,7 @@ def db(tmp_path: Path) -> CollieDB:
 def _table_names(path: Path) -> set[str]:
     conn = sqlite3.connect(path)
     try:
-        return {
-            row[0]
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            )
-        }
+        return {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     finally:
         conn.close()
 
@@ -157,10 +150,17 @@ def test_turn_event_round_trip(db: CollieDB) -> None:
 
 
 def test_record_turn_event_upserts_instead_of_duplicating(db: CollieDB) -> None:
-    db.record_turn_event(turn_id="t1", turn_kind="chat", status="running",
-                         started_at="2026-08-02T00:00:00+00:00")
-    db.record_turn_event(turn_id="t1", turn_kind="chat", status="ok",
-                         tokens_in=7, tokens_out=3, finished_at="2026-08-02T00:00:01+00:00")
+    db.record_turn_event(
+        turn_id="t1", turn_kind="chat", status="running", started_at="2026-08-02T00:00:00+00:00"
+    )
+    db.record_turn_event(
+        turn_id="t1",
+        turn_kind="chat",
+        status="ok",
+        tokens_in=7,
+        tokens_out=3,
+        finished_at="2026-08-02T00:00:01+00:00",
+    )
     turns = db.list_turn_events()
     assert len(turns) == 1
     assert turns[0]["status"] == "ok"
@@ -193,11 +193,15 @@ def test_list_turn_events_filters_by_conversation_since_and_limit(db: CollieDB) 
 
 
 def test_tool_event_round_trip_and_filters(db: CollieDB) -> None:
-    db.record_turn_event(turn_id="t1", turn_kind="chat", status="ok",
-                         started_at="2026-08-02T00:00:00+00:00")
+    db.record_turn_event(
+        turn_id="t1", turn_kind="chat", status="ok", started_at="2026-08-02T00:00:00+00:00"
+    )
     db.record_tool_event(
-        tool_id="te1", turn_id="t1", tool_name="web_search",
-        action="read", resource="https://example.com",
+        tool_id="te1",
+        turn_id="t1",
+        tool_name="web_search",
+        action="read",
+        resource="https://example.com",
         input_summary='{"query": "hello"}',
         output_summary="three results",
         status="ok",
@@ -224,17 +228,23 @@ def test_tool_event_round_trip_and_filters(db: CollieDB) -> None:
 
 
 def test_turn_event_stats_reports_per_tool_failures(db: CollieDB) -> None:
-    db.record_turn_event(turn_id="t1", turn_kind="chat", status="ok",
-                         started_at="2026-08-02T00:00:00+00:00")
-    for i, (tool, status) in enumerate([
-        ("web_search", "ok"),
-        ("web_search", "error"),
-        ("web_search", "error"),
-        ("write_file", "error"),
-        ("write_file", "denied"),
-    ]):
+    db.record_turn_event(
+        turn_id="t1", turn_kind="chat", status="ok", started_at="2026-08-02T00:00:00+00:00"
+    )
+    for i, (tool, status) in enumerate(
+        [
+            ("web_search", "ok"),
+            ("web_search", "error"),
+            ("web_search", "error"),
+            ("write_file", "error"),
+            ("write_file", "denied"),
+        ]
+    ):
         db.record_tool_event(
-            tool_id=f"te{i}", turn_id="t1", tool_name=tool, status=status,
+            tool_id=f"te{i}",
+            turn_id="t1",
+            tool_name=tool,
+            status=status,
             started_at="2026-08-02T00:00:00+00:00",
         )
 
@@ -249,10 +259,16 @@ def test_turn_event_stats_reports_per_tool_failures(db: CollieDB) -> None:
 
 
 def test_tool_events_cascade_delete_with_turn(db: CollieDB) -> None:
-    db.record_turn_event(turn_id="t1", turn_kind="chat", status="ok",
-                         started_at="2026-08-02T00:00:00+00:00")
-    db.record_tool_event(tool_id="te1", turn_id="t1", tool_name="web_search",
-                         status="ok", started_at="2026-08-02T00:00:00+00:00")
+    db.record_turn_event(
+        turn_id="t1", turn_kind="chat", status="ok", started_at="2026-08-02T00:00:00+00:00"
+    )
+    db.record_tool_event(
+        tool_id="te1",
+        turn_id="t1",
+        tool_name="web_search",
+        status="ok",
+        started_at="2026-08-02T00:00:00+00:00",
+    )
     assert len(db.list_tool_events()) == 1
 
     with db._write() as conn:
@@ -374,10 +390,16 @@ def test_recorder_queue_is_bounded_with_drop_counter(
 
 
 def test_export_all_includes_telemetry_and_clear_all_removes_it(db: CollieDB) -> None:
-    db.record_turn_event(turn_id="t1", turn_kind="chat", status="ok",
-                         started_at="2026-08-02T00:00:00+00:00")
-    db.record_tool_event(tool_id="te1", turn_id="t1", tool_name="web_search",
-                         status="ok", started_at="2026-08-02T00:00:00+00:00")
+    db.record_turn_event(
+        turn_id="t1", turn_kind="chat", status="ok", started_at="2026-08-02T00:00:00+00:00"
+    )
+    db.record_tool_event(
+        tool_id="te1",
+        turn_id="t1",
+        tool_name="web_search",
+        status="ok",
+        started_at="2026-08-02T00:00:00+00:00",
+    )
 
     data = db.export_all()
     assert len(data["turn_events"]) == 1
@@ -389,24 +411,33 @@ def test_export_all_includes_telemetry_and_clear_all_removes_it(db: CollieDB) ->
 
 
 def test_finish_turn_preserves_turn_kind_captured_at_start(db: CollieDB) -> None:
-    db.record_turn_event(turn_id="t1", turn_kind="routine", status="running",
-                         started_at="2026-08-02T00:00:00+00:00")
-    db.record_turn_event(turn_id="t1", status="ok",
-                         finished_at="2026-08-02T00:00:01+00:00")
+    db.record_turn_event(
+        turn_id="t1", turn_kind="routine", status="running", started_at="2026-08-02T00:00:00+00:00"
+    )
+    db.record_turn_event(turn_id="t1", status="ok", finished_at="2026-08-02T00:00:01+00:00")
     row = db.list_turn_events()[0]
     assert row["turn_kind"] == "routine"
     assert row["status"] == "ok"
 
 
 def test_finish_tool_preserves_start_timestamp(db: CollieDB) -> None:
-    db.record_turn_event(turn_id="t1", turn_kind="chat", status="ok",
-                         started_at="2026-08-02T00:00:00+00:00")
-    db.record_tool_event(tool_id="te1", turn_id="t1", tool_name="web_search",
-                         status="running",
-                         started_at="2026-08-02T00:00:00+00:00")
-    db.record_tool_event(tool_id="te1", turn_id="t1", tool_name="web_search",
-                         status="ok",
-                         finished_at="2026-08-02T00:00:05+00:00")
+    db.record_turn_event(
+        turn_id="t1", turn_kind="chat", status="ok", started_at="2026-08-02T00:00:00+00:00"
+    )
+    db.record_tool_event(
+        tool_id="te1",
+        turn_id="t1",
+        tool_name="web_search",
+        status="running",
+        started_at="2026-08-02T00:00:00+00:00",
+    )
+    db.record_tool_event(
+        tool_id="te1",
+        turn_id="t1",
+        tool_name="web_search",
+        status="ok",
+        finished_at="2026-08-02T00:00:05+00:00",
+    )
     row = db.list_tool_events()[0]
     assert row["started_at"] == "2026-08-02T00:00:00+00:00"
     assert row["finished_at"] == "2026-08-02T00:00:05+00:00"
@@ -447,19 +478,17 @@ def test_summarize_redacts_secrets_in_strings_and_nested_values() -> None:
     nested = summarize({"text": "password: hunter2hunter2hunter2"}, 500)
     assert nested is not None
     assert "hunter2hunter2hunter2" not in nested
-    assert "ghp_" not in (
-        summarize("pat = ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ", 500) or ""
-    )
+    assert "ghp_" not in (summarize("pat = ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ", 500) or "")
 
 
 def test_summarize_redacts_modern_provider_secrets() -> None:
     from collie_core.telemetry.recorder import summarize
 
     probes = [
-        "sk-proj-abcdefghijklmnopqrstuvwxyz123456",          # OpenAI project key
+        "sk-proj-abcdefghijklmnopqrstuvwxyz123456",  # OpenAI project key
         "sk-ant-api03-abcdefghijklmnopqrstuvwxyz123456789",  # Anthropic key
-        "AIzaSyA1234567890abcdefghijklmnopqrstuvwxyz",       # Google API key
-        "ya29.a0AfH6SMCabcdefghijklmnopqrstuvwxyz123456",    # Google OAuth token
+        "AIzaSyA1234567890abcdefghijklmnopqrstuvwxyz",  # Google API key
+        "ya29.a0AfH6SMCabcdefghijklmnopqrstuvwxyz123456",  # Google OAuth token
     ]
     for probe in probes:
         out = summarize(probe, 500) or ""
@@ -474,12 +503,16 @@ def test_error_messages_are_sanitized(db: CollieDB) -> None:
     try:
         rec.start_turn(turn_id="t1", turn_kind="chat")
         rec.finish_turn(
-            turn_id="t1", status="error",
+            turn_id="t1",
+            status="error",
             error_message="Authorization: Bearer sk-leaky-secret-12345",
         )
         rec.start_tool(tool_id="te1", turn_id="t1", tool_name="web_search")
         rec.finish_tool(
-            tool_id="te1", turn_id="t1", tool_name="web_search", status="error",
+            tool_id="te1",
+            turn_id="t1",
+            tool_name="web_search",
+            status="error",
             error_message="token: ghp_ABCDEFGHIJKLMNOPQRST",
         )
         rec.flush()
@@ -510,22 +543,30 @@ def _make_loop(tmp_path: Path, *, hook_factories: list[Any] | None = None) -> Ag
 
 
 def _fake_tool_turn(loop: AgentLoop, *, tool_error: bool = False) -> None:
-    calls = iter([
-        LLMResponse(content="Visible", tool_calls=[
-            ToolCallRequest(id="call1", name="web_search",
-                            arguments={"query": "hello"}),
-        ]),
-        LLMResponse(content="Done", tool_calls=[]),
-    ])
+    calls = iter(
+        [
+            LLMResponse(
+                content="Visible",
+                tool_calls=[
+                    ToolCallRequest(id="call1", name="web_search", arguments={"query": "hello"}),
+                ],
+            ),
+            LLMResponse(content="Done", tool_calls=[]),
+        ]
+    )
 
     async def chat_with_retry(*_args: Any, **_kwargs: Any) -> LLMResponse:
         return next(calls)
 
     loop.provider.chat_with_retry = AsyncMock(side_effect=chat_with_retry)
     loop.tools.get_definitions = MagicMock(return_value=[])
-    loop.tools.prepare_call = MagicMock(return_value=(
-        None, {"query": "hello", "api_key": "sk-top-secret"}, None,
-    ))
+    loop.tools.prepare_call = MagicMock(
+        return_value=(
+            None,
+            {"query": "hello", "api_key": "sk-top-secret"},
+            None,
+        )
+    )
     if tool_error:
         loop.tools.execute = AsyncMock(side_effect=RuntimeError("tool boom"))
     else:
@@ -721,9 +762,7 @@ async def test_max_iterations_turn_marked_stopped(tmp_path: Path, db: CollieDB) 
     hook = TelemetryHook(rec, session_key="collie:conv1")
     try:
         await hook.before_run(AgentRunHookContext(messages=[]))
-        await hook.after_run(AgentRunHookContext(
-            messages=[], stop_reason="max_iterations"
-        ))
+        await hook.after_run(AgentRunHookContext(messages=[], stop_reason="max_iterations"))
         rec.flush()
         row = db.list_turn_events()[0]
         assert row["status"] == "stopped"
@@ -741,22 +780,20 @@ async def test_subagent_run_composes_telemetry_hook(tmp_path: Path, db: CollieDB
     from nanobot.bus.queue import MessageBus
     from nanobot.utils.llm_runtime import LLMRuntime
 
-    mgr = SubagentManager(
-        workspace=tmp_path, bus=MessageBus(), max_tool_result_chars=16_000
-    )
+    mgr = SubagentManager(workspace=tmp_path, bus=MessageBus(), max_tool_result_chars=16_000)
     mgr.hook_factories = [create_telemetry_hook_factory(db)]
-    mgr.runner.run = AsyncMock(return_value=AgentRunResult(
-        final_content="ok", messages=[], stop_reason="completed"
-    ))
+    mgr.runner.run = AsyncMock(
+        return_value=AgentRunResult(final_content="ok", messages=[], stop_reason="completed")
+    )
     mgr._announce_result = AsyncMock()
 
     provider = MagicMock()
     provider.get_default_model.return_value = "m"
-    status = SubagentStatus(
-        task_id="t1", label="lbl", task_description="task", started_at=0.0
-    )
+    status = SubagentStatus(task_id="t1", label="lbl", task_description="task", started_at=0.0)
     await mgr._run_subagent(
-        "t1", "task", "lbl",
+        "t1",
+        "task",
+        "lbl",
         {"channel": "cli", "chat_id": "direct", "session_key": "cli:direct"},
         status,
         LLMRuntime.capture(provider, "m", context_window_tokens=128_000),
@@ -779,21 +816,19 @@ async def test_subagent_without_factories_keeps_plain_hook(tmp_path: Path) -> No
     from nanobot.bus.queue import MessageBus
     from nanobot.utils.llm_runtime import LLMRuntime
 
-    mgr = SubagentManager(
-        workspace=tmp_path, bus=MessageBus(), max_tool_result_chars=16_000
+    mgr = SubagentManager(workspace=tmp_path, bus=MessageBus(), max_tool_result_chars=16_000)
+    mgr.runner.run = AsyncMock(
+        return_value=AgentRunResult(final_content="ok", messages=[], stop_reason="completed")
     )
-    mgr.runner.run = AsyncMock(return_value=AgentRunResult(
-        final_content="ok", messages=[], stop_reason="completed"
-    ))
     mgr._announce_result = AsyncMock()
 
     provider = MagicMock()
     provider.get_default_model.return_value = "m"
-    status = SubagentStatus(
-        task_id="t1", label="lbl", task_description="task", started_at=0.0
-    )
+    status = SubagentStatus(task_id="t1", label="lbl", task_description="task", started_at=0.0)
     await mgr._run_subagent(
-        "t1", "task", "lbl",
+        "t1",
+        "task",
+        "lbl",
         {"channel": "cli", "chat_id": "direct", "session_key": "cli:direct"},
         status,
         LLMRuntime.capture(provider, "m", context_window_tokens=128_000),
@@ -885,12 +920,15 @@ async def test_runtime_records_chat_turn_via_build_loop(
                 "id": "chatcmpl-fake",
                 "object": "chat.completion.chunk",
                 "model": body["model"],
-                "choices": [{
-                    "index": 0,
-                    "delta": ({"role": "assistant", "content": text}
-                              if i == 0 else {"content": text}),
-                    "finish_reason": None,
-                }],
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": (
+                            {"role": "assistant", "content": text} if i == 0 else {"content": text}
+                        ),
+                        "finish_reason": None,
+                    }
+                ],
             }
             await resp.write(f"data: {json.dumps(payload)}\n\n".encode())
         done = {
@@ -898,8 +936,7 @@ async def test_runtime_records_chat_turn_via_build_loop(
             "object": "chat.completion.chunk",
             "model": body["model"],
             "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-            "usage": {"prompt_tokens": 20, "completion_tokens": 6,
-                      "total_tokens": 26},
+            "usage": {"prompt_tokens": 20, "completion_tokens": 6, "total_tokens": 26},
         }
         await resp.write(f"data: {json.dumps(done)}\n\n".encode())
         await resp.write(b"data: [DONE]\n\n")
@@ -928,24 +965,35 @@ async def test_runtime_records_chat_turn_via_build_loop(
             ready = json.loads(await ws.recv())
             assert ready["type"] == "ready"
 
-            await ws.send(json.dumps({
-                "type": "set_api_key", "id": "k",
-                "provider": "custom", "key": "sk-fake",
-            }))
+            await ws.send(
+                json.dumps(
+                    {
+                        "type": "set_api_key",
+                        "id": "k",
+                        "provider": "custom",
+                        "key": "sk-fake",
+                    }
+                )
+            )
             assert json.loads(await ws.recv())["type"] == "ok"
 
             await ws.send(json.dumps({"type": "configure", "id": "c"}))
             reply = json.loads(await ws.recv())
             assert reply["type"] == "ok", reply
 
-            await ws.send(json.dumps({
-                "type": "chat", "id": "m1", "content": "hello",
-            }))
+            await ws.send(
+                json.dumps(
+                    {
+                        "type": "chat",
+                        "id": "m1",
+                        "content": "hello",
+                    }
+                )
+            )
             assistant = None
             for _ in range(200):
                 frame = json.loads(await asyncio.wait_for(ws.recv(), 30))
-                if (frame["type"] == "message"
-                        and frame["message"]["role"] == "assistant"):
+                if frame["type"] == "message" and frame["message"]["role"] == "assistant":
                     assistant = frame["message"]
                     break
                 if frame["type"] == "error":
@@ -987,13 +1035,21 @@ async def test_ipc_get_run_records_and_tool_events_round_trip(
 ) -> None:
     d = CollieDB(tmp_path / "collie.db")
     d.record_turn_event(
-        turn_id="t1", conversation_id="conv1", session_key="collie:conv1",
-        turn_kind="chat", status="ok", tokens_in=3, tokens_out=2,
+        turn_id="t1",
+        conversation_id="conv1",
+        session_key="collie:conv1",
+        turn_kind="chat",
+        status="ok",
+        tokens_in=3,
+        tokens_out=2,
         started_at="2026-08-02T00:00:00+00:00",
         finished_at="2026-08-02T00:00:01+00:00",
     )
     d.record_tool_event(
-        tool_id="te1", turn_id="t1", tool_name="web_search", status="ok",
+        tool_id="te1",
+        turn_id="t1",
+        tool_name="web_search",
+        status="ok",
         input_summary='{"query": "hello"}',
         started_at="2026-08-02T00:00:00+00:00",
         finished_at="2026-08-02T00:00:01+00:00",
@@ -1011,10 +1067,15 @@ async def test_ipc_get_run_records_and_tool_events_round_trip(
             ready = json.loads(await ws.recv())
             assert ready["type"] == "ready"
 
-            await ws.send(json.dumps({
-                "type": "get_run_records", "id": "r1",
-                "conversation_id": "conv1",
-            }))
+            await ws.send(
+                json.dumps(
+                    {
+                        "type": "get_run_records",
+                        "id": "r1",
+                        "conversation_id": "conv1",
+                    }
+                )
+            )
             reply = json.loads(await ws.recv())
             assert reply["type"] == "ok"
             turns = reply["data"]["turns"]
@@ -1022,9 +1083,15 @@ async def test_ipc_get_run_records_and_tool_events_round_trip(
             assert turns[0]["id"] == "t1"
             assert turns[0]["status"] == "ok"
 
-            await ws.send(json.dumps({
-                "type": "get_tool_events", "id": "r2", "turn_id": "t1",
-            }))
+            await ws.send(
+                json.dumps(
+                    {
+                        "type": "get_tool_events",
+                        "id": "r2",
+                        "turn_id": "t1",
+                    }
+                )
+            )
             reply = json.loads(await ws.recv())
             assert reply["type"] == "ok"
             events = reply["data"]["tool_events"]

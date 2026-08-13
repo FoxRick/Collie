@@ -50,10 +50,12 @@ import os
 import re
 import urllib.parse
 import uuid
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass
+from datetime import UTC
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from loguru import logger
 from websockets.asyncio.server import ServerConnection, serve
@@ -180,12 +182,8 @@ class CollieIPCServer:
         on_configure_provider_candidate: (
             Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None
         ) = None,
-        on_finalize_provider_candidate: (
-            Callable[[str], Awaitable[dict[str, Any]]] | None
-        ) = None,
-        on_rollback_provider_candidate: (
-            Callable[[str], Awaitable[dict[str, Any]]] | None
-        ) = None,
+        on_finalize_provider_candidate: (Callable[[str], Awaitable[dict[str, Any]]] | None) = None,
+        on_rollback_provider_candidate: (Callable[[str], Awaitable[dict[str, Any]]] | None) = None,
         status_provider: Callable[[], dict[str, Any]] | None = None,
         activity_provider: Callable[[], dict[str, Any]] | None = None,
         service_manager: Any = None,
@@ -310,8 +308,7 @@ class CollieIPCServer:
 
     async def send_thinking(self, conversation_id: str, state: str) -> None:
         await self.broadcast(
-            {"type": "thinking", "conversation_id": conversation_id,
-             **phrase_for_state(state)}
+            {"type": "thinking", "conversation_id": conversation_id, **phrase_for_state(state)}
         )
 
     @staticmethod
@@ -332,9 +329,7 @@ class CollieIPCServer:
             }
         )
 
-    async def _publish_superseded_checklist(
-        self, task: dict[str, Any] | None
-    ) -> None:
+    async def _publish_superseded_checklist(self, task: dict[str, Any] | None) -> None:
         if task is None:
             return
         conversation_id = str(task.get("conversation_id") or "")
@@ -353,9 +348,7 @@ class CollieIPCServer:
         )
         await self._broadcast_task_state(task)
 
-    async def _finalize_requested_plan_change(
-        self, run_id: str
-    ) -> dict[str, Any]:
+    async def _finalize_requested_plan_change(self, run_id: str) -> dict[str, Any]:
         result = self.db.finalize_plan_change(run_id)
         if result["changed"]:
             await self.broadcast({"type": "run_failed", "run": result["run"]})
@@ -372,9 +365,7 @@ class CollieIPCServer:
             )
         return result
 
-    async def _broadcast_run_step(
-        self, run_id: str, step: dict[str, Any] | None
-    ) -> None:
+    async def _broadcast_run_step(self, run_id: str, step: dict[str, Any] | None) -> None:
         run = self.db.get_run(run_id)
         conversation_id = str((run or {}).get("conversation_id") or "")
         if step is not None:
@@ -412,18 +403,22 @@ class CollieIPCServer:
                 parsed = urllib.parse.urlparse(origin)
             except ValueError:
                 return connection.respond(403, "forbidden")
-            if parsed.scheme in ("http", "https"):
-                if str(parsed.hostname or "").lower() not in _ALLOWED_ORIGIN_HOSTS:
-                    return connection.respond(403, "forbidden")
+            if parsed.scheme in ("http", "https") and (
+                str(parsed.hostname or "").lower() not in _ALLOWED_ORIGIN_HOSTS
+            ):
+                return connection.respond(403, "forbidden")
         return None
 
     async def _handle_connection(self, connection: ServerConnection) -> None:
         self._clients.add(connection)
-        await self._send(connection, {
-            "type": "ready",
-            "protocol": 1,
-            **phrase_for_state("startup"),
-        })
+        await self._send(
+            connection,
+            {
+                "type": "ready",
+                "protocol": 1,
+                **phrase_for_state("startup"),
+            },
+        )
         try:
             async for raw in connection:
                 await self._handle_frame(connection, raw)
@@ -446,9 +441,14 @@ class CollieIPCServer:
         req_id = frame.get("id")
         handler = getattr(self, f"_cmd_{kind}", None)
         if handler is None:
-            await self._send(connection, {
-                "type": "error", "id": req_id, "message": f"unknown command: {kind}",
-            })
+            await self._send(
+                connection,
+                {
+                    "type": "error",
+                    "id": req_id,
+                    "message": f"unknown command: {kind}",
+                },
+            )
             return
         try:
             result = await handler(connection, frame)
@@ -463,11 +463,15 @@ class CollieIPCServer:
                 if isinstance(e, (ValueError, VoiceInputError))
                 else "Uh oh. That didn't go as planned. Try again?"
             )
-            await self._send(connection, {
-                "type": "error", "id": req_id,
-                "message": safe_message,
-                "detail": safe_message,
-            })
+            await self._send(
+                connection,
+                {
+                    "type": "error",
+                    "id": req_id,
+                    "message": safe_message,
+                    "detail": safe_message,
+                },
+            )
 
     # -- commands ----------------------------------------------------------------------
 
@@ -484,9 +488,7 @@ class CollieIPCServer:
             status.update(self._status_provider())
         return status
 
-    async def _cmd_get_subagent_activity(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_get_subagent_activity(self, connection: ServerConnection, frame: dict) -> dict:
         """Cheap subagent roster for poll-heavy surfaces (Agents tab).
 
         Prefers the dedicated activity provider (runtime.subagent_activity,
@@ -516,9 +518,7 @@ class CollieIPCServer:
 
         return CatalogueStore(settings=self.db)
 
-    async def _cmd_get_provider_catalogue(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_get_provider_catalogue(self, connection: ServerConnection, frame: dict) -> dict:
         catalogue = self._catalogue()
         return {
             "providers": catalogue.providers(),
@@ -540,9 +540,7 @@ class CollieIPCServer:
 
     # -- connect-time validation helpers ------------------------------------------------
 
-    async def _cmd_detect_provider_for_key(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_detect_provider_for_key(self, connection: ServerConnection, frame: dict) -> dict:
         from collie_core.providers.validation import detect_provider_for_key
 
         api_key = str(frame.get("api_key") or "")
@@ -559,9 +557,7 @@ class CollieIPCServer:
             api_key=str(frame.get("api_key") or "") or None,
         )
 
-    async def _cmd_detect_local_models(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_detect_local_models(self, connection: ServerConnection, frame: dict) -> dict:
         from collie_core.providers.validation import detect_local_ollama
 
         return await detect_local_ollama()
@@ -576,11 +572,13 @@ class CollieIPCServer:
             reuse_conversation_id=str(frame.get("conversation_id") or "") or None,
         )
         if result.get("greeting") is not None:
-            await self.broadcast({
-                "type": "message",
-                "conversation_id": result["conversation"]["id"],
-                "message": result["greeting"],
-            })
+            await self.broadcast(
+                {
+                    "type": "message",
+                    "conversation_id": result["conversation"]["id"],
+                    "message": result["greeting"],
+                }
+            )
         return {"conversation": result["conversation"], "greeted": result["greeted"]}
 
     async def _cmd_transcribe(self, connection: ServerConnection, frame: dict) -> dict:
@@ -619,10 +617,12 @@ class CollieIPCServer:
         return conversation
 
     async def _cmd_list_conversations(self, connection: ServerConnection, frame: dict) -> dict:
-        return {"conversations": await asyncio.to_thread(
-            self.db.list_conversations,
-            bool(frame.get("include_archived")),
-        )}
+        return {
+            "conversations": await asyncio.to_thread(
+                self.db.list_conversations,
+                bool(frame.get("include_archived")),
+            )
+        }
 
     async def _cmd_list_things(self, connection: ServerConnection, frame: dict) -> dict:
         """Hydrate the "Your things" panel for a conversation (read-only)."""
@@ -677,24 +677,18 @@ class CollieIPCServer:
         )
         return {"tool_events": events}
 
-    async def _cmd_get_active_task(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_get_active_task(self, connection: ServerConnection, frame: dict) -> dict:
         conv_id = str(frame.get("conversation_id") or "")
         task = await asyncio.to_thread(self.db.get_active_task, conv_id)
         return {"task": self._renderer_task(task) if task is not None else None}
 
-    async def _cmd_set_execution_mode(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_set_execution_mode(self, connection: ServerConnection, frame: dict) -> dict:
         conv_id = str(frame.get("conversation_id") or "")
         mode = str(frame.get("execution_mode") or "")
         self.db.set_conversation_mode(conv_id, mode)
         return {"conversation_id": conv_id, "execution_mode": mode}
 
-    async def _cmd_set_file_access_scope(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_set_file_access_scope(self, connection: ServerConnection, frame: dict) -> dict:
         """Apply a file-access scope immediately, including to a running turn.
 
         The renderer fires this when the user changes the Files scope mid-chat;
@@ -715,9 +709,7 @@ class CollieIPCServer:
             raw, selected_folder=selected_folder
         )
         set_live_local_file_scope(conv_id, roots, unrestricted)
-        scope: dict[str, Any] = {
-            "mode": "full_file_access" if unrestricted else str(raw["mode"])
-        }
+        scope: dict[str, Any] = {"mode": "full_file_access" if unrestricted else str(raw["mode"])}
         if not unrestricted and raw["mode"] == "chosen_folders":
             scope["roots"] = [str(root) for root in roots]
         return {"applied": True, "file_access_scope": scope}
@@ -792,11 +784,11 @@ class CollieIPCServer:
     async def _cmd_export_data(self, connection: ServerConnection, frame: dict) -> dict:
         """Write everything to a zip in ~/.collie/exports and return its path."""
         import zipfile
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from collie_core.db import collie_home
 
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         exports = collie_home() / "exports"
         exports.mkdir(parents=True, exist_ok=True)
         zip_path = exports / f"collie-export-{stamp}.zip"
@@ -958,7 +950,8 @@ class CollieIPCServer:
         provider_key = provider.casefold()
         existing = next(
             (
-                item for item in self.db.list_providers()
+                item
+                for item in self.db.list_providers()
                 if str(item.get("auth_type") or "").replace("_", "-") == "api-key"
                 and any(
                     str(item.get(field) or "").strip().casefold() == provider_key
@@ -976,9 +969,7 @@ class CollieIPCServer:
                 name=provider,
                 auth_type="api-key",
                 model=(
-                    str(self.db.get_setting("provider.model") or "") or None
-                    if is_default
-                    else None
+                    str(self.db.get_setting("provider.model") or "") or None if is_default else None
                 ),
                 is_default=is_default,
             )
@@ -1028,16 +1019,18 @@ class CollieIPCServer:
             provider.get("auth_type") == "api-key"
             and self._on_configure_provider_candidate is not None
         ):
-            result = await self._on_configure_provider_candidate({
-                "provider_id": provider["id"],
-                "name": provider["name"],
-                "auth_type": provider["auth_type"],
-                "model": provider.get("model"),
-                "runtime_name": provider.get("runtime_name"),
-                "protocol": provider.get("protocol"),
-                "api_base": provider.get("api_base"),
-                "secret_name": provider.get("secret_name"),
-            })
+            result = await self._on_configure_provider_candidate(
+                {
+                    "provider_id": provider["id"],
+                    "name": provider["name"],
+                    "auth_type": provider["auth_type"],
+                    "model": provider.get("model"),
+                    "runtime_name": provider.get("runtime_name"),
+                    "protocol": provider.get("protocol"),
+                    "api_base": provider.get("api_base"),
+                    "secret_name": provider.get("secret_name"),
+                }
+            )
             transaction_id = str(result.get("transaction_id") or "")
             if (
                 result.get("configured")
@@ -1055,11 +1048,13 @@ class CollieIPCServer:
                             "rollback_error": "provider rollback is not available",
                         }
                     )
-                    result.update({
-                        "configured": False,
-                        "error": "Provider activation could not be finalized.",
-                        **rollback,
-                    })
+                    result.update(
+                        {
+                            "configured": False,
+                            "error": "Provider activation could not be finalized.",
+                            **rollback,
+                        }
+                    )
             return result
         previous = self.db.default_provider()
         self.db.set_default_provider(provider_id)
@@ -1140,14 +1135,10 @@ class CollieIPCServer:
             self.db.set_setting("provider.secret_name", None)
             return
         self.db.set_setting("provider.auth", provider["auth_type"])
-        self.db.set_setting(
-            "provider.name", provider.get("runtime_name") or provider["name"]
-        )
+        self.db.set_setting("provider.name", provider.get("runtime_name") or provider["name"])
         self.db.set_setting("provider.model", provider.get("model"))
         self.db.set_setting("provider.api_base", provider.get("api_base"))
-        self.db.set_setting(
-            "provider.secret_name", provider.get("secret_name") or provider["name"]
-        )
+        self.db.set_setting("provider.secret_name", provider.get("secret_name") or provider["name"])
 
     async def _cmd_oauth_login(self, connection: ServerConnection, frame: dict) -> None:
         provider = str(frame.get("provider") or "").strip().lower()
@@ -1175,46 +1166,60 @@ class CollieIPCServer:
         self._oauth_attempts[provider] = attempt
 
         def is_current() -> bool:
-            return (
-                self._oauth_attempts.get(provider) is attempt
-                and not attempt.login.cancelled
-            )
+            return self._oauth_attempts.get(provider) is attempt and not attempt.login.cancelled
 
         async def _run_oauth() -> None:
             try:
                 result = await asyncio.to_thread(attempt.login.run)
             except asyncio.CancelledError:
                 attempt.login.cancel()
-                await self._send(connection, {
-                    "type": "error", "id": req_id,
-                    "message": "Sign-in cancelled.",
-                })
+                await self._send(
+                    connection,
+                    {
+                        "type": "error",
+                        "id": req_id,
+                        "message": "Sign-in cancelled.",
+                    },
+                )
                 return
             except Exception as e:
                 attempt.login.discard()
                 if attempt.login.cancelled or not is_current():
-                    await self._send(connection, {
-                        "type": "error", "id": req_id,
-                        "message": "Sign-in cancelled.",
-                    })
+                    await self._send(
+                        connection,
+                        {
+                            "type": "error",
+                            "id": req_id,
+                            "message": "Sign-in cancelled.",
+                        },
+                    )
                     return
                 logger.error("OAuth sign-in failed for {}: {}", provider, e)
-                await self._send(connection, {
-                    "type": "error", "id": req_id,
-                    "message": str(e) if isinstance(e, ValueError) else
-                               "Uh oh. That didn't go as planned. Try again?",
-                    "detail": str(e),
-                })
+                await self._send(
+                    connection,
+                    {
+                        "type": "error",
+                        "id": req_id,
+                        "message": str(e)
+                        if isinstance(e, ValueError)
+                        else "Uh oh. That didn't go as planned. Try again?",
+                        "detail": str(e),
+                    },
+                )
                 return
 
             # Keep the final ownership check, token commit, and provider-state
             # writes await-free so another IPC cancel cannot interleave here.
             if not is_current() or not attempt.login.commit():
                 attempt.login.discard()
-                await self._send(connection, {
-                    "type": "error", "id": req_id,
-                    "message": "Sign-in cancelled.",
-                })
+                await self._send(
+                    connection,
+                    {
+                        "type": "error",
+                        "id": req_id,
+                        "message": "Sign-in cancelled.",
+                    },
+                )
                 return
             if result.get("signed_in"):
                 canonical = str(result.get("provider") or "")
@@ -1223,11 +1228,7 @@ class CollieIPCServer:
                     f"oauth-{canonical}",
                     name="anthropic" if is_claude else "openai_codex",
                     auth_type="claude-oauth" if is_claude else "chatgpt-oauth",
-                    model=(
-                        "claude-sonnet-4-6"
-                        if is_claude
-                        else "openai-codex/gpt-5.4"
-                    ),
+                    model=("claude-sonnet-4-6" if is_claude else "openai-codex/gpt-5.4"),
                     runtime_name="anthropic" if is_claude else "openai_codex",
                     protocol="anthropic" if is_claude else "openai",
                     api_base=None,
@@ -1265,8 +1266,7 @@ class CollieIPCServer:
             attempt is None
             or (requested_id and requested_id != attempt.attempt_id)
             or (
-                requested_generation is not None
-                and int(requested_generation) != attempt.generation
+                requested_generation is not None and int(requested_generation) != attempt.generation
             )
         ):
             return {"cancelled": False}
@@ -1390,11 +1390,14 @@ class CollieIPCServer:
         name = str(fields.get("name") or "").strip()
         if not name:
             raise ValueError("A person's name is required")
-        person = self._memory().add_person(name, **{
-            key: value
-            for key, value in fields.items()
-            if key in _PERSON_FIELDS and value not in (None, "")
-        })
+        person = self._memory().add_person(
+            name,
+            **{
+                key: value
+                for key, value in fields.items()
+                if key in _PERSON_FIELDS and value not in (None, "")
+            },
+        )
         return {"person": person}
 
     async def _cmd_update_person_memory(self, connection: ServerConnection, frame: dict) -> dict:
@@ -1512,9 +1515,7 @@ class CollieIPCServer:
         code = str(frame.get("code") or "").strip().upper()
         return {"denied": deny_code(code)}
 
-    async def _cmd_revoke_messenger_sender(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_revoke_messenger_sender(self, connection: ServerConnection, frame: dict) -> dict:
         from nanobot.pairing import revoke
 
         name = str(frame.get("messenger") or "").lower()
@@ -1574,11 +1575,13 @@ class CollieIPCServer:
         if not accepted:
             raise ValueError("That task just finished. Send again to start a new turn.")
         user_message = self.db.add_message(conv_id, "user", content)
-        await self.broadcast({
-            "type": "message",
-            "conversation_id": conv_id,
-            "message": user_message,
-        })
+        await self.broadcast(
+            {
+                "type": "message",
+                "conversation_id": conv_id,
+                "message": user_message,
+            }
+        )
         return {"accepted": True}
 
     def _resolve_workspace_path(self, path: str) -> Path:
@@ -1774,9 +1777,7 @@ class CollieIPCServer:
     async def _cmd_delete_automation(self, connection: ServerConnection, frame: dict) -> dict:
         auto_id = str(frame.get("automation_id") or "")
         if auto_id.startswith("collie-"):
-            raise ValueError(
-                "That one's built in — flip it off instead of deleting it!"
-            )
+            raise ValueError("That one's built in — flip it off instead of deleting it!")
         self.db.delete_automation(auto_id)
         return {"deleted": True}
 
@@ -1786,18 +1787,16 @@ class CollieIPCServer:
         return {"routines": self.db.list_automations()}
 
     async def _cmd_create_routine(self, connection: ServerConnection, frame: dict) -> dict:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from collie_core.routines.schedule import next_occurrence, parse_schedule
 
         plan_id = str(frame.get("plan_id") or "")
         version = int(frame.get("version") or 0)
-        plan = self.db.approve_plan(
-            plan_id, version, str(frame.get("plan_hash") or "")
-        )
+        plan = self.db.approve_plan(plan_id, version, str(frame.get("plan_hash") or ""))
         zone = str(frame.get("timezone") or "UTC")
         schedule = parse_schedule(str(frame.get("schedule_description") or ""), zone)
-        upcoming = next_occurrence(schedule, datetime.now(timezone.utc))
+        upcoming = next_occurrence(schedule, datetime.now(UTC))
         routine = self.db.add_automation(
             str(frame.get("name") or plan["title"]),
             description=str(plan["goal"]),
@@ -1822,7 +1821,7 @@ class CollieIPCServer:
         return {"routine": row}
 
     async def _cmd_update_routine(self, connection: ServerConnection, frame: dict) -> dict:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from collie_core.routines.schedule import next_occurrence, parse_schedule
 
@@ -1832,14 +1831,12 @@ class CollieIPCServer:
         if description is not None:
             zone = str(updates.get("timezone") or frame.get("timezone") or "UTC")
             schedule = parse_schedule(str(description), zone)
-            upcoming = next_occurrence(schedule, datetime.now(timezone.utc))
+            upcoming = next_occurrence(schedule, datetime.now(UTC))
             updates.update(
                 {
                     "schedule_json": schedule.to_dict(),
                     "timezone": zone,
-                    "next_run_at": (
-                        upcoming.isoformat(timespec="seconds") if upcoming else None
-                    ),
+                    "next_run_at": (upcoming.isoformat(timespec="seconds") if upcoming else None),
                 }
             )
         return {"routine": self.db.update_automation(routine_id, **updates)}
@@ -1854,9 +1851,8 @@ class CollieIPCServer:
         row = self.db.get_automation(routine_id)
         if row is None:
             raise ValueError("routine not found")
-        if (
-            row.get("action_type") == "approved_plan"
-            and (not row.get("plan_id") or not row.get("plan_version"))
+        if row.get("action_type") == "approved_plan" and (
+            not row.get("plan_id") or not row.get("plan_version")
         ):
             raise ValueError("Review and approve this routine's plan before enabling it.")
         self.db.toggle_automation(routine_id, True)
@@ -1867,9 +1863,7 @@ class CollieIPCServer:
             connection, {"automation_id": frame.get("routine_id")}
         )
 
-    async def _cmd_run_routine_now(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_run_routine_now(self, connection: ServerConnection, frame: dict) -> dict:
         routine_id = str(frame.get("routine_id") or "")
         row = self.db.get_automation(routine_id)
         if row is None:
@@ -1937,9 +1931,7 @@ class CollieIPCServer:
             "side_effects_performed": False,
         }
 
-    async def _cmd_list_routine_runs(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_list_routine_runs(self, connection: ServerConnection, frame: dict) -> dict:
         return {
             "runs": self.db.list_runs(
                 routine_id=str(frame.get("routine_id") or ""),
@@ -1947,9 +1939,7 @@ class CollieIPCServer:
             )
         }
 
-    async def _cmd_retry_routine_run(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_retry_routine_run(self, connection: ServerConnection, frame: dict) -> dict:
         previous = self.db.get_run(str(frame.get("run_id") or ""))
         if previous is None or previous.get("status") != "failed":
             raise ValueError("Only a failed run can be retried.")
@@ -2083,9 +2073,7 @@ class CollieIPCServer:
             await self._broadcast_task_state(self.db.get_run_task(str(run["id"])))
             raise ValueError("The plan was approved, but its execution couldn't start.") from exc
         self._chat_tasks[conversation_id] = task
-        task.add_done_callback(
-            lambda _task, cid=conversation_id: self._chat_tasks.pop(cid, None)
-        )
+        task.add_done_callback(lambda _task, cid=conversation_id: self._chat_tasks.pop(cid, None))
 
     async def _cmd_approve_plan(self, connection: ServerConnection, frame: dict) -> dict:
         plan_id = str(frame.get("plan_id") or "")
@@ -2121,9 +2109,7 @@ class CollieIPCServer:
             await self.broadcast({"type": "plan_updated", "plan": plan})
         return {"plan": plan, "run": run, "created": bool(claim["created"])}
 
-    async def _cmd_change_plan(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_change_plan(self, connection: ServerConnection, frame: dict) -> dict:
         conversation_id = str(frame.get("conversation_id") or "")
         run_id = str(frame.get("run_id") or "")
         if not conversation_id or not run_id:
@@ -2158,9 +2144,7 @@ class CollieIPCServer:
             "status": status,
         }
 
-    async def _cmd_retry_plan_execution(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_retry_plan_execution(self, connection: ServerConnection, frame: dict) -> dict:
         run_id = str(frame.get("run_id") or "")
         previous = self.db.get_run(run_id)
         if previous is None:
@@ -2183,14 +2167,10 @@ class CollieIPCServer:
         await self._launch_claimed_plan_execution(retry["plan"], retry["run"])
         return {"plan": retry["plan"], "run": retry["run"]}
 
-    async def _cmd_list_pending_approvals(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_list_pending_approvals(self, connection: ServerConnection, frame: dict) -> dict:
         return {"approvals": self.db.list_pending_approvals()}
 
-    async def _cmd_resolve_approval(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_resolve_approval(self, connection: ServerConnection, frame: dict) -> dict:
         if self.approval_broker is None:
             raise ValueError("approvals are not available")
         approval = await self.approval_broker.resolve(
@@ -2201,20 +2181,14 @@ class CollieIPCServer:
         )
         return {"approval": approval}
 
-    async def _cmd_list_approval_rules(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_list_approval_rules(self, connection: ServerConnection, frame: dict) -> dict:
         return {"rules": self.db.list_approval_rules()}
 
-    async def _cmd_delete_approval_rule(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_delete_approval_rule(self, connection: ServerConnection, frame: dict) -> dict:
         self.db.delete_approval_rule(str(frame.get("rule_id") or ""))
         return {"deleted": True}
 
-    async def _cmd_set_approval_preset(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_set_approval_preset(self, connection: ServerConnection, frame: dict) -> dict:
         preset = str(frame.get("preset") or "")
         if preset not in {"ask", "allow"}:
             raise ValueError("preset must be 'ask' or 'allow'")
@@ -2223,9 +2197,7 @@ class CollieIPCServer:
             self._on_set_approval_preset(preset)
         return {"preset": preset}
 
-    async def _cmd_approve_all_for_run(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_approve_all_for_run(self, connection: ServerConnection, frame: dict) -> dict:
         run_id = str(frame.get("run_id") or "")
         if not run_id or self.db.get_run(run_id) is None:
             raise ValueError("run not found")
@@ -2255,9 +2227,7 @@ class CollieIPCServer:
         name = str(frame.get("name") or "").strip()
         description = str(frame.get("description") or "").strip()
         system_prompt = str(frame.get("system_prompt") or "").strip()
-        execution_posture = str(
-            frame.get("execution_posture") or "read_only"
-        ).strip()
+        execution_posture = str(frame.get("execution_posture") or "read_only").strip()
         if execution_posture not in {"read_only", "inherit"}:
             execution_posture = "read_only"
         if not name:
@@ -2309,9 +2279,7 @@ class CollieIPCServer:
 
     # -- connectors ---------------------------------------------------------------------
 
-    async def _cmd_list_connector_catalog(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_list_connector_catalog(self, connection: ServerConnection, frame: dict) -> dict:
         if self._service_manager is None:
             return {"connectors": []}
         return {"connectors": self._service_manager.catalog_view()}
@@ -2323,9 +2291,7 @@ class CollieIPCServer:
             return {"connections": []}
         return {"connections": self._service_manager.list_connections()}
 
-    async def _cmd_get_connector(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_get_connector(self, connection: ServerConnection, frame: dict) -> dict:
         if self._service_manager is None:
             raise ValueError("connectors aren't available yet")
         connection_id = str(frame.get("connection_id") or "")
@@ -2334,18 +2300,14 @@ class CollieIPCServer:
             raise ValueError("I couldn't find that connection.")
         return {"connection": item}
 
-    async def _cmd_begin_connector_auth(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_begin_connector_auth(self, connection: ServerConnection, frame: dict) -> dict:
         if self._service_manager is None:
             raise ValueError("connectors aren't available yet")
         provider_id = str(frame.get("provider_id") or "")
         origin = str(frame.get("origin") or "connectors_ui")
         connection_id = f"con_{uuid.uuid4().hex}"
         flow_id = f"caf_{uuid.uuid4().hex}"
-        replace_connection_id = (
-            str(frame.get("replace_connection_id") or "") or None
-        )
+        replace_connection_id = str(frame.get("replace_connection_id") or "") or None
         await self.broadcast(
             {
                 "type": "connector_auth_started",
@@ -2380,14 +2342,10 @@ class CollieIPCServer:
         result["flow_id"] = flow_id
         return result
 
-    async def _cmd_cancel_connector_auth(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_cancel_connector_auth(self, connection: ServerConnection, frame: dict) -> dict:
         if self._service_manager is None:
             raise ValueError("connectors aren't available yet")
-        result = self._service_manager.cancel_auth(
-            str(frame.get("connection_id") or "")
-        )
+        result = self._service_manager.cancel_auth(str(frame.get("connection_id") or ""))
         if result["cancelled"]:
             await self.broadcast(
                 {
@@ -2399,9 +2357,7 @@ class CollieIPCServer:
             )
         return result
 
-    async def _cmd_test_connector(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_test_connector(self, connection: ServerConnection, frame: dict) -> dict:
         if self._service_manager is None:
             raise ValueError("connectors aren't available yet")
         connection_id = str(frame.get("connection_id") or "")
@@ -2422,9 +2378,7 @@ class CollieIPCServer:
         )
         return {"connection": item}
 
-    async def _cmd_update_connector(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_update_connector(self, connection: ServerConnection, frame: dict) -> dict:
         if self._service_manager is None:
             raise ValueError("connectors aren't available yet")
         capabilities = frame.get("enabled_capabilities")
@@ -2432,14 +2386,10 @@ class CollieIPCServer:
             raise ValueError("enabled_capabilities must be a list")
         item = self._service_manager.update(
             str(frame.get("connection_id") or ""),
-            display_name=(
-                str(frame["display_name"]) if "display_name" in frame else None
-            ),
+            display_name=(str(frame["display_name"]) if "display_name" in frame else None),
             enabled_capabilities=capabilities,
             approval_preference=(
-                str(frame["approval_preference"])
-                if "approval_preference" in frame
-                else None
+                str(frame["approval_preference"]) if "approval_preference" in frame else None
             ),
         )
         await self.broadcast(
@@ -2451,9 +2401,7 @@ class CollieIPCServer:
         )
         return {"connection": item}
 
-    async def _cmd_remove_connector(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_remove_connector(self, connection: ServerConnection, frame: dict) -> dict:
         if self._service_manager is None:
             raise ValueError("connectors aren't available yet")
         result = self._service_manager.remove(
@@ -2464,9 +2412,7 @@ class CollieIPCServer:
         await self.broadcast({"type": "connector_removed", **result})
         return result
 
-    async def _cmd_list_connector_tools(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
+    async def _cmd_list_connector_tools(self, connection: ServerConnection, frame: dict) -> dict:
         connection_id = str(frame.get("connection_id") or "")
         return {"tools": self.db.list_connector_tools(connection_id)}
 
@@ -2476,11 +2422,7 @@ class CollieIPCServer:
         if self._service_manager is None:
             return {"services": []}
         view = getattr(self._service_manager, "legacy_catalog_view", None)
-        return {
-            "services": (
-                view() if callable(view) else self._service_manager.catalog_view()
-            )
-        }
+        return {"services": (view() if callable(view) else self._service_manager.catalog_view())}
 
     async def _cmd_connect_service(self, connection: ServerConnection, frame: dict) -> dict:
         if self._service_manager is None:
@@ -2489,9 +2431,7 @@ class CollieIPCServer:
         credentials = frame.get("credentials")
         if credentials is not None and not isinstance(credentials, dict):
             raise ValueError("credentials must be an object")
-        result = await asyncio.to_thread(
-            self._service_manager.connect, service_id, credentials
-        )
+        result = await asyncio.to_thread(self._service_manager.connect, service_id, credentials)
         result["reconfigured"] = await self._reconfigure_quietly()
         return result
 
@@ -2522,10 +2462,14 @@ class CollieIPCServer:
         if not isinstance(raw_attachments, list):
             raw_attachments = []
         if not content and not raw_attachments:
-            await self._send(connection, {
-                "type": "error", "id": frame.get("id"),
-                "message": "Say something and I'm on it!",
-            })
+            await self._send(
+                connection,
+                {
+                    "type": "error",
+                    "id": frame.get("id"),
+                    "message": "Say something and I'm on it!",
+                },
+            )
             return
         media_paths: list[str] = []
         attachment_meta: list[dict[str, Any]] = []
@@ -2538,11 +2482,16 @@ class CollieIPCServer:
                 logger=logger,
             )
             if rejection:
-                await self._send(connection, {
-                    "type": "error",
-                    "id": frame.get("id"),
-                    "message": _ATTACHMENT_ERRORS.get(rejection, "I could not attach that file."),
-                })
+                await self._send(
+                    connection,
+                    {
+                        "type": "error",
+                        "id": frame.get("id"),
+                        "message": _ATTACHMENT_ERRORS.get(
+                            rejection, "I could not attach that file."
+                        ),
+                    },
+                )
                 return
             for item, saved_path in zip(raw_attachments, media_paths, strict=False):
                 metadata = {
@@ -2565,11 +2514,14 @@ class CollieIPCServer:
                 or not project.is_dir()
                 or project_path.startswith(("\\\\", "//"))
             ):
-                await self._send(connection, {
-                    "type": "error",
-                    "id": frame.get("id"),
-                    "message": "That project folder is no longer available.",
-                })
+                await self._send(
+                    connection,
+                    {
+                        "type": "error",
+                        "id": frame.get("id"),
+                        "message": "That project folder is no longer available.",
+                    },
+                )
                 return
             project_path = str(project.resolve())
         conversation = self.db.get_conversation(conv_id) if conv_id else None
@@ -2585,11 +2537,14 @@ class CollieIPCServer:
                     selected_folder=selected_project_path,
                 )
             except WorkspaceScopeError as exc:
-                await self._send(connection, {
-                    "type": "error",
-                    "id": frame.get("id"),
-                    "message": f"That file access choice is not available: {exc.message}",
-                })
+                await self._send(
+                    connection,
+                    {
+                        "type": "error",
+                        "id": frame.get("id"),
+                        "message": f"That file access choice is not available: {exc.message}",
+                    },
+                )
                 return
             if unrestricted:
                 file_access_scope = {"mode": "full_file_access"}
@@ -2632,13 +2587,21 @@ class CollieIPCServer:
             user_msg = self.db.add_message(
                 conv_id, "user", content, attachments=attachment_meta or None
             )
-            await self._send(connection, {"type": "ok", "id": frame.get("id"), "data": {
-                "conversation_id": conv_id,
-                "message": user_msg,
-                "command_handled": False,
-            }})
-            await self.broadcast({"type": "message", "conversation_id": conv_id,
-                                  "message": user_msg})
+            await self._send(
+                connection,
+                {
+                    "type": "ok",
+                    "id": frame.get("id"),
+                    "data": {
+                        "conversation_id": conv_id,
+                        "message": user_msg,
+                        "command_handled": False,
+                    },
+                },
+            )
+            await self.broadcast(
+                {"type": "message", "conversation_id": conv_id, "message": user_msg}
+            )
             task = asyncio.create_task(
                 self._run_approval_command_task(
                     conv_id,
@@ -2651,10 +2614,7 @@ class CollieIPCServer:
             self._command_tasks.add(task)
             task.add_done_callback(self._command_tasks.discard)
             return
-        if (
-            self._command_runner is not None
-            and not raw_attachments
-        ):
+        if self._command_runner is not None and not raw_attachments:
             command_result = await self._command_runner(
                 content,
                 session_key=session_key,
@@ -2680,24 +2640,31 @@ class CollieIPCServer:
                     card_type=command_result.get("card_type"),
                     card_data=command_result.get("card_data"),
                 )
-                await self._send(connection, {
-                    "type": "ok",
-                    "id": frame.get("id"),
-                    "data": {
-                        "conversation_id": conv_id,
-                        "command_handled": True,
+                await self._send(
+                    connection,
+                    {
+                        "type": "ok",
+                        "id": frame.get("id"),
+                        "data": {
+                            "conversation_id": conv_id,
+                            "command_handled": True,
+                        },
                     },
-                })
-                await self.broadcast({
-                    "type": "message",
-                    "conversation_id": conv_id,
-                    "message": user_echo,
-                })
-                await self.broadcast({
-                    "type": "message",
-                    "conversation_id": conv_id,
-                    "message": assistant_msg,
-                })
+                )
+                await self.broadcast(
+                    {
+                        "type": "message",
+                        "conversation_id": conv_id,
+                        "message": user_echo,
+                    }
+                )
+                await self.broadcast(
+                    {
+                        "type": "message",
+                        "conversation_id": conv_id,
+                        "message": assistant_msg,
+                    }
+                )
                 return
             if command_result and command_result.get("starter_conversation"):
                 # /get-started (and desktop /start): open/seed the starter
@@ -2710,20 +2677,25 @@ class CollieIPCServer:
                 )
                 starter_conv_id = str(starter["conversation"]["id"])
                 if starter.get("greeting") is not None:
-                    await self.broadcast({
-                        "type": "message",
-                        "conversation_id": starter_conv_id,
-                        "message": starter["greeting"],
-                    })
-                await self._send(connection, {
-                    "type": "ok",
-                    "id": frame.get("id"),
-                    "data": {
-                        "conversation_id": starter_conv_id,
-                        "command_handled": True,
-                        "starter_conversation": True,
+                    await self.broadcast(
+                        {
+                            "type": "message",
+                            "conversation_id": starter_conv_id,
+                            "message": starter["greeting"],
+                        }
+                    )
+                await self._send(
+                    connection,
+                    {
+                        "type": "ok",
+                        "id": frame.get("id"),
+                        "data": {
+                            "conversation_id": starter_conv_id,
+                            "command_handled": True,
+                            "starter_conversation": True,
+                        },
                     },
-                })
+                )
                 return
             if command_result and not command_result.get("handled"):
                 agent_content = str(command_result.get("forward_prompt") or content)
@@ -2754,13 +2726,19 @@ class CollieIPCServer:
                 self._background_tasks.add(title_task)
                 title_task.add_done_callback(self._background_tasks.discard)
 
-        await self._send(connection, {"type": "ok", "id": frame.get("id"), "data": {
-            "conversation_id": conv_id,
-            "message": user_msg,
-            "command_handled": bool(command_result and command_result.get("handled")),
-        }})
-        await self.broadcast({"type": "message", "conversation_id": conv_id,
-                              "message": user_msg})
+        await self._send(
+            connection,
+            {
+                "type": "ok",
+                "id": frame.get("id"),
+                "data": {
+                    "conversation_id": conv_id,
+                    "message": user_msg,
+                    "command_handled": bool(command_result and command_result.get("handled")),
+                },
+            },
+        )
+        await self.broadcast({"type": "message", "conversation_id": conv_id, "message": user_msg})
 
         if command_result and command_result.get("handled"):
             assistant_msg = self.db.add_message(
@@ -2770,26 +2748,34 @@ class CollieIPCServer:
                 card_type=command_result.get("card_type"),
                 card_data=command_result.get("card_data"),
             )
-            await self.broadcast({
-                "type": "message",
-                "conversation_id": conv_id,
-                "message": assistant_msg,
-            })
+            await self.broadcast(
+                {
+                    "type": "message",
+                    "conversation_id": conv_id,
+                    "message": assistant_msg,
+                }
+            )
             return
 
         if self._chat_runner is None:
-            await self.broadcast({
-                "type": "error",
-                "conversation_id": conv_id,
-                "message": "I'm not hooked up to a model yet. Add a provider in Settings.",
-            })
+            await self.broadcast(
+                {
+                    "type": "error",
+                    "conversation_id": conv_id,
+                    "message": "I'm not hooked up to a model yet. Add a provider in Settings.",
+                }
+            )
             return
 
         if conv_id in self._chat_tasks and not self._chat_tasks[conv_id].done():
-            await self._send(connection, {
-                "type": "error", "id": frame.get("id"),
-                "message": "One sec — still chewing on the last one!",
-            })
+            await self._send(
+                connection,
+                {
+                    "type": "error",
+                    "id": frame.get("id"),
+                    "message": "One sec — still chewing on the last one!",
+                },
+            )
             return
 
         mode = str(
@@ -2849,11 +2835,13 @@ class CollieIPCServer:
             card_type=result.get("card_type"),
             card_data=result.get("card_data"),
         )
-        await self.broadcast({
-            "type": "message",
-            "conversation_id": conv_id,
-            "message": assistant_msg,
-        })
+        await self.broadcast(
+            {
+                "type": "message",
+                "conversation_id": conv_id,
+                "message": assistant_msg,
+            }
+        )
 
     async def _generate_conversation_title(
         self,
@@ -2870,10 +2858,12 @@ class CollieIPCServer:
                 return
             self.db.rename_conversation(conversation_id, title)
             updated = self.db.get_conversation(conversation_id)
-            await self.broadcast({
-                "type": "conversation_updated",
-                "conversation": updated,
-            })
+            await self.broadcast(
+                {
+                    "type": "conversation_updated",
+                    "conversation": updated,
+                }
+            )
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -2884,9 +2874,7 @@ class CollieIPCServer:
         task = self.db.get_run_task(run_id)
         if task is None:
             self.db.transition_run(run_id, "completed")
-            await self.broadcast(
-                {"type": "run_completed", "run": self.db.get_run(run_id)}
-            )
+            await self.broadcast({"type": "run_completed", "run": self.db.get_run(run_id)})
             return None
 
         change = self.db.get_plan_change_request(run_id)
@@ -2922,9 +2910,7 @@ class CollieIPCServer:
             str(step.get("status") or "") in {"completed", "skipped"} for step in steps
         ):
             self.db.transition_run(run_id, "completed")
-            await self.broadcast(
-                {"type": "run_completed", "run": self.db.get_run(run_id)}
-            )
+            await self.broadcast({"type": "run_completed", "run": self.db.get_run(run_id)})
         else:
             current = self.db.get_current_run_step(run_id)
             if current is not None:
@@ -2979,8 +2965,7 @@ class CollieIPCServer:
                 streamed = True
                 await self.send_thinking(conv_id, "generating")
             parts.append(delta)
-            await self.broadcast({"type": "delta", "conversation_id": conv_id,
-                                  "text": delta})
+            await self.broadcast({"type": "delta", "conversation_id": conv_id, "text": delta})
 
         async def on_superseded_response(content: str) -> None:
             """Deliver a complete answer that a mid-turn steer superseded.
@@ -2995,11 +2980,13 @@ class CollieIPCServer:
             if not content:
                 return
             superseded_msg = self.db.add_message(conv_id, "assistant", content)
-            await self.broadcast({
-                "type": "message",
-                "conversation_id": conv_id,
-                "message": superseded_msg,
-            })
+            await self.broadcast(
+                {
+                    "type": "message",
+                    "conversation_id": conv_id,
+                    "message": superseded_msg,
+                }
+            )
 
         async def finish_material_boundary() -> None:
             if not run_id:
@@ -3059,9 +3046,7 @@ class CollieIPCServer:
                         parsed = None
                     data = parsed if isinstance(parsed, dict) else None
                     terminal_message = (
-                        data.get("plan_change_terminal_message")
-                        if data is not None
-                        else None
+                        data.get("plan_change_terminal_message") if data is not None else None
                     )
                     if (
                         isinstance(terminal_message, dict)
@@ -3155,9 +3140,7 @@ class CollieIPCServer:
                         run_id,
                         str(current["step_key"]),
                         status="failed",
-                        error_message=str(
-                            event.get("error") or "Tool execution failed"
-                        )[:500],
+                        error_message=str(event.get("error") or "Tool execution failed")[:500],
                     )
                     failed_step = next(
                         (
@@ -3195,8 +3178,7 @@ class CollieIPCServer:
                 chat_kwargs["message_metadata"] = dict(message_metadata)
             parameters = inspect.signature(self._chat_runner).parameters
             accepts_extra = any(
-                item.kind == inspect.Parameter.VAR_KEYWORD
-                for item in parameters.values()
+                item.kind == inspect.Parameter.VAR_KEYWORD for item in parameters.values()
             )
             if not accepts_extra:
                 chat_kwargs = {
@@ -3267,11 +3249,13 @@ class CollieIPCServer:
                     self._renderer_task(terminal_task) if terminal_task is not None else None
                 ),
             )
-            await self.broadcast({
-                "type": "message",
-                "conversation_id": conv_id,
-                "message": stopped_message,
-            })
+            await self.broadcast(
+                {
+                    "type": "message",
+                    "conversation_id": conv_id,
+                    "message": stopped_message,
+                }
+            )
             return
         except Exception as e:
             if run_id:
@@ -3307,9 +3291,7 @@ class CollieIPCServer:
                         error_code=type(e).__name__,
                         error_message=str(e)[:1000],
                     )
-                    await self.broadcast(
-                        {"type": "run_failed", "run": self.db.get_run(run_id)}
-                    )
+                    await self.broadcast({"type": "run_failed", "run": self.db.get_run(run_id)})
                     terminal_task = self.db.get_run_task(run_id)
                     await self._broadcast_task_state(terminal_task)
             else:
@@ -3371,9 +3353,7 @@ class CollieIPCServer:
                 card_type=card_type,
                 card_data=card_data,
                 task_state=(
-                    self._renderer_task(terminal_task)
-                    if terminal_task is not None
-                    else None
+                    self._renderer_task(terminal_task) if terminal_task is not None else None
                 ),
             )
             await self.broadcast(
@@ -3385,11 +3365,14 @@ class CollieIPCServer:
             )
             logger.exception("Chat turn failed for {}", conv_id)
             await self.send_thinking(conv_id, "error")
-            await self.broadcast({
-                "type": "error", "conversation_id": conv_id,
-                "message": "Uh oh. That didn't go as planned. Try again?",
-                "detail": str(e),
-            })
+            await self.broadcast(
+                {
+                    "type": "error",
+                    "conversation_id": conv_id,
+                    "message": "Uh oh. That didn't go as planned. Try again?",
+                    "detail": str(e),
+                }
+            )
             return
 
         if run_id:
@@ -3407,11 +3390,7 @@ class CollieIPCServer:
             terminal_task = await self._finalize_plan_run_task(run_id)
         else:
             active = self.db.get_active_task(conv_id)
-            if (
-                active is not None
-                and active.get("source") == "checklist"
-                and not still_working
-            ):
+            if active is not None and active.get("source") == "checklist" and not still_working:
                 failing = active.get("current_step_key") or next(
                     (
                         step["key"]
@@ -3453,19 +3432,23 @@ class CollieIPCServer:
             if change is not None and change.get("terminal_message_id"):
                 message_task = None
         assistant_msg = self.db.add_message(
-            conv_id, "assistant", final or "",
-            card_type=card_type, card_data=card_data,
-            task_state=(
-                self._renderer_task(message_task) if message_task is not None else None
-            ),
+            conv_id,
+            "assistant",
+            final or "",
+            card_type=card_type,
+            card_data=card_data,
+            task_state=(self._renderer_task(message_task) if message_task is not None else None),
         )
         # If the turn handed work to a subagent, keep the bar on "buddy" —
         # the runtime's outbound consumer sends "done" when the result lands.
         await self.send_thinking(conv_id, "buddy" if still_working else "done")
-        await self.broadcast({
-            "type": "message", "conversation_id": conv_id,
-            "message": assistant_msg,
-        })
+        await self.broadcast(
+            {
+                "type": "message",
+                "conversation_id": conv_id,
+                "message": assistant_msg,
+            }
+        )
 
     @staticmethod
     def _extract_card(tool_results: list[str]) -> tuple[str | None, Any]:
@@ -3512,11 +3495,13 @@ class CollieIPCServer:
             if entry_id in seen:
                 continue
             seen.add(str(entry_id))
-            files.append({
-                "path": path,
-                "status": "added" if operation == "create" else "modified",
-                "undo_entry_id": str(entry_id),
-            })
+            files.append(
+                {
+                    "path": path,
+                    "status": "added" if operation == "create" else "modified",
+                    "undo_entry_id": str(entry_id),
+                }
+            )
         if not files:
             return None, None
         return "files_changed", {"files": files, "conversation_id": conversation_id}

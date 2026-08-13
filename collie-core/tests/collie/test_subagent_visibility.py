@@ -58,8 +58,7 @@ async def test_chat_turn_ends_in_buddy_state_while_subagent_runs(tmp_path: Path)
             frame = json.loads(await asyncio.wait_for(ws.recv(), 5))
             if frame["type"] == "thinking":
                 states.append(frame["state"])
-            elif (frame["type"] == "message"
-                  and frame["message"]["role"] == "assistant"):
+            elif frame["type"] == "message" and frame["message"]["role"] == "assistant":
                 assistant = frame["message"]
         assert states[-1] == "buddy"
         assert "done" not in states
@@ -92,18 +91,29 @@ async def test_outbound_consumer_delivers_subagent_result(tmp_path: Path, monkey
     task = asyncio.create_task(runtime._consume_outbound())
     try:
         # A message for another channel is ignored
-        await bus.publish_outbound(OutboundMessage(
-            channel="telegram", chat_id="x", content="nope",
-        ))
+        await bus.publish_outbound(
+            OutboundMessage(
+                channel="telegram",
+                chat_id="x",
+                content="nope",
+            )
+        )
         # A message for a deleted conversation is ignored
-        await bus.publish_outbound(OutboundMessage(
-            channel="collie", chat_id="gone", content="nope",
-        ))
+        await bus.publish_outbound(
+            OutboundMessage(
+                channel="collie",
+                chat_id="gone",
+                content="nope",
+            )
+        )
         # The subagent result lands in the conversation
-        await bus.publish_outbound(OutboundMessage(
-            channel="collie", chat_id=conv["id"],
-            content="Trip Planner here — Barcelona is sorted!",
-        ))
+        await bus.publish_outbound(
+            OutboundMessage(
+                channel="collie",
+                chat_id=conv["id"],
+                content="Trip Planner here — Barcelona is sorted!",
+            )
+        )
         for _ in range(100):
             if any(b.get("type") == "message" for b in broadcasts):
                 break
@@ -151,9 +161,13 @@ async def test_outbound_consumer_keeps_buddy_state_when_more_running(
     monkeypatch.setattr(runtime.ipc, "broadcast", capture)
     task = asyncio.create_task(runtime._consume_outbound())
     try:
-        await bus.publish_outbound(OutboundMessage(
-            channel="collie", chat_id=conv["id"], content="First buddy done!",
-        ))
+        await bus.publish_outbound(
+            OutboundMessage(
+                channel="collie",
+                chat_id=conv["id"],
+                content="First buddy done!",
+            )
+        )
         for _ in range(100):
             if any(b.get("type") == "thinking" for b in broadcasts):
                 break

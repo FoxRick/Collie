@@ -25,9 +25,7 @@ def db(tmp_path: Path) -> CollieDB:
 
 def test_seed_builtins_once_and_not_resurrected(db: CollieDB) -> None:
     seed_builtin_automations(db)
-    assert {a["id"] for a in db.list_automations()} == {
-        a["id"] for a in BUILTIN_AUTOMATIONS
-    }
+    assert {a["id"] for a in db.list_automations()} == {a["id"] for a in BUILTIN_AUTOMATIONS}
     # A deletion must NOT be resurrected by a later seed.
     db.delete_automation("collie-morning-briefing")
     seed_builtin_automations(db)

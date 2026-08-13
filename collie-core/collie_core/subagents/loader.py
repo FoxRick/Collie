@@ -208,7 +208,7 @@ class SubagentLoader:
         body = raw
         match = _FRONTMATTER.match(raw)
         if match:
-            body = raw[match.end():]
+            body = raw[match.end() :]
             try:
                 meta = yaml.safe_load(match.group(1)) or {}
             except yaml.YAMLError:
@@ -242,8 +242,7 @@ class SubagentLoader:
         path = self.dir / filename
         if path.exists():
             raise ValueError(
-                f"You already have a helper called '{name}'. "
-                "Edit it, or pick another name!"
+                f"You already have a helper called '{name}'. Edit it, or pick another name!"
             )
         path.write_text(
             self._render(name, description, prompt, execution_posture),

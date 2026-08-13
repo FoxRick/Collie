@@ -101,9 +101,7 @@ async def test_dream_updates_memory_and_advances_cursor(tmp_path: Path, db: Coll
     loop.subagents.runner.responses.append(_result(proposed))
 
     versions = VersionStore(db)
-    outcome = await run_dream(
-        workspace=workspace, db=db, loop=loop, version_store=versions
-    )
+    outcome = await run_dream(workspace=workspace, db=db, loop=loop, version_store=versions)
 
     assert outcome["changed"] is True
     assert outcome["version_id"] is not None
@@ -134,17 +132,13 @@ async def test_dream_no_new_history_is_noop(tmp_path: Path, db: CollieDB) -> Non
     workspace = tmp_path / "workspace"
     workspace.mkdir(parents=True, exist_ok=True)
     loop = FakeLoop(workspace)
-    outcome = await run_dream(
-        workspace=workspace, db=db, loop=loop, version_store=VersionStore(db)
-    )
+    outcome = await run_dream(workspace=workspace, db=db, loop=loop, version_store=VersionStore(db))
     assert outcome["changed"] is False
     assert outcome["reason"] == "no_new_history"
     assert not (workspace / "memory" / "MEMORY.md").exists()
 
 
-async def test_dream_no_change_second_run_advances_cursor(
-    tmp_path: Path, db: CollieDB
-) -> None:
+async def test_dream_no_change_second_run_advances_cursor(tmp_path: Path, db: CollieDB) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir(parents=True, exist_ok=True)
     loop = FakeLoop(workspace)
@@ -163,9 +157,7 @@ async def test_dream_no_change_second_run_advances_cursor(
     assert built is not None
     _, cursor2 = built
     loop.subagents.runner.responses.append(_result(proposed))
-    outcome = await run_dream(
-        workspace=workspace, db=db, loop=loop, version_store=VersionStore(db)
-    )
+    outcome = await run_dream(workspace=workspace, db=db, loop=loop, version_store=VersionStore(db))
     assert outcome["changed"] is False
     assert outcome["reason"] == "no_content_change"
     # History is processed even when nothing changed — no re-processing loop.
@@ -174,9 +166,7 @@ async def test_dream_no_change_second_run_advances_cursor(
     assert len(db.list_artifact_versions(artifact_type="memory_dream")) == 1
 
 
-async def test_dream_error_does_not_advance_cursor_or_write(
-    tmp_path: Path, db: CollieDB
-) -> None:
+async def test_dream_error_does_not_advance_cursor_or_write(tmp_path: Path, db: CollieDB) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir(parents=True, exist_ok=True)
     loop = FakeLoop(workspace)
@@ -184,18 +174,14 @@ async def test_dream_error_does_not_advance_cursor_or_write(
     store.append_history("Entry.")
     loop.subagents.runner.responses.append(_result("", stop_reason="error"))
 
-    outcome = await run_dream(
-        workspace=workspace, db=db, loop=loop, version_store=VersionStore(db)
-    )
+    outcome = await run_dream(workspace=workspace, db=db, loop=loop, version_store=VersionStore(db))
     assert outcome["changed"] is False
     assert store.get_last_dream_cursor() == 0
     assert not (workspace / "memory" / "MEMORY.md").exists()
     assert db.list_artifact_versions(artifact_type="memory_dream") == []
 
 
-async def test_dream_rollback_restores_prior_memory(
-    tmp_path: Path, db: CollieDB
-) -> None:
+async def test_dream_rollback_restores_prior_memory(tmp_path: Path, db: CollieDB) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir(parents=True, exist_ok=True)
     loop = FakeLoop(workspace)
@@ -208,9 +194,7 @@ async def test_dream_rollback_restores_prior_memory(
 
     memory_file = workspace / "memory" / "MEMORY.md"
     current = memory_file.read_text(encoding="utf-8")
-    result = versions.rollback(
-        "memory_dream", "MEMORY.md", current_text=current
-    )
+    result = versions.rollback("memory_dream", "MEMORY.md", current_text=current)
     memory_file.write_text(result["restored_text"], encoding="utf-8")
     assert memory_file.read_text(encoding="utf-8").strip() == ""
     assert db.list_artifact_versions(artifact_type="memory_dream")[0]["status"] == "rolled_back"
@@ -239,18 +223,14 @@ async def test_dream_fenced_response_is_extracted(tmp_path: Path, db: CollieDB) 
     loop.subagents.runner.responses.append(
         _result("```markdown\n# Long-term Memory\n- Entry.\n```")
     )
-    outcome = await run_dream(
-        workspace=workspace, db=db, loop=loop, version_store=VersionStore(db)
-    )
+    outcome = await run_dream(workspace=workspace, db=db, loop=loop, version_store=VersionStore(db))
     assert outcome["changed"] is True
     memory_file = workspace / "memory" / "MEMORY.md"
     assert "# Long-term Memory" in memory_file.read_text(encoding="utf-8")
     assert "```" not in memory_file.read_text(encoding="utf-8")
 
 
-def test_seed_gardener_automations_once_and_never_resurrects(
-    tmp_path: Path, db: CollieDB
-) -> None:
+def test_seed_gardener_automations_once_and_never_resurrects(tmp_path: Path, db: CollieDB) -> None:
     seed_gardener_automations(db)
     automations = {a["id"]: a for a in db.list_automations()}
     assert "collie-memory-maintenance" in automations

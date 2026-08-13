@@ -21,6 +21,7 @@ class FakeToken(SimpleNamespace):
 @pytest.fixture()
 def fake_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Point both providers' token storage at tmp files."""
+
     class _Storage:
         def __init__(self, name: str):
             self._path = tmp_path / name
@@ -31,11 +32,13 @@ def fake_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     codex = _Storage("codex.json")
     claude = _Storage("claude.json")
     monkeypatch.setattr(
-        collie_auth, "_codex_provider_and_storage",
+        collie_auth,
+        "_codex_provider_and_storage",
         lambda: (SimpleNamespace(token_filename="codex.json"), codex),
     )
     monkeypatch.setattr(
-        collie_auth, "_claude_provider_and_storage",
+        collie_auth,
+        "_claude_provider_and_storage",
         lambda: (SimpleNamespace(token_filename="claude.json"), claude),
     )
     return {"codex": codex, "claude": claude}
@@ -61,6 +64,7 @@ def test_login_uses_cached_token(fake_storage, monkeypatch: pytest.MonkeyPatch) 
         return FakeToken(access="tok-new", account_id="acct-1")
 
     import oauth_cli_kit
+
     monkeypatch.setattr(oauth_cli_kit, "get_token", fake_get_token)
     monkeypatch.setattr(oauth_cli_kit, "login_oauth_interactive", fake_interactive)
 
@@ -77,6 +81,7 @@ def test_login_falls_back_to_interactive(fake_storage, monkeypatch: pytest.Monke
         return FakeToken(access="tok-new", account_id="acct-2")
 
     import oauth_cli_kit
+
     monkeypatch.setattr(oauth_cli_kit, "get_token", fake_get_token)
     monkeypatch.setattr(oauth_cli_kit, "login_oauth_interactive", fake_interactive)
 
@@ -87,12 +92,15 @@ def test_login_falls_back_to_interactive(fake_storage, monkeypatch: pytest.Monke
 
 def test_login_failure_is_friendly(fake_storage, monkeypatch: pytest.MonkeyPatch) -> None:
     import oauth_cli_kit
+
     monkeypatch.setattr(
-        oauth_cli_kit, "get_token",
+        oauth_cli_kit,
+        "get_token",
         lambda **kwargs: None,
     )
     monkeypatch.setattr(
-        oauth_cli_kit, "login_oauth_interactive",
+        oauth_cli_kit,
+        "login_oauth_interactive",
         lambda **kwargs: FakeToken(access=None),
     )
     with pytest.raises(ValueError, match="another go"):
@@ -109,8 +117,10 @@ def test_logout_removes_token_files(fake_storage) -> None:
 
 def test_oauth_status(fake_storage, monkeypatch: pytest.MonkeyPatch) -> None:
     import oauth_cli_kit
+
     monkeypatch.setattr(
-        oauth_cli_kit, "get_token",
+        oauth_cli_kit,
+        "get_token",
         lambda **kwargs: FakeToken(access="tok", account_id="a-9"),
     )
     status = collie_auth.oauth_status("chatgpt")
@@ -126,9 +136,7 @@ def test_claude_oauth_provider_config() -> None:
 
     assert ANTHROPIC_OAUTH_PROVIDER.authorize_url.startswith("https://claude.ai/")
     assert "user:inference" in ANTHROPIC_OAUTH_PROVIDER.scope
-    assert ANTHROPIC_OAUTH_PROVIDER.redirect_uri == (
-        "http://localhost:1455/auth/callback"
-    )
+    assert ANTHROPIC_OAUTH_PROVIDER.redirect_uri == ("http://localhost:1455/auth/callback")
     assert ANTHROPIC_OAUTH_PROVIDER.token_filename == "claude.json"
 
 
@@ -319,6 +327,7 @@ def test_runtime_provider_override(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
     runtime.db.set_setting("provider.auth", "claude-oauth")
     from collie_core.providers import claude_oauth
+
     monkeypatch.setattr(claude_oauth, "_current_access_token", lambda: "tok")
     provider = runtime._provider_override()
     assert type(provider).__name__ == "ClaudeOAuthProvider"
@@ -338,7 +347,7 @@ def _fake_protect(data: bytes) -> bytes:
 
 def _fake_unprotect(data: bytes) -> bytes:
     assert data.startswith(b"FAKE:")
-    return data[len(b"FAKE:"):]
+    return data[len(b"FAKE:") :]
 
 
 @pytest.fixture()
@@ -395,8 +404,14 @@ def test_dpapi_token_storage_real_encryption(tmp_path: Path, monkeypatch) -> Non
     from collie_core.providers.storage import DpapiTokenStorage
 
     storage = DpapiTokenStorage(token_filename="codex.json")
-    storage.save(FakeToken(access="super-secret-access", refresh="super-secret-refresh",
-                           expires=1234, account_id="a1"))
+    storage.save(
+        FakeToken(
+            access="super-secret-access",
+            refresh="super-secret-refresh",
+            expires=1234,
+            account_id="a1",
+        )
+    )
     blob = storage.get_token_path()
     raw = blob.read_bytes()
     assert raw.startswith(b"COLLIE-DPAPI\x00")
@@ -415,8 +430,7 @@ def test_dpapi_token_storage_migrates_plaintext_legacy(
     legacy_path = tmp_path / "legacy" / "auth" / "codex.json"
     legacy_path.parent.mkdir(parents=True)
     legacy_path.write_text(
-        json.dumps({"access": "old", "refresh": "old-refresh",
-                    "expires": 99, "account_id": "a9"}),
+        json.dumps({"access": "old", "refresh": "old-refresh", "expires": 99, "account_id": "a9"}),
         encoding="utf-8",
     )
 
@@ -428,7 +442,8 @@ def test_dpapi_token_storage_migrates_plaintext_legacy(
             from oauth_cli_kit.storage import FileTokenStorage
 
             return FileTokenStorage(
-                token_filename="codex.json", data_dir=tmp_path / "legacy",
+                token_filename="codex.json",
+                data_dir=tmp_path / "legacy",
                 import_codex_cli=False,
             ).load()
 
@@ -436,7 +451,8 @@ def test_dpapi_token_storage_migrates_plaintext_legacy(
             from oauth_cli_kit.storage import FileTokenStorage
 
             FileTokenStorage(
-                token_filename="codex.json", data_dir=tmp_path / "legacy",
+                token_filename="codex.json",
+                data_dir=tmp_path / "legacy",
                 import_codex_cli=False,
             ).save(token)
 

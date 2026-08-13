@@ -45,11 +45,7 @@ class CredentialStoreTokenStorage:
         from mcp.shared.auth import OAuthClientInformationFull
 
         data = self._load().get("client_info")
-        return (
-            OAuthClientInformationFull.model_validate(data)
-            if isinstance(data, dict)
-            else None
-        )
+        return OAuthClientInformationFull.model_validate(data) if isinstance(data, dict) else None
 
     async def set_client_info(self, client_info: Any) -> None:
         self._save_part("client_info", client_info)
@@ -62,8 +58,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         parsed = urllib.parse.urlparse(self.path)
         type(self).result = {
-            key: values[0]
-            for key, values in urllib.parse.parse_qs(parsed.query).items()
+            key: values[0] for key, values in urllib.parse.parse_qs(parsed.query).items()
         }
         body = _SUCCESS
         self.send_response(200)
@@ -88,17 +83,13 @@ class LoopbackOAuthReceiver:
         )
         self.handler = handler
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
-        self.redirect_uri = (
-            f"http://127.0.0.1:{self.server.server_port}/callback"
-        )
+        self.redirect_uri = f"http://127.0.0.1:{self.server.server_port}/callback"
         self._started = False
 
     async def redirect(self, authorization_url: str) -> None:
         if not self._started:
             self._started = True
-            threading.Thread(
-                target=self.server.serve_forever, daemon=True
-            ).start()
+            threading.Thread(target=self.server.serve_forever, daemon=True).start()
         webbrowser.open(authorization_url)
 
     async def callback(self) -> tuple[str, str | None]:
@@ -161,4 +152,3 @@ def build_oauth_provider(
         callback_handler=callback_handler,
         timeout=300,
     )
-

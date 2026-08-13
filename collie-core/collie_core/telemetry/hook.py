@@ -55,13 +55,11 @@ def turn_kind_for_session_key(session_key: str | None) -> str:
 def conversation_id_for_session_key(session_key: str | None) -> str | None:
     """Desktop conversations use ``collie:<conversation_id>`` engine keys."""
     if session_key and session_key.startswith("collie:"):
-        return session_key[len("collie:"):]
+        return session_key[len("collie:") :]
     return None
 
 
-def resolve_turn_kind(
-    session_key: str | None, metadata: dict[str, Any] | None = None
-) -> str:
+def resolve_turn_kind(session_key: str | None, metadata: dict[str, Any] | None = None) -> str:
     """Resolve the turn kind from metadata first, then the session key.
 
     Subagents pass an explicit ``turn_kind`` hint; routines dispatch via
@@ -73,9 +71,7 @@ def resolve_turn_kind(
     if hint in _KNOWN_TURN_KINDS:
         return hint
     permission_context = (metadata or {}).get("permission_context") or {}
-    if permission_context.get("origin") == "routine" or permission_context.get(
-        "routine_id"
-    ):
+    if permission_context.get("origin") == "routine" or permission_context.get("routine_id"):
         return "routine"
     if permission_context.get("execution_mode") == "plan":
         return "plan"

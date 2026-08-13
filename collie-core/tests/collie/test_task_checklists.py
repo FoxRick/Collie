@@ -457,12 +457,8 @@ async def test_active_task_reopens_after_core_restart_without_cross_conversation
     server = CollieIPCServer(reopened)
 
     try:
-        owner_result = await server._cmd_get_active_task(
-            None, {"conversation_id": owner["id"]}
-        )  # type: ignore[arg-type]
-        other_result = await server._cmd_get_active_task(
-            None, {"conversation_id": other["id"]}
-        )  # type: ignore[arg-type]
+        owner_result = await server._cmd_get_active_task(None, {"conversation_id": owner["id"]})  # type: ignore[arg-type]
+        other_result = await server._cmd_get_active_task(None, {"conversation_id": other["id"]})  # type: ignore[arg-type]
         assert owner_result["task"]["id"] == task["id"]
         assert other_result == {"task": None}
     finally:
@@ -535,9 +531,7 @@ async def test_task_tool_routes_review_required_create_metadata_to_present_plan(
     "missing_key",
     ["services", "material_commitment", "unstable_success_criterion", "requires_review"],
 )
-async def test_task_tool_requires_explicit_review_metadata(
-    db: CollieDB, missing_key: str
-) -> None:
+async def test_task_tool_requires_explicit_review_metadata(db: CollieDB, missing_key: str) -> None:
     conversation = db.create_conversation("Explicit review metadata")
     tool = ManageTaskChecklistTool()
     metadata = _review_metadata()
@@ -598,14 +592,35 @@ def test_review_gate_survives_reopen_and_blocks_non_read_actions_after_allows(
             scope_type="global",
         )
 
-        assert evaluator.evaluate(
-            context,
-            _permission_request("file.write", Risk.LOCAL_WRITE, approve_for_me=False),
-        ).effect == Effect.DENY
-        assert evaluator.evaluate(context, _permission_request("external.send", Risk.EXTERNAL_WRITE)).effect == Effect.DENY
-        assert evaluator.evaluate(context, _permission_request("file.read", Risk.READ)).effect == Effect.ALLOW
-        assert evaluator.evaluate(context, _permission_request("plan.present", Risk.LOCAL_WRITE)).effect == Effect.ALLOW
-        assert evaluator.evaluate(context, _permission_request("task.progress", Risk.LOCAL_WRITE)).effect == Effect.ALLOW
+        assert (
+            evaluator.evaluate(
+                context,
+                _permission_request("file.write", Risk.LOCAL_WRITE, approve_for_me=False),
+            ).effect
+            == Effect.DENY
+        )
+        assert (
+            evaluator.evaluate(
+                context, _permission_request("external.send", Risk.EXTERNAL_WRITE)
+            ).effect
+            == Effect.DENY
+        )
+        assert (
+            evaluator.evaluate(context, _permission_request("file.read", Risk.READ)).effect
+            == Effect.ALLOW
+        )
+        assert (
+            evaluator.evaluate(
+                context, _permission_request("plan.present", Risk.LOCAL_WRITE)
+            ).effect
+            == Effect.ALLOW
+        )
+        assert (
+            evaluator.evaluate(
+                context, _permission_request("task.progress", Risk.LOCAL_WRITE)
+            ).effect
+            == Effect.ALLOW
+        )
 
         reopened.add_approval_rule(
             action="task.progress",
@@ -613,7 +628,12 @@ def test_review_gate_survives_reopen_and_blocks_non_read_actions_after_allows(
             effect="deny",
             scope_type="global",
         )
-        assert evaluator.evaluate(context, _permission_request("task.progress", Risk.LOCAL_WRITE)).effect == Effect.DENY
+        assert (
+            evaluator.evaluate(
+                context, _permission_request("task.progress", Risk.LOCAL_WRITE)
+            ).effect
+            == Effect.DENY
+        )
     finally:
         reopened.close()
 
@@ -636,8 +656,16 @@ def test_no_review_gate_leaves_safe_actions_and_explicit_allows_unchanged(db: Co
     context = ExecutionContext(conversation_id=str(conversation["id"]))
 
     assert db.get_conversation_review_gate(str(conversation["id"])) is None
-    assert evaluator.evaluate(context, _permission_request("file.write", Risk.LOCAL_WRITE)).effect == Effect.ALLOW
-    assert evaluator.evaluate(context, _permission_request("external.send", Risk.EXTERNAL_WRITE)).effect == Effect.ALLOW
+    assert (
+        evaluator.evaluate(context, _permission_request("file.write", Risk.LOCAL_WRITE)).effect
+        == Effect.ALLOW
+    )
+    assert (
+        evaluator.evaluate(
+            context, _permission_request("external.send", Risk.EXTERNAL_WRITE)
+        ).effect
+        == Effect.ALLOW
+    )
 
 
 @pytest.mark.asyncio
@@ -664,9 +692,7 @@ async def test_review_gate_rejects_later_ordinary_checklist_and_survives_task_up
         step_key="inspect",
         status="in_progress",
     )
-    db.cancel_task_checklist(
-        checklist["id"], expected_revision=updated["revision"], reason="Stop."
-    )
+    db.cancel_task_checklist(checklist["id"], expected_revision=updated["revision"], reason="Stop.")
     assert db.get_conversation_review_gate(str(conversation["id"]))["reasons"] == reasons
 
 
@@ -690,7 +716,10 @@ def test_claiming_reviewed_plan_clears_gate_and_restores_planned_writes(db: Coll
     context = ExecutionContext(conversation_id=str(conversation["id"]), run_id=claim["run"]["id"])
 
     assert db.get_conversation_review_gate(str(conversation["id"])) is None
-    assert evaluator.evaluate(context, _permission_request("file.write", Risk.LOCAL_WRITE)).effect == Effect.ALLOW
+    assert (
+        evaluator.evaluate(context, _permission_request("file.write", Risk.LOCAL_WRITE)).effect
+        == Effect.ALLOW
+    )
 
 
 @pytest.mark.asyncio
@@ -931,8 +960,7 @@ async def test_plan_run_advances_only_on_explicit_task_update_not_tool_cursor(
         assert db.list_run_steps(str(run["id"]))[1]["status"] == "queued"
         assert db.get_run(str(run["id"]))["error_code"] == "incomplete_plan"
         assert any(
-            frame.get("type") == "task_state"
-            and frame.get("conversation_id") == conversation["id"]
+            frame.get("type") == "task_state" and frame.get("conversation_id") == conversation["id"]
             for frame in recorder.frames
         )
     finally:
@@ -1179,7 +1207,9 @@ async def test_completed_checklist_is_persisted_on_final_assistant_with_card_dat
                 operation="create", goal="Plan a trip", steps=_steps(), **_review_metadata()
             )
             await on_progress(
-                tool_events=[{"phase": "end", "name": "manage_task_checklist", "result": str(created)}]
+                tool_events=[
+                    {"phase": "end", "name": "manage_task_checklist", "result": str(created)}
+                ]
             )
             task = json.loads(str(created))["task"]
             for step in _steps():
@@ -1220,7 +1250,9 @@ async def test_completed_checklist_is_persisted_on_final_assistant_with_card_dat
                 expected_revision=task["revision"],
             )
             await on_progress(
-                tool_events=[{"phase": "end", "name": "manage_task_checklist", "result": str(terminal)}]
+                tool_events=[
+                    {"phase": "end", "name": "manage_task_checklist", "result": str(terminal)}
+                ]
             )
         await on_progress(
             tool_events=[
@@ -1266,7 +1298,9 @@ async def test_cancelled_checklist_is_persisted_with_pending_steps_unchanged(
                 status="in_progress",
             )
             await on_progress(
-                tool_events=[{"phase": "end", "name": "manage_task_checklist", "result": str(started)}]
+                tool_events=[
+                    {"phase": "end", "name": "manage_task_checklist", "result": str(started)}
+                ]
             )
         raise asyncio.CancelledError()
 
@@ -1342,9 +1376,7 @@ def test_claim_plan_execution_cancels_an_active_ordinary_checklist(db: CollieDB)
 def test_plan_change_request_and_finalize_preserve_run_truth(db: CollieDB) -> None:
     conversation = db.create_conversation("Reviewed work")
     run = _claim_plan_run(db, str(conversation["id"]))
-    db.update_run_task_step(
-        str(run["id"]), "inspect", status="in_progress", summary="Started."
-    )
+    db.update_run_task_step(str(run["id"]), "inspect", status="in_progress", summary="Started.")
     db.upsert_run_step(
         str(run["id"]),
         "inspect",
@@ -1463,15 +1495,11 @@ async def test_change_plan_waits_for_all_overlapping_material_boundaries(
         observed["requested"] = requested
         observed["before_first_end_messages"] = db.get_messages(conversation_id)
 
-        await on_progress(
-            tool_events=[{"phase": "end", "name": "write_file", "result": "written"}]
-        )
+        await on_progress(tool_events=[{"phase": "end", "name": "write_file", "result": "written"}])
         observed["after_first_end_run"] = db.get_run(str(run["id"]))
         observed["after_first_end_messages"] = db.get_messages(conversation_id)
 
-        await on_progress(
-            tool_events=[{"phase": "end", "name": "send_email", "result": "sent"}]
-        )
+        await on_progress(tool_events=[{"phase": "end", "name": "send_email", "result": "sent"}])
         return _Outbound()
 
     server = CollieIPCServer(db, chat_runner=runner)

@@ -85,9 +85,7 @@ class ThingStore:
         """All things for a conversation, newest first (empty for unknown)."""
         return self._load(conversation_id)
 
-    def get(
-        self, conversation_id: str, thing_id: str
-    ) -> ThingRecord | None:
+    def get(self, conversation_id: str, thing_id: str) -> ThingRecord | None:
         """One registered thing by id, or ``None``. Safe for unknown ids."""
         for record in self._load(conversation_id):
             if record.get("id") == thing_id:
@@ -115,9 +113,7 @@ class ThingStore:
 
     def _index_path(self, conversation_id: str) -> Path:
         if not _SAFE_CONVERSATION_ID.match(conversation_id or ""):
-            raise ValueError(
-                f"conversation_id {conversation_id!r} is not safe for an index file"
-            )
+            raise ValueError(f"conversation_id {conversation_id!r} is not safe for an index file")
         return self._dir / f"{conversation_id}.json"
 
     def _load(self, conversation_id: str) -> list[ThingRecord]:

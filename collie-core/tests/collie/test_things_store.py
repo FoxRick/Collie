@@ -119,7 +119,9 @@ def test_get_returns_one_record_or_none(store: ThingStore) -> None:
 def test_delete_removes_index_but_keeps_deliverables(store: ThingStore, tmp_path: Path) -> None:
     deliverable = tmp_path / "flyer.png"
     deliverable.write_bytes(b"png")
-    store.register(conversation_id="conv-1", artifact_id="th_a", **{**RECORD_KW, "path": str(deliverable)})
+    store.register(
+        conversation_id="conv-1", artifact_id="th_a", **{**RECORD_KW, "path": str(deliverable)}
+    )
 
     assert store.delete("conv-1") is True
     assert store.list("conv-1") == []

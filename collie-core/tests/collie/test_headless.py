@@ -47,12 +47,17 @@ def _fake_openai_app(*, delay_s: float = 0.0) -> web.Application:
                     "id": "chatcmpl-fake",
                     "object": "chat.completion.chunk",
                     "model": body["model"],
-                    "choices": [{
-                        "index": 0,
-                        "delta": ({"role": "assistant", "content": text}
-                                  if i == 0 else {"content": text}),
-                        "finish_reason": None,
-                    }],
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": (
+                                {"role": "assistant", "content": text}
+                                if i == 0
+                                else {"content": text}
+                            ),
+                            "finish_reason": None,
+                        }
+                    ],
                 }
                 await resp.write(f"data: {json.dumps(payload)}\n\n".encode())
             done = {
@@ -60,24 +65,27 @@ def _fake_openai_app(*, delay_s: float = 0.0) -> web.Application:
                 "object": "chat.completion.chunk",
                 "model": body["model"],
                 "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-                "usage": {"prompt_tokens": 20, "completion_tokens": 6,
-                          "total_tokens": 26},
+                "usage": {"prompt_tokens": 20, "completion_tokens": 6, "total_tokens": 26},
             }
             await resp.write(f"data: {json.dumps(done)}\n\n".encode())
             await resp.write(b"data: [DONE]\n\n")
             await resp.write_eof()
             return resp
-        return web.json_response({
-            "id": "chatcmpl-fake",
-            "object": "chat.completion",
-            "model": body["model"],
-            "choices": [{
-                "index": 0,
-                "message": {"role": "assistant", "content": "Hi! You said: hello."},
-                "finish_reason": "stop",
-            }],
-            "usage": {"prompt_tokens": 20, "completion_tokens": 6, "total_tokens": 26},
-        })
+        return web.json_response(
+            {
+                "id": "chatcmpl-fake",
+                "object": "chat.completion",
+                "model": body["model"],
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "Hi! You said: hello."},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 20, "completion_tokens": 6, "total_tokens": 26},
+            }
+        )
 
     app = web.Application()
     app.router.add_post("/v1/chat/completions", chat_completions)
@@ -118,18 +126,21 @@ def _args(
         "json_out": None,
     }
     values.update(overrides)
-    return headless._parse_args([
-        f"--task={values['task']}",
-        f"--home={values['home']}",
-        f"--model={values['model']}",
-        f"--provider={values['provider']}",
-        f"--api-base={values['api_base']}",
-        f"--api-key-env={values['api_key_env']}",
-        f"--timeout={values['timeout']}",
-        f"--max-iterations={values['max_iterations']}",
-        f"--approval-preset={values['approval_preset']}",
-    ] + ([f"--session-key={values['session_key']}"] if values["session_key"] else [])
-      + ([f"--json-out={values['json_out']}"] if values["json_out"] else []))
+    return headless._parse_args(
+        [
+            f"--task={values['task']}",
+            f"--home={values['home']}",
+            f"--model={values['model']}",
+            f"--provider={values['provider']}",
+            f"--api-base={values['api_base']}",
+            f"--api-key-env={values['api_key_env']}",
+            f"--timeout={values['timeout']}",
+            f"--max-iterations={values['max_iterations']}",
+            f"--approval-preset={values['approval_preset']}",
+        ]
+        + ([f"--session-key={values['session_key']}"] if values["session_key"] else [])
+        + ([f"--json-out={values['json_out']}"] if values["json_out"] else [])
+    )
 
 
 @pytest.mark.asyncio
@@ -151,10 +162,24 @@ async def test_headless_runs_task_and_outputs_contract(
 
     # Stable contract keys
     for key in (
-        "schema_version", "run_id", "harness", "commit", "model", "provider",
-        "task", "session_key", "conversation_id", "prompt_hash",
-        "tool_schema_hash", "config_hash", "final_text", "usage", "calls",
-        "latency_ms", "exit_state", "error",
+        "schema_version",
+        "run_id",
+        "harness",
+        "commit",
+        "model",
+        "provider",
+        "task",
+        "session_key",
+        "conversation_id",
+        "prompt_hash",
+        "tool_schema_hash",
+        "config_hash",
+        "final_text",
+        "usage",
+        "calls",
+        "latency_ms",
+        "exit_state",
+        "error",
     ):
         assert key in document, f"missing contract key {key}"
     assert document["schema_version"] == 1
@@ -193,17 +218,13 @@ async def test_headless_runs_task_and_outputs_contract(
 
 
 @pytest.mark.asyncio
-async def test_headless_timeout(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_headless_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("COLLIE_BENCH_KEY", FAKE_KEY)
     monkeypatch.delenv("COLLIE_HOME", raising=False)
 
     runner, llm_port = await _serve(_fake_openai_app(delay_s=30))
     try:
-        exit_code, document = await headless.run_one(
-            _args(tmp_path, llm_port, timeout=1)
-        )
+        exit_code, document = await headless.run_one(_args(tmp_path, llm_port, timeout=1))
     finally:
         await runner.cleanup()
 
@@ -265,9 +286,7 @@ async def test_headless_parity_tool_registry(
 
 
 @pytest.mark.asyncio
-async def test_headless_isolated_home(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_headless_isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """--home wins over the real user home; the default home stays untouched."""
     monkeypatch.setenv("COLLIE_BENCH_KEY", FAKE_KEY)
     monkeypatch.delenv("COLLIE_HOME", raising=False)
@@ -290,9 +309,7 @@ async def test_headless_isolated_home(
 
 
 @pytest.mark.asyncio
-async def test_headless_json_out(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_headless_json_out(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("COLLIE_BENCH_KEY", FAKE_KEY)
     monkeypatch.delenv("COLLIE_HOME", raising=False)
 

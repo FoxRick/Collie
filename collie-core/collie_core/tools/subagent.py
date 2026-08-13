@@ -18,20 +18,22 @@ from nanobot.security.workspace_access import current_workspace_scope
 __all__ = ["CallSubagentTool"]
 
 
-@tool_parameters({
-    "type": "object",
-    "properties": {
-        "name": {
-            "type": "string",
-            "description": "The subagent's name, e.g. 'Trip Planner'.",
+@tool_parameters(
+    {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": "The subagent's name, e.g. 'Trip Planner'.",
+            },
+            "task": {
+                "type": "string",
+                "description": "What the subagent should do, with all needed details.",
+            },
         },
-        "task": {
-            "type": "string",
-            "description": "What the subagent should do, with all needed details.",
-        },
-    },
-    "required": ["name", "task"],
-})
+        "required": ["name", "task"],
+    }
+)
 class CallSubagentTool(Tool):
     """Hand a task to one of the user's specialized assistants."""
 
@@ -73,7 +75,7 @@ class CallSubagentTool(Tool):
         return getattr(ctx, "subagent_manager", None) is not None
 
     @classmethod
-    def create(cls, ctx: Any) -> "CallSubagentTool":
+    def create(cls, ctx: Any) -> CallSubagentTool:
         return cls(manager=ctx.subagent_manager)
 
     async def execute(self, **kwargs: Any) -> Any:
@@ -104,9 +106,7 @@ class CallSubagentTool(Tool):
             return ToolResult.error("No model is awake to run the subagent.")
 
         posture = str(subagent.get("execution_posture") or "read_only")
-        session_key = request_ctx.session_key or (
-            f"{request_ctx.channel}:{request_ctx.chat_id}"
-        )
+        session_key = request_ctx.session_key or (f"{request_ctx.channel}:{request_ctx.chat_id}")
         if hasattr(self._manager, "get_running_statuses_by_session"):
             running_statuses = self._manager.get_running_statuses_by_session(session_key)
             running = len(running_statuses)
@@ -120,8 +120,7 @@ class CallSubagentTool(Tool):
                 "Let one finish before calling in another."
             )
         operator_running = any(
-            item.get("execution_posture") == "inherit"
-            for item in running_statuses
+            item.get("execution_posture") == "inherit" for item in running_statuses
         )
         if posture == "inherit" and running:
             return "Operator needs an exclusive turn. Let the other specialists finish first."
@@ -129,7 +128,7 @@ class CallSubagentTool(Tool):
             return "Operator is acting right now. Let it finish before starting another specialist."
 
         composite = (
-            f"You are acting as \"{subagent['name']}\", one of the user's "
+            f'You are acting as "{subagent["name"]}", one of the user\'s '
             "specialized assistants. Follow this role exactly:\n\n"
             f"{subagent['system_prompt']}\n\n---\n\n"
             f"The task:\n{task}"

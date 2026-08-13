@@ -17,31 +17,32 @@ __all__ = ["PresentationsTool"]
 _SLIDE_SERVICES = ("google-drive",)
 
 
-@tool_parameters({
-    "type": "object",
-    "properties": {
-        "action": {
-            "type": "string",
-            "enum": ["outline", "create"],
-            "description": "draft a slide outline, or create the deck in a "
-                           "connected service.",
-        },
-        "topic": {"type": "string", "description": "What the deck is about."},
-        "slides": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string"},
-                    "bullets": {"type": "array", "items": {"type": "string"}},
-                },
-                "required": ["title"],
+@tool_parameters(
+    {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["outline", "create"],
+                "description": "draft a slide outline, or create the deck in a connected service.",
             },
-            "description": "For outline: the slide-by-slide content.",
+            "topic": {"type": "string", "description": "What the deck is about."},
+            "slides": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "bullets": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["title"],
+                },
+                "description": "For outline: the slide-by-slide content.",
+            },
         },
-    },
-    "required": ["action"],
-})
+        "required": ["action"],
+    }
+)
 class PresentationsTool(Tool):
     """Draft slide outlines; create decks via a connected service."""
 
@@ -55,7 +56,9 @@ class PresentationsTool(Tool):
             action=f"presentations.{action or 'outline'}",
             resource=str(params.get("topic") or "presentation"),
             risk=Risk.READ if action == "outline" else Risk.LOCAL_WRITE,
-            summary="Draft a presentation outline" if action == "outline" else "Create a presentation",
+            summary="Draft a presentation outline"
+            if action == "outline"
+            else "Create a presentation",
             reversible=True,
         )
 
@@ -72,7 +75,7 @@ class PresentationsTool(Tool):
         return True
 
     @classmethod
-    def create(cls, ctx: Any) -> "PresentationsTool":
+    def create(cls, ctx: Any) -> PresentationsTool:
         return cls()
 
     async def execute(self, **kwargs: Any) -> Any:
@@ -106,6 +109,4 @@ class PresentationsTool(Tool):
                 "**Settings → Services** first!"
             )
 
-        return self.error(
-            f"Not sure what to do with action '{action}'. Try outline or create."
-        )
+        return self.error(f"Not sure what to do with action '{action}'. Try outline or create.")

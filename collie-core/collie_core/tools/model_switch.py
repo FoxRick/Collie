@@ -32,18 +32,20 @@ def model_switcher() -> ModelSwitcher | None:
     return _switcher
 
 
-@tool_parameters({
-    "type": "object",
-    "properties": {
-        "model": {
-            "type": "string",
-            "description": (
-                "Exact model ID to switch to, e.g. 'deepseek-v4-flash' or 'gpt-5.5'."
-            ),
+@tool_parameters(
+    {
+        "type": "object",
+        "properties": {
+            "model": {
+                "type": "string",
+                "description": (
+                    "Exact model ID to switch to, e.g. 'deepseek-v4-flash' or 'gpt-5.5'."
+                ),
+            },
         },
-    },
-    "required": ["model"],
-})
+        "required": ["model"],
+    }
+)
 class SetModelTool(Tool):
     """Switch the active AI model for the next messages."""
 
@@ -82,7 +84,7 @@ class SetModelTool(Tool):
         return True
 
     @classmethod
-    def create(cls, ctx: Any) -> "SetModelTool":
+    def create(cls, ctx: Any) -> SetModelTool:
         return cls()
 
     async def execute(self, **kwargs: Any) -> Any:
@@ -100,13 +102,8 @@ class SetModelTool(Tool):
         except Exception as error:
             return self.error(f"I couldn't switch models: {error}")
         if not result.get("switched"):
-            return self.error(
-                str(result.get("error") or "I couldn't switch models.")
-            )
+            return self.error(str(result.get("error") or "I couldn't switch models."))
         model = str(result.get("model") or name)
         if result.get("applied"):
-            return (
-                f"Done — the active model is now **{model}**. "
-                "The next messages will use it."
-            )
+            return f"Done — the active model is now **{model}**. The next messages will use it."
         return f"Saved — I'll use **{model}** once a provider is connected."

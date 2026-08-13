@@ -155,38 +155,26 @@ def validate_suggestion(suggestion: dict[str, Any]) -> dict[str, Any]:
     artifact_type = str(suggestion.get("artifact_type") or "").strip()
     if artifact_type not in ALLOWED_ARTIFACT_TYPES:
         raise ProposalValidationError(
-            f"'{artifact_type or '(missing)'}' is not a target the Gardener "
-            "may change."
+            f"'{artifact_type or '(missing)'}' is not a target the Gardener may change."
         )
 
     key = _normalise_key(str(suggestion.get("artifact_key") or ""))
     if not key or "/" in key or "\\" in key or key in (".", ".."):
-        raise ProposalValidationError(
-            f"'{key}' is not a safe artifact key (plain filenames only)."
-        )
+        raise ProposalValidationError(f"'{key}' is not a safe artifact key (plain filenames only).")
 
     if artifact_type == "subagent":
         if not key.endswith(".md"):
-            raise ProposalValidationError(
-                "Subagent suggestions must target a '.md' file."
-            )
+            raise ProposalValidationError("Subagent suggestions must target a '.md' file.")
     elif artifact_type in ("agents", "vision"):
         expected = "AGENTS.md" if artifact_type == "agents" else "VISION.md"
         if key != expected:
-            raise ProposalValidationError(
-                f"{artifact_type} suggestions must target '{expected}'."
-            )
-    elif artifact_type == "memory_dream":
-        if key != "MEMORY.md":
-            raise ProposalValidationError(
-                "Memory suggestions must target 'MEMORY.md'."
-            )
+            raise ProposalValidationError(f"{artifact_type} suggestions must target '{expected}'.")
+    elif artifact_type == "memory_dream" and key != "MEMORY.md":
+        raise ProposalValidationError("Memory suggestions must target 'MEMORY.md'.")
 
     proposed = str(suggestion.get("proposed_text") or "")
     if not proposed.strip():
-        raise ProposalValidationError(
-            "The proposed text is empty — there's nothing to apply."
-        )
+        raise ProposalValidationError("The proposed text is empty — there's nothing to apply.")
     if len(proposed) > MAX_PROPOSED_CHARS:
         raise ProposalValidationError(
             f"The proposed text is {len(proposed)} characters — over the "
@@ -273,16 +261,12 @@ def build_prompt(evidence: dict[str, Any], workspace: Path) -> str:
                 continue
             for path in sorted(sub_dir.glob("*.md")):
                 text = path.read_text(encoding="utf-8")
-                sections.append(
-                    f"### subagents/{path.name}\n{text[:MAX_ARTIFACT_TEXT_CHARS]}"
-                )
+                sections.append(f"### subagents/{path.name}\n{text[:MAX_ARTIFACT_TEXT_CHARS]}")
         elif artifact_type == "memory_dream":
             path = Path(workspace) / "memory" / "MEMORY.md"
             if path.exists():
                 text = path.read_text(encoding="utf-8")
-                sections.append(
-                    f"### memory/MEMORY.md\n{text[:MAX_ARTIFACT_TEXT_CHARS]}"
-                )
+                sections.append(f"### memory/MEMORY.md\n{text[:MAX_ARTIFACT_TEXT_CHARS]}")
         else:
             key = "AGENTS.md" if artifact_type == "agents" else "VISION.md"
             path = Path(workspace) / key

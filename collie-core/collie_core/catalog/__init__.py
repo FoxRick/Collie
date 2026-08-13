@@ -133,7 +133,7 @@ class CatalogueStore:
                 "help_url": entry.get("help_url") or entry.get("doc_url"),
                 "models": [
                     {"id": mid, "name": self._model_names.get(pid, {}).get(mid, mid)}
-                    for mid in (entry.get("models") or {}).keys()
+                    for mid in (entry.get("models") or {})
                 ],
             }
             out.append(merged)
@@ -201,9 +201,7 @@ class CatalogueStore:
         """
         if self._settings is None:
             return {"refreshed": False, "error": "Catalogue refresh needs a settings store."}
-        result = await fetch_and_trim_catalogue(
-            settings=self._settings, url=url
-        )
+        result = await fetch_and_trim_catalogue(settings=self._settings, url=url)
         if result.get("refreshed"):
             self._load()
         return result

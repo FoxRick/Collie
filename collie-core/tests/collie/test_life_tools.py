@@ -8,6 +8,7 @@ from collie_core.tools.notes import NotesTool
 
 # -- Calendar ---------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_calendar_list_stub() -> None:
     tool = CalendarTool()
@@ -40,6 +41,7 @@ async def test_calendar_unknown_action() -> None:
 
 
 # -- Email ------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_email_list_stub() -> None:
@@ -81,6 +83,7 @@ async def test_email_unknown_action() -> None:
 
 
 # -- Notes ------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_notes_create_stub() -> None:

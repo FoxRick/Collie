@@ -58,7 +58,9 @@ def cached_tool(tool: Any, *, trusted: bool, overrides: dict[str, str]) -> dict[
     annotations_data = (
         annotations.model_dump(mode="json", exclude_none=True)
         if hasattr(annotations, "model_dump")
-        else annotations if isinstance(annotations, dict) else {}
+        else annotations
+        if isinstance(annotations, dict)
+        else {}
     )
     encoded = json.dumps(schema, sort_keys=True, default=str).encode("utf-8")
     return {
@@ -69,4 +71,3 @@ def cached_tool(tool: Any, *, trusted: bool, overrides: dict[str, str]) -> dict[
             str(tool.name), annotations, trusted=trusted, overrides=overrides
         ),
     }
-

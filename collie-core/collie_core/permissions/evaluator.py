@@ -5,7 +5,7 @@ from __future__ import annotations
 import fnmatch
 import os
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -73,9 +73,7 @@ class PermissionEvaluator:
             raise ValueError("local-write preset must be 'ask', 'allow', or 'deny'")
         self.local_write_preset = preset
 
-    def evaluate(
-        self, context: ExecutionContext, request: PermissionRequest
-    ) -> PermissionDecision:
+    def evaluate(self, context: ExecutionContext, request: PermissionRequest) -> PermissionDecision:
         if context.parent_effect == Effect.DENY:
             return PermissionDecision(Effect.DENY, "The parent run denied this capability.")
 
@@ -106,7 +104,11 @@ class PermissionEvaluator:
                     Effect.DENY,
                     "Review status is unavailable, so this action cannot proceed safely.",
                 )
-            if review_gate and request.action not in {"plan.present", "task.progress"} and not review_safe:
+            if (
+                review_gate
+                and request.action not in {"plan.present", "task.progress"}
+                and not review_safe
+            ):
                 return PermissionDecision(
                     Effect.DENY,
                     "This work needs an approved plan before changes can continue.",
@@ -142,9 +144,8 @@ class PermissionEvaluator:
 
         allowed = next((rule for rule in rules if rule.get("effect") == Effect.ALLOW), None)
         if allowed:
-            if (
-                str(allowed.get("scope_type") or "") == "run"
-                and not self._approve_for_me_eligible(request)
+            if str(allowed.get("scope_type") or "") == "run" and not self._approve_for_me_eligible(
+                request
             ):
                 return PermissionDecision(
                     Effect.ASK,
@@ -154,13 +155,15 @@ class PermissionEvaluator:
                 Effect.ALLOW, "A matching approval rule allows this action.", str(allowed["id"])
             )
 
-        if context.approve_all_for_run and context.run_id and self._approve_for_me_eligible(request):
+        if (
+            context.approve_all_for_run
+            and context.run_id
+            and self._approve_for_me_eligible(request)
+        ):
             return PermissionDecision(Effect.ALLOW, "Approved for this run.")
         if request.risk == Risk.READ:
             redacted = (
-                request.redacted_parameters
-                if isinstance(request.redacted_parameters, dict)
-                else {}
+                request.redacted_parameters if isinstance(request.redacted_parameters, dict) else {}
             )
             if redacted.get("unrestricted_local_files") is True:
                 # Full local-file access is selected: no project-boundary ask
@@ -168,26 +171,25 @@ class PermissionEvaluator:
                 # the folder/file-access consent itself (local_files declares
                 # them READ rather than hard-gated); any other operation still
                 # hits its own gates above and below.
-                return PermissionDecision(
-                    Effect.ALLOW, "Full local file access is selected."
-                )
+                return PermissionDecision(Effect.ALLOW, "Full local file access is selected.")
             allowed_roots = redacted.get("allowed_local_roots")
             if isinstance(allowed_roots, list):
                 for root in allowed_roots:
-                    if isinstance(root, str) and canonical_folder_contains(
-                        root, request.resource
-                    ):
+                    if isinstance(root, str) and canonical_folder_contains(root, request.resource):
                         return PermissionDecision(
                             Effect.ALLOW,
                             "The resource is inside a granted local folder.",
                         )
-            if context.project_path and _is_path_resource(request.resource):
-                if not canonical_folder_contains(context.project_path, request.resource):
-                    return PermissionDecision(
-                        Effect.ASK,
-                        f"'{request.resource}' is outside the active project. "
-                        "I need your approval before I can take a look in there.",
-                    )
+            if (
+                context.project_path
+                and _is_path_resource(request.resource)
+                and not (canonical_folder_contains(context.project_path, request.resource))
+            ):
+                return PermissionDecision(
+                    Effect.ASK,
+                    f"'{request.resource}' is outside the active project. "
+                    "I need your approval before I can take a look in there.",
+                )
             return PermissionDecision(Effect.ALLOW, "Read-only actions are allowed.")
         if (
             request.risk == Risk.LOCAL_WRITE
@@ -199,9 +201,7 @@ class PermissionEvaluator:
         # refused outright (unless an explicit allow rule or run-wide
         # approval already granted them above). Reads stay allowed.
         if request.risk == Risk.LOCAL_WRITE and self.local_write_preset == "deny":
-            return PermissionDecision(
-                Effect.DENY, "The local-write preset denies local changes."
-            )
+            return PermissionDecision(Effect.DENY, "The local-write preset denies local changes.")
         if ordinary_safe:
             return PermissionDecision(
                 Effect.ALLOW,
@@ -235,7 +235,7 @@ class PermissionEvaluator:
     ) -> list[dict[str, Any]]:
         if self.rule_store is None:
             return []
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         matches: list[dict[str, Any]] = []
         for rule in self.rule_store.list_rules():
             expiry = rule.get("expires_at")
@@ -243,7 +243,7 @@ class PermissionEvaluator:
                 try:
                     parsed_expiry = datetime.fromisoformat(str(expiry))
                     if parsed_expiry.tzinfo is None:
-                        parsed_expiry = parsed_expiry.replace(tzinfo=timezone.utc)
+                        parsed_expiry = parsed_expiry.replace(tzinfo=UTC)
                     if parsed_expiry <= now:
                         continue
                 except (TypeError, ValueError):
@@ -272,10 +272,7 @@ class PermissionEvaluator:
             return bool(value and context.run_id and value == context.run_id and resource_matches)
         if kind == "routine":
             return bool(
-                value
-                and context.routine_id
-                and value == context.routine_id
-                and resource_matches
+                value and context.routine_id and value == context.routine_id and resource_matches
             )
         if kind == "folder":
             return bool(value) and canonical_folder_contains(value, request.resource)

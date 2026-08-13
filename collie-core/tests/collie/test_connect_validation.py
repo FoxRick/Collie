@@ -33,27 +33,33 @@ def _fake_openai_app(*, models_status: int = 200, chat_status: int = 200) -> web
             return web.json_response({"error": "nope"}, status=models_status)
         if auth != "Bearer sk-good":
             return web.json_response({"error": "unauthorized"}, status=401)
-        return web.json_response({
-            "data": [
-                {"id": "deepseek-v4-flash", "object": "model"},
-                {"id": "deepseek-reasoner", "object": "model"},
-            ]
-        })
+        return web.json_response(
+            {
+                "data": [
+                    {"id": "deepseek-v4-flash", "object": "model"},
+                    {"id": "deepseek-reasoner", "object": "model"},
+                ]
+            }
+        )
 
     async def chat(request: web.Request) -> web.Response:
         if chat_status != 200:
             return web.json_response({"error": "nope"}, status=chat_status)
         body = json.loads(await request.text())
-        return web.json_response({
-            "id": "chatcmpl-fake",
-            "object": "chat.completion",
-            "model": body.get("model"),
-            "choices": [{
-                "index": 0,
-                "message": {"role": "assistant", "content": "pong"},
-                "finish_reason": "stop",
-            }],
-        })
+        return web.json_response(
+            {
+                "id": "chatcmpl-fake",
+                "object": "chat.completion",
+                "model": body.get("model"),
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "pong"},
+                        "finish_reason": "stop",
+                    }
+                ],
+            }
+        )
 
     app = web.Application()
     app.router.add_get("/v1/models", models)
@@ -109,16 +115,20 @@ async def test_probe_api_key_falls_back_to_one_token_completion() -> None:
         return web.json_response({"error": "not found"}, status=404)
 
     async def chat(request: web.Request) -> web.Response:
-        return web.json_response({
-            "id": "chatcmpl-fake",
-            "object": "chat.completion",
-            "model": "deepseek-v4-flash",
-            "choices": [{
-                "index": 0,
-                "message": {"role": "assistant", "content": "pong"},
-                "finish_reason": "stop",
-            }],
-        })
+        return web.json_response(
+            {
+                "id": "chatcmpl-fake",
+                "object": "chat.completion",
+                "model": "deepseek-v4-flash",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "pong"},
+                        "finish_reason": "stop",
+                    }
+                ],
+            }
+        )
 
     app.router.add_get("/v1/models", models)
     app.router.add_post("/v1/chat/completions", chat)

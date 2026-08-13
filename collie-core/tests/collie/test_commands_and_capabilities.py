@@ -239,7 +239,7 @@ async def test_runtime_chat_forwards_only_explicit_message_metadata(
     runtime = CollieRuntime(port=0, db=db)
     process_direct = AsyncMock(return_value=SimpleNamespace(content="done"))
     runtime.loop = SimpleNamespace(process_direct=process_direct, _last_usage={})
-    conversation_id = str(db.create_conversation("Goal")['id'])
+    conversation_id = str(db.create_conversation("Goal")["id"])
 
     async def noop(*_args, **_kwargs) -> None:
         return None
@@ -309,16 +309,20 @@ def test_workspace_skill_is_validated_and_loadable(tmp_path: Path) -> None:
 
 def test_capability_tools_require_fresh_review_even_in_plan_mode() -> None:
     evaluator = PermissionEvaluator()
-    agent_request = CreateSubagentTool().permission_request({
-        "name": "Researcher",
-        "description": "Researches",
-        "instructions": "Use reliable sources.",
-    })
-    skill_request = CreateSkillTool(Path(".")).permission_request({
-        "name": "weekly-review",
-        "description": "Reviews",
-        "instructions": "Review the week.",
-    })
+    agent_request = CreateSubagentTool().permission_request(
+        {
+            "name": "Researcher",
+            "description": "Researches",
+            "instructions": "Use reliable sources.",
+        }
+    )
+    skill_request = CreateSkillTool(Path(".")).permission_request(
+        {
+            "name": "weekly-review",
+            "description": "Reviews",
+            "instructions": "Review the week.",
+        }
+    )
     context = ExecutionContext(execution_mode="plan")
     assert evaluator.evaluate(context, agent_request).effect == Effect.ASK
     assert evaluator.evaluate(context, skill_request).effect == Effect.ASK
@@ -463,9 +467,7 @@ def test_model_command_is_in_catalog(tmp_path: Path) -> None:
     db, _workspace, _loader, controller = _controller(tmp_path)
     try:
         model_command = next(
-            item
-            for item in controller.catalog()["commands"]
-            if item["name"] == "model"
+            item for item in controller.catalog()["commands"] if item["name"] == "model"
         )
         assert model_command["usage"] == "/model [model-id]"
     finally:
@@ -527,10 +529,7 @@ async def test_model_command_switches_via_runtime_bridge(tmp_path: Path) -> None
     assert calls == ["deepseek-v4-flash"]
     assert result is not None
     assert result["handled"] is True
-    assert (
-        "switched from **deepseek-v4-pro** to **deepseek-v4-flash**"
-        in result["content"]
-    )
+    assert "switched from **deepseek-v4-pro** to **deepseek-v4-flash**" in result["content"]
     assert result["card_type"] == "status"
     assert result["card_data"]["model"] == "deepseek-v4-flash"
 
@@ -577,7 +576,7 @@ async def test_model_command_reports_unchanged_and_failures(
     assert unavailable and "isn't available" in unavailable["content"]
 
 
-@ pytest.mark.asyncio
+@pytest.mark.asyncio
 async def test_model_command_switch_requires_approval_and_reports_denial(
     tmp_path: Path,
 ) -> None:
@@ -590,9 +589,7 @@ async def test_model_command_switch_requires_approval_and_reports_denial(
     async def denying(context: ExecutionContext, params: dict) -> None:
         raise PermissionDeniedError("You rejected this action.")
 
-    controller = _model_controller(
-        tmp_path, switcher=switcher, authorizer=denying
-    )
+    controller = _model_controller(tmp_path, switcher=switcher, authorizer=denying)
     result = await controller.execute(
         "/model deepseek-v4-flash",
         session_key="collie:one",
@@ -606,7 +603,7 @@ async def test_model_command_switch_requires_approval_and_reports_denial(
     assert calls == []  # the switcher never ran without approval
 
 
-@ pytest.mark.asyncio
+@pytest.mark.asyncio
 async def test_model_command_switch_passes_execution_context_to_authorizer(
     tmp_path: Path,
 ) -> None:
@@ -618,9 +615,7 @@ async def test_model_command_switch_passes_execution_context_to_authorizer(
     async def switcher(name: str) -> dict:
         return {"switched": True, "model": name, "applied": True}
 
-    controller = _model_controller(
-        tmp_path, switcher=switcher, authorizer=approving
-    )
+    controller = _model_controller(tmp_path, switcher=switcher, authorizer=approving)
     result = await controller.execute(
         "/model deepseek-v4-flash",
         session_key="collie:one",
@@ -636,7 +631,7 @@ async def test_model_command_switch_passes_execution_context_to_authorizer(
     assert params == {"model": "deepseek-v4-flash"}
 
 
-@ pytest.mark.asyncio
+@pytest.mark.asyncio
 async def test_model_command_switch_is_denied_in_plan_mode(tmp_path: Path) -> None:
     db = CollieDB(tmp_path / "collie.db")
     evaluator = PermissionEvaluator(PermissionStore(db), local_write_preset="allow")
@@ -647,9 +642,7 @@ async def test_model_command_switch_is_denied_in_plan_mode(tmp_path: Path) -> No
         calls.append(name)
         return {"switched": True, "model": name, "applied": True}
 
-    async def broker_authorizer(
-        context: ExecutionContext, params: dict
-    ) -> None:
+    async def broker_authorizer(context: ExecutionContext, params: dict) -> None:
         await broker.authorize(
             context,
             SimpleNamespace(name="set_model", id=""),
@@ -657,9 +650,7 @@ async def test_model_command_switch_is_denied_in_plan_mode(tmp_path: Path) -> No
             params,
         )
 
-    controller = _model_controller(
-        tmp_path, switcher=switcher, authorizer=broker_authorizer
-    )
+    controller = _model_controller(tmp_path, switcher=switcher, authorizer=broker_authorizer)
     result = await controller.execute(
         "/model deepseek-v4-flash",
         session_key="collie:one",
@@ -781,19 +772,20 @@ async def test_model_approval_resolves_on_same_socket(tmp_path: Path) -> None:
         # Frame 2: resolve on the SAME socket while the command task awaits.
         await server._handle_frame(
             connection,  # type: ignore[arg-type]
-            json.dumps({
-                "type": "resolve_approval",
-                "id": "two",
-                "approval_id": approval_id,
-                "resolution": "allow_once",
-            }),
+            json.dumps(
+                {
+                    "type": "resolve_approval",
+                    "id": "two",
+                    "approval_id": approval_id,
+                    "resolution": "allow_once",
+                }
+            ),
         )
 
         # The command task completes and broadcasts the assistant reply.
         for _ in range(100):
             if any(
-                e.get("type") == "message"
-                and e.get("message", {}).get("role") == "assistant"
+                e.get("type") == "message" and e.get("message", {}).get("role") == "assistant"
                 for e in server_broadcasts
             ):
                 break
@@ -928,9 +920,7 @@ async def test_runtime_switch_model_persists_and_applies_live(
     runtime = CollieRuntime(port=0, db=db)
     selected: list[str] = []
     runtime.loop = SimpleNamespace(
-        runtime_resolver=SimpleNamespace(
-            select_model=lambda name: selected.append(name)
-        )
+        runtime_resolver=SimpleNamespace(select_model=lambda name: selected.append(name))
     )
     try:
         result = await runtime._switch_model("deepseek-v4-flash")
@@ -971,7 +961,7 @@ async def test_runtime_switch_model_without_loop_persists_only(
         db.close()
 
 
-@ pytest.mark.asyncio
+@pytest.mark.asyncio
 async def test_runtime_switch_model_keeps_provider_row_and_setting_in_sync(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -55,9 +55,19 @@ async def test_brave_search(monkeypatch):
         assert "brave" in url
         assert kw["headers"]["X-Subscription-Token"] == "brave-key"
         assert kw["headers"]["User-Agent"] == "nanobot-search-test"
-        return _response(json={
-            "web": {"results": [{"title": "NanoBot", "url": "https://example.com", "description": "AI assistant"}]}
-        })
+        return _response(
+            json={
+                "web": {
+                    "results": [
+                        {
+                            "title": "NanoBot",
+                            "url": "https://example.com",
+                            "description": "AI assistant",
+                        }
+                    ]
+                }
+            }
+        )
 
     monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
     tool = _tool(provider="brave", api_key="brave-key", user_agent="nanobot-search-test")
@@ -78,9 +88,15 @@ async def test_brave_search_retries_rate_limit_once(monkeypatch):
         calls["n"] += 1
         if calls["n"] == 1:
             return _response(status=429, json={"error": "rate limit"})
-        return _response(json={
-            "web": {"results": [{"title": "Recovered", "url": "https://example.com", "description": "ok"}]}
-        })
+        return _response(
+            json={
+                "web": {
+                    "results": [
+                        {"title": "Recovered", "url": "https://example.com", "description": "ok"}
+                    ]
+                }
+            }
+        )
 
     monkeypatch.setattr("nanobot.agent.tools.web.asyncio.sleep", mock_sleep)
     monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
@@ -121,9 +137,13 @@ async def test_tavily_search(monkeypatch):
         assert "tavily" in url
         assert kw["headers"]["Authorization"] == "Bearer tavily-key"
         assert kw["headers"]["User-Agent"] == "nanobot-search-test"
-        return _response(json={
-            "results": [{"title": "OpenClaw", "url": "https://openclaw.io", "content": "Framework"}]
-        })
+        return _response(
+            json={
+                "results": [
+                    {"title": "OpenClaw", "url": "https://openclaw.io", "content": "Framework"}
+                ]
+            }
+        )
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
     tool = _tool(provider="tavily", api_key="tavily-key", user_agent="nanobot-search-test")
@@ -146,9 +166,18 @@ async def test_keenable_search(monkeypatch):
         assert kw["headers"]["X-API-Key"] == "keen-key"
         assert kw["headers"]["User-Agent"] == "nanobot-search-test"
         assert kw["headers"]["X-Keenable-Title"] == "nanobot"
-        return _response(json={
-            "results": [{"title": "Keen", "url": "https://keenable.ai", "description": "short", "snippet": "longer excerpt"}]
-        })
+        return _response(
+            json={
+                "results": [
+                    {
+                        "title": "Keen",
+                        "url": "https://keenable.ai",
+                        "description": "short",
+                        "snippet": "longer excerpt",
+                    }
+                ]
+            }
+        )
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
     tool = _tool(provider="keenable", api_key="keen-key", user_agent="nanobot-search-test")
@@ -164,9 +193,13 @@ async def test_keenable_without_api_key_uses_public_endpoint(monkeypatch):
         assert url == "https://api.keenable.ai/v1/search/public"
         assert "X-API-Key" not in kw["headers"]
         assert kw["headers"]["X-Keenable-Title"] == "nanobot"
-        return _response(json={
-            "results": [{"title": "Public", "url": "https://keenable.ai/pub", "description": "ok"}]
-        })
+        return _response(
+            json={
+                "results": [
+                    {"title": "Public", "url": "https://keenable.ai/pub", "description": "ok"}
+                ]
+            }
+        )
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
     monkeypatch.delenv("KEENABLE_API_KEY", raising=False)
@@ -180,9 +213,11 @@ async def test_keenable_without_api_key_uses_public_endpoint(monkeypatch):
 async def test_keenable_search_uses_env_api_key(monkeypatch):
     async def mock_post(self, url, **kw):
         assert kw["headers"]["X-API-Key"] == "env-keen-key"
-        return _response(json={
-            "results": [{"title": "Env", "url": "https://keenable.ai/env", "description": "ok"}]
-        })
+        return _response(
+            json={
+                "results": [{"title": "Env", "url": "https://keenable.ai/env", "description": "ok"}]
+            }
+        )
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
     monkeypatch.setenv("KEENABLE_API_KEY", "env-keen-key")
@@ -217,11 +252,17 @@ async def test_serper_search(monkeypatch):
         assert kw["headers"]["X-API-KEY"] == "serper-key"
         assert kw["headers"]["User-Agent"] == "nanobot-search-test"
         assert kw["json"] == {"q": "serper", "num": 1}
-        return _response(json={
-            "organic": [
-                {"title": "Serper", "link": "https://serper.dev", "snippet": "Google Search API"}
-            ]
-        })
+        return _response(
+            json={
+                "organic": [
+                    {
+                        "title": "Serper",
+                        "link": "https://serper.dev",
+                        "snippet": "Google Search API",
+                    }
+                ]
+            }
+        )
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
     tool = _tool(provider="serper", api_key="serper-key", user_agent="nanobot-search-test")
@@ -235,9 +276,9 @@ async def test_serper_search(monkeypatch):
 async def test_serper_search_uses_env_api_key(monkeypatch):
     async def mock_post(self, url, **kw):
         assert kw["headers"]["X-API-KEY"] == "env-serper-key"
-        return _response(json={
-            "organic": [{"title": "Env", "link": "https://serper.dev/env", "snippet": "ok"}]
-        })
+        return _response(
+            json={"organic": [{"title": "Env", "link": "https://serper.dev/env", "snippet": "ok"}]}
+        )
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
     monkeypatch.setenv("SERPER_API_KEY", "env-serper-key")
@@ -253,7 +294,9 @@ async def test_serper_fallback_to_duckduckgo_when_no_key(monkeypatch):
             pass
 
         def text(self, query, max_results=5):
-            return [{"title": "Fallback", "href": "https://ddg.example", "body": "DuckDuckGo fallback"}]
+            return [
+                {"title": "Fallback", "href": "https://ddg.example", "body": "DuckDuckGo fallback"}
+            ]
 
     monkeypatch.setattr("ddgs.DDGS", MockDDGS)
     monkeypatch.delenv("SERPER_API_KEY", raising=False)
@@ -299,18 +342,20 @@ async def test_bocha_search(monkeypatch):
             "summary": True,
             "count": 2,
         }
-        return _response(json={
-            "webPages": {
-                "value": [
-                    {
-                        "name": "MAI-THINKING-1 - Microsoft Research",
-                        "url": "https://www.microsoft.com/research/maithinking-1",
-                        "summary": "MAI-THINKING-1 is a 35B-active MoE model with strong reasoning capabilities.",
-                        "snippet": "MAI-THINKING-1 achieves 97.0% on AIME 2025 and 52.8% on SWE-Bench Pro.",
-                    }
-                ]
+        return _response(
+            json={
+                "webPages": {
+                    "value": [
+                        {
+                            "name": "MAI-THINKING-1 - Microsoft Research",
+                            "url": "https://www.microsoft.com/research/maithinking-1",
+                            "summary": "MAI-THINKING-1 is a 35B-active MoE model with strong reasoning capabilities.",
+                            "snippet": "MAI-THINKING-1 achieves 97.0% on AIME 2025 and 52.8% on SWE-Bench Pro.",
+                        }
+                    ]
+                }
             }
-        })
+        )
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
     tool = _tool(provider="bocha", api_key="bocha-key", user_agent="nanobot-search-test")
@@ -328,7 +373,9 @@ async def test_bocha_missing_key_falls_back_to_duckduckgo(monkeypatch):
             pass
 
         def text(self, query, max_results=5):
-            return [{"title": "Fallback", "href": "https://ddg.example", "body": "DuckDuckGo fallback"}]
+            return [
+                {"title": "Fallback", "href": "https://ddg.example", "body": "DuckDuckGo fallback"}
+            ]
 
     monkeypatch.setattr("ddgs.DDGS", MockDDGS)
     monkeypatch.delenv("BOCHA_API_KEY", raising=False)
@@ -367,22 +414,26 @@ async def test_volcengine_search(monkeypatch):
             "Filter": {"AuthInfoLevel": 1},
             "QueryControl": {"QueryRewrite": True},
         }
-        return _response(json={
-            "Result": {
-                "WebResults": [
-                    {
-                        "Title": "北京周边游攻略",
-                        "Url": "https://example.cn/travel",
-                        "Summary": "适合周末出行的路线。",
-                        "AuthInfoDes": "非常权威",
-                    }
-                ]
+        return _response(
+            json={
+                "Result": {
+                    "WebResults": [
+                        {
+                            "Title": "北京周边游攻略",
+                            "Url": "https://example.cn/travel",
+                            "Summary": "适合周末出行的路线。",
+                            "AuthInfoDes": "非常权威",
+                        }
+                    ]
+                }
             }
-        })
+        )
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
     tool = _tool(provider="volcengine", api_key="volc-key", user_agent="nanobot-search-test")
-    result = await tool.execute(query="北京周边游", count=2, timeRange="OneWeek", authLevel=1, queryRewrite=True)
+    result = await tool.execute(
+        query="北京周边游", count=2, timeRange="OneWeek", authLevel=1, queryRewrite=True
+    )
 
     assert "北京周边游攻略" in result
     assert "https://example.cn/travel" in result
@@ -396,7 +447,9 @@ async def test_volcengine_missing_key_falls_back_to_duckduckgo(monkeypatch):
             pass
 
         def text(self, query, max_results=5):
-            return [{"title": "Fallback", "href": "https://ddg.example", "body": "DuckDuckGo fallback"}]
+            return [
+                {"title": "Fallback", "href": "https://ddg.example", "body": "DuckDuckGo fallback"}
+            ]
 
     monkeypatch.setattr("ddgs.DDGS", MockDDGS)
     monkeypatch.delenv("VOLCENGINE_SEARCH_API_KEY", raising=False)
@@ -421,12 +474,18 @@ async def test_searxng_search(monkeypatch):
     async def mock_get(self, url, **kw):
         assert "searx.example" in url
         assert kw["headers"]["User-Agent"] == "nanobot-search-test"
-        return _response(json={
-            "results": [{"title": "Result", "url": "https://example.com", "content": "SearXNG result"}]
-        })
+        return _response(
+            json={
+                "results": [
+                    {"title": "Result", "url": "https://example.com", "content": "SearXNG result"}
+                ]
+            }
+        )
 
     monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
-    tool = _tool(provider="searxng", base_url="https://searx.example", user_agent="nanobot-search-test")
+    tool = _tool(
+        provider="searxng", base_url="https://searx.example", user_agent="nanobot-search-test"
+    )
     result = await tool.execute(query="test")
     assert "Result" in result
 
@@ -438,10 +497,13 @@ async def test_duckduckgo_search(monkeypatch):
             pass
 
         def text(self, query, max_results=5):
-            return [{"title": "DDG Result", "href": "https://ddg.example", "body": "From DuckDuckGo"}]
+            return [
+                {"title": "DDG Result", "href": "https://ddg.example", "body": "From DuckDuckGo"}
+            ]
 
     monkeypatch.setattr("nanobot.agent.tools.web.DDGS", MockDDGS, raising=False)
     import nanobot.agent.tools.web as web_mod
+
     monkeypatch.setattr(web_mod, "DDGS", MockDDGS, raising=False)
 
     monkeypatch.setattr("ddgs.DDGS", MockDDGS)
@@ -483,7 +545,9 @@ async def test_brave_fallback_to_duckduckgo_when_no_key(monkeypatch):
             pass
 
         def text(self, query, max_results=5):
-            return [{"title": "Fallback", "href": "https://ddg.example", "body": "DuckDuckGo fallback"}]
+            return [
+                {"title": "Fallback", "href": "https://ddg.example", "body": "DuckDuckGo fallback"}
+            ]
 
     monkeypatch.setattr("ddgs.DDGS", MockDDGS)
     monkeypatch.delenv("BRAVE_API_KEY", raising=False)
@@ -499,9 +563,11 @@ async def test_jina_search(monkeypatch):
         assert "s.jina.ai" in str(url)
         assert kw["headers"]["Authorization"] == "Bearer jina-key"
         assert kw["headers"]["User-Agent"] == "nanobot-search-test"
-        return _response(json={
-            "data": [{"title": "Jina Result", "url": "https://jina.ai", "content": "AI search"}]
-        })
+        return _response(
+            json={
+                "data": [{"title": "Jina Result", "url": "https://jina.ai", "content": "AI search"}]
+            }
+        )
 
     monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
     tool = _tool(provider="jina", api_key="jina-key", user_agent="nanobot-search-test")
@@ -517,16 +583,22 @@ async def test_kagi_search(monkeypatch):
         assert kw["headers"]["Authorization"] == "Bearer kagi-key"
         assert kw["headers"]["User-Agent"] == "nanobot-search-test"
         assert kw["json"] == {"query": "test", "limit": 2}
-        return _response(json={
-            "data": {
-                "search": [
-                    {"title": "Kagi Result", "url": "https://kagi.com", "snippet": "Premium search"},
-                ],
-                "related_search": [
-                    {"title": "ignored related search", "url": "", "snippet": ""},
-                ],
+        return _response(
+            json={
+                "data": {
+                    "search": [
+                        {
+                            "title": "Kagi Result",
+                            "url": "https://kagi.com",
+                            "snippet": "Premium search",
+                        },
+                    ],
+                    "related_search": [
+                        {"title": "ignored related search", "url": "", "snippet": ""},
+                    ],
+                }
             }
-        })
+        )
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
     tool = _tool(provider="kagi", api_key="kagi-key", user_agent="nanobot-search-test")
@@ -547,15 +619,17 @@ async def test_exa_search(monkeypatch):
             "numResults": 2,
             "contents": {"highlights": True},
         }
-        return _response(json={
-            "results": [
-                {
-                    "title": "Exa Result",
-                    "url": "https://exa.ai",
-                    "highlights": ["Relevant Exa highlight"],
-                }
-            ]
-        })
+        return _response(
+            json={
+                "results": [
+                    {
+                        "title": "Exa Result",
+                        "url": "https://exa.ai",
+                        "highlights": ["Relevant Exa highlight"],
+                    }
+                ]
+            }
+        )
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
     tool = _tool(provider="exa", api_key="exa-key", user_agent="nanobot-search-test")
@@ -570,15 +644,17 @@ async def test_exa_search(monkeypatch):
 async def test_exa_search_uses_env_api_key(monkeypatch):
     async def mock_post(self, url, **kw):
         assert kw["headers"]["x-api-key"] == "env-exa-key"
-        return _response(json={
-            "results": [
-                {
-                    "title": "Env Exa Result",
-                    "url": "https://exa.ai/env",
-                    "summary": "Summary fallback",
-                }
-            ]
-        })
+        return _response(
+            json={
+                "results": [
+                    {
+                        "title": "Env Exa Result",
+                        "url": "https://exa.ai/env",
+                        "summary": "Summary fallback",
+                    }
+                ]
+            }
+        )
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
     monkeypatch.setenv("EXA_API_KEY", "env-exa-key")
@@ -652,7 +728,9 @@ async def test_jina_422_falls_back_to_duckduckgo(monkeypatch):
             pass
 
         def text(self, query, max_results=5):
-            return [{"title": "Fallback", "href": "https://ddg.example", "body": "DuckDuckGo fallback"}]
+            return [
+                {"title": "Fallback", "href": "https://ddg.example", "body": "DuckDuckGo fallback"}
+            ]
 
     async def mock_get(self, url, **kw):
         assert "s.jina.ai" in str(url)
@@ -677,7 +755,9 @@ async def test_kagi_fallback_to_duckduckgo_when_no_key(monkeypatch):
             pass
 
         def text(self, query, max_results=5):
-            return [{"title": "Fallback", "href": "https://ddg.example", "body": "DuckDuckGo fallback"}]
+            return [
+                {"title": "Fallback", "href": "https://ddg.example", "body": "DuckDuckGo fallback"}
+            ]
 
     monkeypatch.setattr("ddgs.DDGS", MockDDGS)
     monkeypatch.delenv("KAGI_API_KEY", raising=False)
@@ -694,7 +774,9 @@ async def test_exa_fallback_to_duckduckgo_when_no_key(monkeypatch):
             pass
 
         def text(self, query, max_results=5):
-            return [{"title": "Fallback", "href": "https://ddg.example", "body": "DuckDuckGo fallback"}]
+            return [
+                {"title": "Fallback", "href": "https://ddg.example", "body": "DuckDuckGo fallback"}
+            ]
 
     monkeypatch.setattr("ddgs.DDGS", MockDDGS)
     monkeypatch.delenv("EXA_API_KEY", raising=False)
@@ -711,9 +793,11 @@ async def test_jina_search_uses_path_encoded_query(monkeypatch):
     async def mock_get(self, url, **kw):
         calls["url"] = str(url)
         calls["params"] = kw.get("params")
-        return _response(json={
-            "data": [{"title": "Jina Result", "url": "https://jina.ai", "content": "AI search"}]
-        })
+        return _response(
+            json={
+                "data": [{"title": "Jina Result", "url": "https://jina.ai", "content": "AI search"}]
+            }
+        )
 
     monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
     tool = _tool(provider="jina", api_key="jina-key")
@@ -726,6 +810,7 @@ async def test_jina_search_uses_path_encoded_query(monkeypatch):
 async def test_duckduckgo_timeout_returns_error(monkeypatch):
     """asyncio.wait_for guard should fire when DDG search hangs."""
     import threading
+
     gate = threading.Event()
 
     class HangingDDGS:
@@ -815,6 +900,7 @@ async def test_olostep_missing_key_falls_back_to_duckduckgo(monkeypatch):
 @pytest.mark.asyncio
 async def test_olostep_package_missing_returns_install_hint(monkeypatch):
     import sys
+
     monkeypatch.delitem(sys.modules, "olostep", raising=False)
     monkeypatch.setitem(sys.modules, "olostep", None)
     tool = _tool(provider="olostep", api_key="olostep-key")

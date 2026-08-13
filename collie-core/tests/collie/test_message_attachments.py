@@ -60,12 +60,14 @@ async def test_attachment_only_chat_reaches_agent_media(
         {
             "id": "attach-1",
             "content": "",
-            "attachments": [{
-                "name": "notes.txt",
-                "mime": "text/plain",
-                "size": 17,
-                "data_url": f"data:text/plain;base64,{encoded}",
-            }],
+            "attachments": [
+                {
+                    "name": "notes.txt",
+                    "mime": "text/plain",
+                    "size": 17,
+                    "data_url": f"data:text/plain;base64,{encoded}",
+                }
+            ],
         },
     )
     await asyncio.wait_for(runner_called.wait(), timeout=2)
@@ -110,13 +112,15 @@ async def test_safe_image_preview_roundtrips_through_chat_and_history(
         {
             "id": "image-1",
             "content": "What is in this?",
-            "attachments": [{
-                "name": "screenshot.png",
-                "mime": "image/png",
-                "size": 68,
-                "data_url": preview_data_url,
-                "preview_data_url": preview_data_url,
-            }],
+            "attachments": [
+                {
+                    "name": "screenshot.png",
+                    "mime": "image/png",
+                    "size": 68,
+                    "data_url": preview_data_url,
+                    "preview_data_url": preview_data_url,
+                }
+            ],
         },
     )
     await asyncio.wait_for(runner_called.wait(), timeout=2)
@@ -141,8 +145,7 @@ async def test_safe_image_preview_roundtrips_through_chat_and_history(
         ("image/png", "data:image/png;base64,%%%"),
         (
             "image/png",
-            "data:image/png;base64,"
-            + base64.b64encode(b"x" * (256 * 1024 + 1)).decode("ascii"),
+            "data:image/png;base64," + base64.b64encode(b"x" * (256 * 1024 + 1)).decode("ascii"),
         ),
         ("image/png", "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4="),
         ("text/plain", "data:image/png;base64,iVBORw0KGgo="),
@@ -168,7 +171,4 @@ def test_safe_raster_preview_mimes_are_accepted(mime: str) -> None:
 def test_rasterized_png_preview_is_accepted_for_another_safe_image_mime() -> None:
     preview = "data:image/png;base64,eA=="
 
-    assert (
-        _safe_preview_data_url({"mime": "image/jpeg", "preview_data_url": preview})
-        == preview
-    )
+    assert _safe_preview_data_url({"mime": "image/jpeg", "preview_data_url": preview}) == preview

@@ -16,22 +16,24 @@ __all__ = ["SmartHomeTool"]
 _HOME_SERVICES = ("philips-hue", "homekit", "google-home")
 
 
-@tool_parameters({
-    "type": "object",
-    "properties": {
-        "action": {
-            "type": "string",
-            "enum": ["lights", "scene", "thermostat", "locks", "status"],
-            "description": "control lights, activate a scene, adjust the "
-                           "thermostat, check locks, or get device status.",
+@tool_parameters(
+    {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["lights", "scene", "thermostat", "locks", "status"],
+                "description": "control lights, activate a scene, adjust the "
+                "thermostat, check locks, or get device status.",
+            },
+            "request": {
+                "type": "string",
+                "description": "What to do, e.g. 'turn off the living room lights'.",
+            },
         },
-        "request": {
-            "type": "string",
-            "description": "What to do, e.g. 'turn off the living room lights'.",
-        },
-    },
-    "required": ["action"],
-})
+        "required": ["action"],
+    }
+)
 class SmartHomeTool(Tool):
     """Control the smart home (Hue / HomeKit / Google Home via MCP)."""
 
@@ -57,7 +59,7 @@ class SmartHomeTool(Tool):
         return False
 
     @classmethod
-    def create(cls, ctx: Any) -> "SmartHomeTool":
+    def create(cls, ctx: Any) -> SmartHomeTool:
         return cls()
 
     async def execute(self, **kwargs: Any) -> Any:

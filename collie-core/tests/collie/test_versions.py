@@ -43,12 +43,22 @@ class _FakeConn:
 
 def test_v14_creates_artifact_versions_on_fresh_db(db: CollieDB) -> None:
     assert db.schema_version == 14
-    rows = db._rows("SELECT name FROM sqlite_master WHERE type='table' AND name='artifact_versions'")
+    rows = db._rows(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='artifact_versions'"
+    )
     assert len(rows) == 1
     columns = {row["name"] for row in db._rows("PRAGMA table_info(artifact_versions)")}
     assert {
-        "id", "artifact_type", "artifact_key", "version", "before_text",
-        "after_text", "diff_text", "evidence_json", "source", "status",
+        "id",
+        "artifact_type",
+        "artifact_key",
+        "version",
+        "before_text",
+        "after_text",
+        "diff_text",
+        "evidence_json",
+        "source",
+        "status",
         "created_at",
     } <= columns
 
@@ -83,8 +93,16 @@ def test_snapshot_versions_are_monotonic_per_artifact(db: CollieDB) -> None:
     r1 = db.snapshot_artifact("subagent", "researcher.md", "", "v1", "- +v1")
     r2 = db.snapshot_artifact("subagent", "researcher.md", "v1", "v2", "- +v2")
     r3 = db.snapshot_artifact("subagent", "analyst.md", "", "a1", "- +a1")
-    assert (r1["artifact_type"], r1["artifact_key"], r1["version"]) == ("subagent", "researcher.md", 1)
-    assert (r2["artifact_type"], r2["artifact_key"], r2["version"]) == ("subagent", "researcher.md", 2)
+    assert (r1["artifact_type"], r1["artifact_key"], r1["version"]) == (
+        "subagent",
+        "researcher.md",
+        1,
+    )
+    assert (r2["artifact_type"], r2["artifact_key"], r2["version"]) == (
+        "subagent",
+        "researcher.md",
+        2,
+    )
     assert (r3["artifact_type"], r3["artifact_key"], r3["version"]) == ("subagent", "analyst.md", 1)
     assert db.latest_artifact_version("subagent", "researcher.md") == 2
 
@@ -158,7 +176,10 @@ def test_rollback_no_clobber_guard(db: CollieDB) -> None:
     with pytest.raises(VersionConflictError):
         store.rollback("agents", "AGENTS.md", current_text="newer edit")
     # Still applied (nothing was marked).
-    assert db.get_artifact_version(store.latest_version_id("agents", "AGENTS.md") or "")["status"] == "applied"
+    assert (
+        db.get_artifact_version(store.latest_version_id("agents", "AGENTS.md") or "")["status"]
+        == "applied"
+    )
 
 
 def test_rollback_targets_specific_version(db: CollieDB) -> None:
@@ -205,9 +226,7 @@ def test_subagent_edit_versions_and_rollback_restores_file_and_db(
     # Roll back the update: file restored, DB row in sync via sync().
     target = workspace / "subagents" / filename
     current = target.read_text(encoding="utf-8")
-    result = VersionStore(db).rollback(
-        "subagent", filename, current_text=current
-    )
+    result = VersionStore(db).rollback("subagent", filename, current_text=current)
     target.write_text(result["restored_text"], encoding="utf-8")
     loader.sync()
     row = loader.find("Researcher")
@@ -219,9 +238,7 @@ def test_subagent_edit_versions_and_rollback_restores_file_and_db(
     assert not target.exists()
     versions = db.list_artifact_versions(artifact_type="subagent", artifact_key=filename)
     assert versions[0]["after_text"] == ""
-    result = VersionStore(db).rollback(
-        "subagent", filename, current_text=""
-    )
+    result = VersionStore(db).rollback("subagent", filename, current_text="")
     target.write_text(result["restored_text"], encoding="utf-8")
     loader.sync()
     assert target.exists()
@@ -246,9 +263,7 @@ def test_profile_edit_versions_memory_md(tmp_path: Path, db: CollieDB) -> None:
     store = ProfileStore(db, workspace, version_store=VersionStore(db))
     store.regenerate_memory_md()
     store.set("dietary", "vegan")
-    versions = db.list_artifact_versions(
-        artifact_type="memory_profile", artifact_key="MEMORY.md"
-    )
+    versions = db.list_artifact_versions(artifact_type="memory_profile", artifact_key="MEMORY.md")
     assert len(versions) == 1
     assert "vegan" in versions[0]["after_text"]
     # The before snapshot is the prior generated file (the empty-state text).
@@ -262,9 +277,7 @@ def test_profile_edit_versions_memory_md(tmp_path: Path, db: CollieDB) -> None:
     assert "vegan" not in (workspace / "MEMORY.md").read_text(encoding="utf-8")
 
 
-def test_profile_edit_without_version_store_still_works(
-    tmp_path: Path, db: CollieDB
-) -> None:
+def test_profile_edit_without_version_store_still_works(tmp_path: Path, db: CollieDB) -> None:
     workspace = tmp_path / "workspace"
     store = ProfileStore(db, workspace)
     store.set("location", "Berlin")
@@ -304,9 +317,11 @@ async def test_ipc_list_versions_and_rollback(tmp_path: Path, monkeypatch) -> No
         assert "very carefully" in current
         rolled = await srv._cmd_rollback_artifact(
             conn,
-            {"version_id": db.list_artifact_versions(
-                artifact_type="subagent", artifact_key=filename, limit=1
-            )[0]["id"]},
+            {
+                "version_id": db.list_artifact_versions(
+                    artifact_type="subagent", artifact_key=filename, limit=1
+                )[0]["id"]
+            },
         )
         assert rolled["rolled_back"] is True
         assert "very carefully" not in target.read_text(encoding="utf-8")
@@ -326,9 +341,7 @@ async def test_ipc_list_versions_and_rollback(tmp_path: Path, monkeypatch) -> No
         # removes the artifact again.
         create_row = db.get_artifact_version(create_version)
         target.write_text(create_row["after_text"], encoding="utf-8")
-        rolled = await srv._cmd_rollback_artifact(
-            conn, {"version_id": create_version}
-        )
+        rolled = await srv._cmd_rollback_artifact(conn, {"version_id": create_version})
         assert rolled["rolled_back"] is True
         assert not target.exists()
         assert loader.find("Researcher") is None
@@ -339,9 +352,7 @@ async def test_ipc_list_versions_and_rollback(tmp_path: Path, monkeypatch) -> No
         db.close()
 
 
-async def test_ipc_write_file_versions_suggest_apply_path(
-    tmp_path: Path, monkeypatch
-) -> None:
+async def test_ipc_write_file_versions_suggest_apply_path(tmp_path: Path, monkeypatch) -> None:
     """The suggest-card apply path (_cmd_write_file) versions VISION/AGENTS."""
     monkeypatch.setenv("COLLIE_HOME", str(tmp_path))
     db = CollieDB(tmp_path / "collie.db")
@@ -351,9 +362,7 @@ async def test_ipc_write_file_versions_suggest_apply_path(
         workspace.mkdir(parents=True, exist_ok=True)
         (workspace / "AGENTS.md").write_text("old about me", encoding="utf-8")
         conn = _FakeConn()
-        result = await srv._cmd_write_file(
-            conn, {"path": "AGENTS.md", "content": "new about me"}
-        )
+        result = await srv._cmd_write_file(conn, {"path": "AGENTS.md", "content": "new about me"})
         assert result["saved"] is True
         assert result["version_id"] is not None
         assert "-old about me" in (result["diff_text"] or "")
@@ -361,16 +370,12 @@ async def test_ipc_write_file_versions_suggest_apply_path(
         assert len(rows) == 1
 
         # Writing the same content again creates no version.
-        result = await srv._cmd_write_file(
-            conn, {"path": "AGENTS.md", "content": "new about me"}
-        )
+        result = await srv._cmd_write_file(conn, {"path": "AGENTS.md", "content": "new about me"})
         assert result["version_id"] is None
         assert len(db.list_artifact_versions(artifact_type="agents")) == 1
 
         # Non-artifact files are written but not versioned.
-        result = await srv._cmd_write_file(
-            conn, {"path": "notes.txt", "content": "hello"}
-        )
+        result = await srv._cmd_write_file(conn, {"path": "notes.txt", "content": "hello"})
         assert result["saved"] is True and result["version_id"] is None
     finally:
         db.close()

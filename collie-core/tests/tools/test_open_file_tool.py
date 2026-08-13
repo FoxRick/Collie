@@ -23,7 +23,9 @@ from nanobot.security.workspace_access import (
 def scoped_tool(tmp_path: Path):
     root = tmp_path / "project"
     root.mkdir()
-    token = bind_workspace_scope(build_workspace_scope(root, "restricted", source_channel="websocket"))
+    token = bind_workspace_scope(
+        build_workspace_scope(root, "restricted", source_channel="websocket")
+    )
     try:
         yield OpenFileTool(), root
     finally:
@@ -93,8 +95,12 @@ async def test_opens_folder_in_file_explorer(scoped_tool, fake_launcher) -> None
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("name", ["tool.exe", "setup.msi", "run.bat", "evil.ps1", "go.sh", "x.lnk", "x.url", "x.js"])
-async def test_rejects_executables_scripts_and_shortcuts(scoped_tool, fake_launcher, name: str) -> None:
+@pytest.mark.parametrize(
+    "name", ["tool.exe", "setup.msi", "run.bat", "evil.ps1", "go.sh", "x.lnk", "x.url", "x.js"]
+)
+async def test_rejects_executables_scripts_and_shortcuts(
+    scoped_tool, fake_launcher, name: str
+) -> None:
     tool, root = scoped_tool
     (root / name).write_bytes(b"payload")
 
@@ -165,7 +171,9 @@ async def test_rejects_mapped_windows_drive(
 
 
 @pytest.mark.asyncio
-async def test_friendly_error_when_no_default_opener_exists(scoped_tool, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_friendly_error_when_no_default_opener_exists(
+    scoped_tool, monkeypatch: pytest.MonkeyPatch
+) -> None:
     tool, root = scoped_tool
     (root / "notes.md").write_text("hi", encoding="utf-8")
     monkeypatch.setattr(open_file_module.sys, "platform", "linux")
@@ -198,7 +206,9 @@ async def test_linux_launcher_uses_xdg_open(scoped_tool, monkeypatch: pytest.Mon
 
 
 @pytest.mark.asyncio
-async def test_windows_launcher_uses_startfile(scoped_tool, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_windows_launcher_uses_startfile(
+    scoped_tool, monkeypatch: pytest.MonkeyPatch
+) -> None:
     tool, root = scoped_tool
     (root / "notes.md").write_text("hi", encoding="utf-8")
     monkeypatch.setattr(open_file_module.sys, "platform", "win32")
@@ -217,7 +227,9 @@ async def test_windows_launcher_uses_startfile(scoped_tool, monkeypatch: pytest.
 
 
 def test_permission_request_is_read_only_local_open() -> None:
-    request = OpenFileTool().permission_request({"path": "/home/rick/.collie/workspace/features.md"})
+    request = OpenFileTool().permission_request(
+        {"path": "/home/rick/.collie/workspace/features.md"}
+    )
 
     assert request.action == "local_file.open"
     assert request.risk == Risk.READ
@@ -236,7 +248,9 @@ def test_permission_request_is_read_only_local_open() -> None:
 
 def test_read_risk_opens_are_allowed_by_default_evaluator() -> None:
     evaluator = PermissionEvaluator()
-    request = OpenFileTool().permission_request({"path": "/home/rick/.collie/workspace/features.md"})
+    request = OpenFileTool().permission_request(
+        {"path": "/home/rick/.collie/workspace/features.md"}
+    )
     context = ExecutionContext(execution_mode="execute")
 
     decision = evaluator.evaluate(context, request)

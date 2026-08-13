@@ -198,8 +198,9 @@ async def test_conversation_crud(server: CollieIPCServer) -> None:
     convs = (await _recv_until(ws, "ok"))["data"]["conversations"]
     assert [c["title"] for c in convs] == ["Groceries"]
 
-    await _send(ws, type="rename_conversation", id="3",
-                conversation_id=conv["id"], title="Weekly shop")
+    await _send(
+        ws, type="rename_conversation", id="3", conversation_id=conv["id"], title="Weekly shop"
+    )
     await _recv_until(ws, "ok")
 
     await _send(ws, type="delete_conversation", id="4", conversation_id=conv["id"])
@@ -458,8 +459,7 @@ async def test_cancel_oauth_discards_late_completion_and_provider_state(
     assert db.get_setting("provider.auth") == "api-key"
     assert db.get_setting("provider.name") == "deepseek"
     assert any(
-        frame.get("id") == "login" and frame["type"] == "error"
-        for frame in connection.frames
+        frame.get("id") == "login" and frame["type"] == "error" for frame in connection.frames
     )
     db.close()
 
@@ -610,17 +610,19 @@ async def test_configure_provider_candidate_command_delegates_whole_candidate(
             "error": "test rejection",
             "rolled_back": True,
         }
-        assert captured == [{
-            "provider_id": "api-work",
-            "name": "work",
-            "auth_type": "api-key",
-            "model": "model-one",
-            "runtime_name": "custom",
-            "protocol": "openai",
-            "api_base": "https://models.example.test/v1",
-            "secret_name": "work",
-            "api_key": "candidate-secret",
-        }]
+        assert captured == [
+            {
+                "provider_id": "api-work",
+                "name": "work",
+                "auth_type": "api-key",
+                "model": "model-one",
+                "runtime_name": "custom",
+                "protocol": "openai",
+                "api_base": "https://models.example.test/v1",
+                "secret_name": "work",
+                "api_key": "candidate-secret",
+            }
+        ]
         assert "candidate-secret" not in json.dumps(db.all_settings())
         await ws.close()
     finally:
@@ -722,8 +724,8 @@ async def test_chat_full_flow(server: CollieIPCServer) -> None:
             final_msg = frame["message"]
 
     assert "processing" in seen_states
-    assert "searching" in seen_states       # web_search tool event
-    assert "generating" in seen_states      # streaming started
+    assert "searching" in seen_states  # web_search tool event
+    assert "generating" in seen_states  # streaming started
     assert seen_states[-1] == "done"
     assert "".join(deltas) == "Hi! Here you go."
     assert final_msg["content"] == "Hi! Here you go."
@@ -840,18 +842,14 @@ async def test_service_commands_roundtrip(tmp_path: Path) -> None:
     from collie_core.services.manager import ServiceManager
 
     db = CollieDB(tmp_path / "c.db")
-    manager = ServiceManager(
-        db, credentials=CredentialStore(tmp_path / "creds"), platform="win32"
-    )
+    manager = ServiceManager(db, credentials=CredentialStore(tmp_path / "creds"), platform="win32")
     configured: list[bool] = []
 
     async def on_configure():
         configured.append(True)
         return {"configured": True}
 
-    srv = CollieIPCServer(
-        db, port=_free_port(), service_manager=manager, on_configure=on_configure
-    )
+    srv = CollieIPCServer(db, port=_free_port(), service_manager=manager, on_configure=on_configure)
     await srv.start()
     try:
         ws = await _connect(srv)
@@ -860,15 +858,19 @@ async def test_service_commands_roundtrip(tmp_path: Path) -> None:
         assert {s["id"] for s in services} >= {"gmail", "todoist", "outlook"}
         assert not any(service["available"] for service in services)
 
-        await _send(ws, type="connect_service", id="2", service_id="todoist",
-                    credentials={"todoist_token": "tok-1"})
+        await _send(
+            ws,
+            type="connect_service",
+            id="2",
+            service_id="todoist",
+            credentials={"todoist_token": "tok-1"},
+        )
         err = await _recv_until(ws, "error")
         assert err["id"] == "2"
         assert "coming soon" in err["message"].lower()
         assert configured == []
 
-        await _send(ws, type="connect_service", id="3", service_id="gmail",
-                    credentials={})
+        await _send(ws, type="connect_service", id="3", service_id="gmail", credentials={})
         err = await _recv_until(ws, "error")
         assert err["id"] == "3"
 
@@ -991,8 +993,19 @@ async def test_steer_active_chat_persists_and_broadcasts_user_message(
 
 
 def test_thinking_phrases_complete() -> None:
-    for state in ("searching", "planning", "fetching", "generating", "processing",
-                  "summarizing", "recovering", "done", "error", "idle", "startup"):
+    for state in (
+        "searching",
+        "planning",
+        "fetching",
+        "generating",
+        "processing",
+        "summarizing",
+        "recovering",
+        "done",
+        "error",
+        "idle",
+        "startup",
+    ):
         payload = phrase_for_state(state)
         assert payload["phrase"]
         assert payload["pet_animation"]
@@ -1022,9 +1035,7 @@ async def test_token_mode_rejects_anonymous_and_wrong_tokens(tmp_path: Path) -> 
     try:
         url = f"ws://127.0.0.1:{srv.port}"
         assert await _expect_rejected(url) == 401
-        assert (
-            await _expect_rejected(url, subprotocols=["collie-wrong"]) == 401
-        )
+        assert await _expect_rejected(url, subprotocols=["collie-wrong"]) == 401
         ws = await websockets.connect(url, subprotocols=["collie-boot-secret-123"])
         ready = json.loads(await ws.recv())
         assert ready["type"] == "ready"
@@ -1043,9 +1054,7 @@ async def test_origin_check_rejects_foreign_pages(tmp_path: Path) -> None:
     await srv.start()
     try:
         url = f"ws://127.0.0.1:{srv.port}"
-        assert (
-            await _expect_rejected(url, origin="https://evil.example") == 403
-        )
+        assert await _expect_rejected(url, origin="https://evil.example") == 403
         ws = await websockets.connect(url, origin="http://localhost:5173")
         assert json.loads(await ws.recv())["type"] == "ready"
         await ws.close()
@@ -1210,8 +1219,11 @@ async def test_delete_conversation_cancels_turn_and_cleans_related_rows(
         conversation_id=conv_id,
     )
     db.create_approval_request(
-        action="web_fetch", resource="http://x", risk="read",
-        display={"url": "http://x"}, conversation_id=conv_id,
+        action="web_fetch",
+        resource="http://x",
+        risk="read",
+        display={"url": "http://x"},
+        conversation_id=conv_id,
     )
     # A "Your things" index exists for this conversation (the default store
     # resolves under COLLIE_HOME) — deletion must remove it.
@@ -1245,8 +1257,7 @@ async def test_delete_conversation_cancels_turn_and_cleans_related_rows(
     await srv.start()
     try:
         ws = await _connect(srv)
-        await _send(ws, type="chat", id="1", content="start a long turn",
-                    conversation_id=conv_id)
+        await _send(ws, type="chat", id="1", content="start a long turn", conversation_id=conv_id)
         await _recv_until(ws, "ok")
 
         await _send(ws, type="delete_conversation", id="2", conversation_id=conv_id)
@@ -1259,8 +1270,9 @@ async def test_delete_conversation_cancels_turn_and_cleans_related_rows(
         assert db.get_plan("plan-x", 1) is None
         assert db.list_pending_approvals() == []
         # The runtime deleter was invoked for the conversation session.
-        assert any(f"session:{conv_id}" in item or item == f"collie:{conv_id}"
-                   for item in session_files)
+        assert any(
+            f"session:{conv_id}" in item or item == f"collie:{conv_id}" for item in session_files
+        )
         # The "Your things" index is gone with the conversation (metadata
         # only — the user's deliverable file stays on disk).
         assert not (thing_store.root / f"{conv_id}.json").exists()
@@ -1280,7 +1292,8 @@ async def test_approve_plan_is_idempotent(tmp_path: Path) -> None:
     db = CollieDB(tmp_path / "collie.db")
     conv = db.create_conversation("Plan chat")
     db.create_plan(
-        title="P", goal="G",
+        title="P",
+        goal="G",
         plan={"steps": [{"key": "s1", "title": "S1"}]},
         conversation_id=conv["id"],
         plan_id="plan-y",
@@ -1289,12 +1302,24 @@ async def test_approve_plan_is_idempotent(tmp_path: Path) -> None:
     await srv.start()
     try:
         ws = await _connect(srv)
-        await _send(ws, type="approve_plan", id="1", plan_id="plan-y",
-                    version=1, plan_hash=db.get_plan("plan-y", 1)["plan_hash"])
+        await _send(
+            ws,
+            type="approve_plan",
+            id="1",
+            plan_id="plan-y",
+            version=1,
+            plan_hash=db.get_plan("plan-y", 1)["plan_hash"],
+        )
         first = await _recv_until(ws, "ok")
 
-        await _send(ws, type="approve_plan", id="2", plan_id="plan-y",
-                    version=1, plan_hash=db.get_plan("plan-y", 1)["plan_hash"])
+        await _send(
+            ws,
+            type="approve_plan",
+            id="2",
+            plan_id="plan-y",
+            version=1,
+            plan_hash=db.get_plan("plan-y", 1)["plan_hash"],
+        )
         duplicate = await _recv_until(ws, "ok")
         assert duplicate["data"]["created"] is False
         assert duplicate["data"]["run"]["id"] == first["data"]["run"]["id"]
@@ -1341,8 +1366,14 @@ async def test_read_write_file_rejects_escape_paths(
     await _recv_until(ws, "ok")
     assert good.read_text(encoding="utf-8") == "hello"
 
-    escapes = ["../outside.txt", "..\\outside.txt", "/Windows/evil.txt",
-               "C:/Windows/evil.txt", "C:evil.txt", "//server/share/evil.txt"]
+    escapes = [
+        "../outside.txt",
+        "..\\outside.txt",
+        "/Windows/evil.txt",
+        "C:/Windows/evil.txt",
+        "C:evil.txt",
+        "//server/share/evil.txt",
+    ]
     for index, path in enumerate(escapes):
         await _send(ws, type="read_file", id=f"r{index}", path=path)
         err = await _recv_until(ws, "error")
