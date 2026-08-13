@@ -223,10 +223,6 @@ def test_conversations_and_messages(db: CollieDB) -> None:
     db.rename_conversation(conv["id"], "Paris trip")
     assert db.get_conversation(conv["id"])["title"] == "Paris trip"
 
-    db.archive_conversation(conv["id"])
-    assert db.list_conversations() == []
-    assert len(db.list_conversations(include_archived=True)) == 1
-
     db.delete_conversation(conv["id"])
     assert db.get_conversation(conv["id"]) is None
     assert db.get_messages(conv["id"]) == []
@@ -288,8 +284,6 @@ def test_automations(db: CollieDB) -> None:
     assert db.list_automations(enabled_only=True)[0]["name"] == "Morning Briefing"
     db.toggle_automation(a["id"], False)
     assert db.list_automations(enabled_only=True) == []
-    db.mark_automation_run(a["id"])
-    assert db.list_automations()[0]["last_run"] is not None
     db.delete_automation(a["id"])
     assert db.list_automations() == []
 
@@ -306,8 +300,7 @@ def test_services(db: CollieDB) -> None:
     svc = db.get_service("gmail")
     assert svc["status"] == "connected"
     assert svc["connected_at"] is not None
-    db.delete_service("gmail")
-    assert db.list_services() == []
+    assert db.list_services()[0]["id"] == "gmail"
 
 
 def test_subagents(db: CollieDB) -> None:

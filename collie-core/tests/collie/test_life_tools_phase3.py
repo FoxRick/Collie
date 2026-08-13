@@ -35,7 +35,7 @@ def db(tmp_path: Path):
 def test_shopping_db_roundtrip(db: CollieDB) -> None:
     row = db.add_shopping_item("Milk", category="Dairy", quantity="2L")
     assert row["checked"] == 0
-    db.check_shopping_item(row["id"])
+    db.check_shopping_item_by_name("Milk", "Groceries")
     items = db.list_shopping_items()
     assert items[0]["checked"] == 1
     assert db.clear_checked_shopping_items() == 1
@@ -134,8 +134,8 @@ async def test_budget_default_date_and_summary_share_utc_month(
 
     assert card["month"] == "2026-07"
     assert card["total_spent"] == 12.5
-    assert db.expenses_for_month("2026-07")[0]["spent_at"] == "2026-07-31"
-    assert db.expenses_for_month("2026-08") == []
+    assert db.expenses_by_category("2026-07") == [{"category": "Transport", "spent": 12.5}]
+    assert db.expenses_by_category("2026-08") == []
 
 
 async def test_budget_tool_needs_amount(db: CollieDB) -> None:
