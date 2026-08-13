@@ -137,6 +137,8 @@ class WeatherTool(Tool):
         return cls()
 
     async def execute(self, **kwargs: Any) -> Any:
+        import asyncio
+
         location = str(kwargs.get("location") or "").strip()
         if not location:
             return self.error("I need a location to check the weather — what city?")
@@ -148,7 +150,7 @@ class WeatherTool(Tool):
             days = 7
 
         try:
-            geo = _geocode(location)
+            geo = await asyncio.to_thread(_geocode, location)
         except Exception as e:
             return self.error(
                 f"I couldn't find {location} — my weather nose is a bit off today. ({e})"
@@ -174,7 +176,7 @@ class WeatherTool(Tool):
         )
 
         try:
-            data = _api_get(f"{_OPEN_METEO_FORECAST}?{params}")
+            data = await asyncio.to_thread(_api_get, f"{_OPEN_METEO_FORECAST}?{params}")
         except Exception as e:
             return self.error(
                 f"The weather station isn't answering — let me try again in a moment. ({e})"
