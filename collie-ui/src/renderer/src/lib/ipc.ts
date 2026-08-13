@@ -910,10 +910,6 @@ export class CollieClient {
     return this.command('set_approval_preset', { preset })
   }
 
-  setSetting(key: string, value: unknown): Promise<unknown> {
-    return this.command('set_setting', { key, value })
-  }
-
   setApiKey(provider: string, key: string): Promise<unknown> {
     return this.command('set_api_key', { provider, key })
   }

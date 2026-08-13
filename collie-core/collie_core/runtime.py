@@ -330,36 +330,6 @@ class CollieRuntime:
                 active.append(self._decorate_subagent(agent, conversation_id))
         return sorted(active, key=lambda item: float(item.get("started_at") or 0))
 
-    def recent_subagents_for_conversation(self, conversation_id: str) -> list[dict[str, Any]]:
-        """List UI-safe specialists that recently finished for a conversation.
-
-        Mirrors :meth:`active_subagents_for_conversation` but reads the
-        manager's bounded settled-status retention, so the roster can show
-        "earlier" rows (outcome + elapsed) without any persistence.
-        """
-        if self.loop is None:
-            return []
-        recent: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for session_key in sorted(self.session_keys_for_conversation(conversation_id)):
-            try:
-                statuses = self.loop.subagents.get_recent_statuses_by_session(session_key)
-            except Exception:
-                logger.exception("Failed to list recent subagents for session {session_key}")
-                continue
-            for agent in statuses:
-                agent_id = str(agent.get("id") or "")
-                if agent_id and agent_id in seen:
-                    continue
-                if agent_id:
-                    seen.add(agent_id)
-                recent.append(self._decorate_subagent(agent, conversation_id))
-        return sorted(
-            recent,
-            key=lambda item: float(item.get("ended_at") or item.get("started_at") or 0),
-            reverse=True,
-        )
-
     @staticmethod
     def _decorate_subagent(agent: dict[str, Any], conversation_id: str) -> dict[str, Any]:
         """Attach wall-clock ms + conversation scoping to a UI-safe subagent row.

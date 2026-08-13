@@ -50,6 +50,10 @@ _SERVER_ONLY_ALLOWLIST: dict[str, str] = {
     "update_routine": "no caller in UI; verify or remove",
     "delete_routine": "no caller in UI; verify or remove",
     "test_routine": "no caller in UI; verify or remove",
+    # Managed settings writes (provider auth/name/model/api_base) are only
+    # exercised by backend tests; the renderer mutates providers through
+    # upsert_provider / activate_provider instead.
+    "set_setting": "no caller in UI; backend tests cover the allowlist",
 }
 
 _SERVER_RE = re.compile(r"^    async def _cmd_(\w+)\(", re.MULTILINE)
