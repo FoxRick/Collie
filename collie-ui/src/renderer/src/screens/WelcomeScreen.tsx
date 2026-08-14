@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ChevronDown, ChevronUp, Search, Sparkles } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronUp, Key, Search, Sparkles } from 'lucide-react'
 import { collieClient, type CatalogueProvider } from '../lib/ipc'
 import { configureApiKeyProvider } from '../lib/providerConfiguration'
 import BrandLogo from '../components/BrandLogo'
@@ -410,7 +410,13 @@ export default function WelcomeScreen({ onDone, onCancel }: Props): React.JSX.El
             disabled={busyKey || busyLocal}
             className="flex w-full items-center gap-3 text-left"
           >
-            <BrandLogo brand={provider} size={32} />
+            <span
+              aria-hidden="true"
+              className="flex shrink-0 items-center justify-center rounded-xl border bg-white"
+              style={{ width: 32, height: 32, borderColor: 'var(--collie-border)' }}
+            >
+              <Key size={16} style={{ color: 'var(--collie-snoot)' }} />
+            </span>
             <div>
               <div className="font-medium">I have an API key</div>
               <div className="text-sm" style={{ color: 'var(--collie-text-muted)' }}>

@@ -25,6 +25,7 @@ vi.mock('lucide-react', () => ({
   ArrowLeft: () => null,
   ChevronDown: () => null,
   ChevronUp: () => null,
+  Key: () => null,
   Search: () => null,
   Sparkles: () => null
 }))
