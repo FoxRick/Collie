@@ -233,20 +233,6 @@ def _extract_json(response: str) -> list[dict[str, Any]]:
     return [item for item in parsed if isinstance(item, dict)]
 
 
-def _artifact_text(workspace: Path, artifact_type: str, key: str) -> str:
-    """Read a (validated) artifact's current text for the prompt."""
-    base = Path(workspace)
-    if artifact_type == "subagent":
-        path = base / "subagents" / key
-    elif artifact_type == "memory_dream":
-        path = base / "memory" / key
-    else:
-        path = base / key
-    if not path.exists():
-        return ""
-    return path.read_text(encoding="utf-8")
-
-
 def build_prompt(evidence: dict[str, Any], workspace: Path) -> str:
     """Render the Gardener prompt (bounded: evidence + current texts)."""
     evidence_text = json.dumps(evidence, ensure_ascii=False, indent=1)

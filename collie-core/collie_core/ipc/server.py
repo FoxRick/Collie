@@ -783,6 +783,12 @@ class CollieIPCServer:
 
     async def _cmd_export_data(self, connection: ServerConnection, frame: dict) -> dict:
         """Write everything to a zip in ~/.collie/exports and return its path."""
+        # The export walks the whole database and every workspace file, so it
+        # runs on a worker thread like the other heavy IPC reads — a large
+        # export must not stall streamed chat events on the event loop.
+        return await asyncio.to_thread(self._export_data_now)
+
+    def _export_data_now(self) -> dict[str, str]:
         import zipfile
         from datetime import datetime
 

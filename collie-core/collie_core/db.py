@@ -781,13 +781,6 @@ class CollieDB:
                 (title, utc_now(), conv_id),
             )
 
-    def archive_conversation(self, conv_id: str, archived: bool = True) -> None:
-        with self._write() as conn:
-            conn.execute(
-                "UPDATE conversations SET archived = ?, updated_at = ? WHERE id = ?",
-                (1 if archived else 0, utc_now(), conv_id),
-            )
-
     def delete_conversation(self, conv_id: str) -> None:
         with self._write() as conn:
             # Children first (messages has an FK to conversations; run_steps
@@ -888,10 +881,6 @@ class CollieDB:
                     with suppress(TypeError, ValueError):
                         r[field] = json.loads(r[field])
         return rows
-
-    def delete_message(self, msg_id: str) -> None:
-        with self._write() as conn:
-            conn.execute("DELETE FROM messages WHERE id = ?", (msg_id,))
 
     def all_messages_with_attachments(self) -> list[dict[str, Any]]:
         """Every message that references stored media, with attachments parsed."""
@@ -1188,13 +1177,6 @@ class CollieDB:
             (list_name, item),
         )
 
-    def check_shopping_item(self, item_id: str, checked: bool = True) -> None:
-        with self._write() as conn:
-            conn.execute(
-                "UPDATE shopping_items SET checked = ? WHERE id = ?",
-                (1 if checked else 0, item_id),
-            )
-
     def check_shopping_item_by_name(self, item: str, list_name: str, checked: bool = True) -> int:
         """Check/uncheck every row with the given name (duplicates included)."""
         with self._write() as conn:
@@ -1204,10 +1186,6 @@ class CollieDB:
                 (1 if checked else 0, list_name, item),
             )
             return cur.rowcount
-
-    def delete_shopping_item(self, item_id: str) -> None:
-        with self._write() as conn:
-            conn.execute("DELETE FROM shopping_items WHERE id = ?", (item_id,))
 
     def delete_shopping_item_by_name(self, item: str, list_name: str) -> int:
         """Delete every row with the given name (duplicates included)."""
@@ -1251,13 +1229,6 @@ class CollieDB:
                 ),
             )
         return self._row("SELECT * FROM expenses WHERE id = ?", (eid,))  # type: ignore[return-value]
-
-    def expenses_for_month(self, month: str) -> list[dict[str, Any]]:
-        """List expenses for a month given as ``YYYY-MM``."""
-        return self._rows(
-            "SELECT * FROM expenses WHERE spent_at LIKE ? ORDER BY spent_at",
-            (f"{month}%",),
-        )
 
     def expenses_by_category(self, month: str) -> list[dict[str, Any]]:
         return self._rows(
@@ -1386,13 +1357,6 @@ class CollieDB:
                 ),
             )
 
-    def mark_automation_run(self, automation_id: str) -> None:
-        with self._write() as conn:
-            conn.execute(
-                "UPDATE automations SET last_run = ? WHERE id = ?",
-                (utc_now(), automation_id),
-            )
-
     def mark_routine_result(
         self, automation_id: str, *, success: bool, error: str | None = None
     ) -> None:
@@ -1505,14 +1469,6 @@ class CollieDB:
             "reasons": reasons if isinstance(reasons, list) else [],
             "declared_at": str(row["declared_at"]),
         }
-
-    def clear_conversation_review_gate(self, conversation_id: str) -> bool:
-        with self._write() as conn:
-            cursor = conn.execute(
-                "DELETE FROM conversation_review_gates WHERE conversation_id = ?",
-                (conversation_id,),
-            )
-            return cursor.rowcount == 1
 
     _CHECKLIST_STEP_STATUSES = frozenset(
         {"pending", "in_progress", "completed", "blocked", "skipped", "failed"}
@@ -1801,30 +1757,6 @@ class CollieDB:
             )
             cursor = conn.execute(
                 "UPDATE task_checklists SET status = 'cancelled', current_step_key = NULL, "
-                "revision = revision + 1, updated_at = ?, completed_at = ? "
-                "WHERE id = ? AND revision = ?",
-                (now, now, checklist_id, expected_revision),
-            )
-            if cursor.rowcount != 1:
-                raise ValueError("This task checklist changed; use its latest revision.")
-            row = conn.execute(
-                "SELECT * FROM task_checklists WHERE id = ?", (checklist_id,)
-            ).fetchone()
-            assert row is not None
-            return self._checklist_task_with(conn, row)
-
-    def fail_task_checklist(self, checklist_id: str, *, expected_revision: int) -> dict[str, Any]:
-        """Fail an active checklist when a turn ends without a mutable step."""
-        now = utc_now()
-        with self._write_immediate() as conn:
-            self._require_checklist_revision(
-                conn.execute(
-                    "SELECT * FROM task_checklists WHERE id = ?", (checklist_id,)
-                ).fetchone(),
-                expected_revision,
-            )
-            cursor = conn.execute(
-                "UPDATE task_checklists SET status = 'failed', current_step_key = NULL, "
                 "revision = revision + 1, updated_at = ?, completed_at = ? "
                 "WHERE id = ? AND revision = ?",
                 (now, now, checklist_id, expected_revision),
@@ -2867,10 +2799,6 @@ class CollieDB:
     def list_services(self) -> list[dict[str, Any]]:
         return self._rows("SELECT * FROM services ORDER BY name COLLATE NOCASE")
 
-    def delete_service(self, service_id: str) -> None:
-        with self._write() as conn:
-            conn.execute("DELETE FROM services WHERE id = ?", (service_id,))
-
     # -- connectors --------------------------------------------------------------------------
 
     def upsert_connector_connection(
@@ -3234,13 +3162,6 @@ class CollieDB:
         with self._write() as conn:
             conn.execute("UPDATE providers SET is_default = 0")
             conn.execute("UPDATE providers SET is_default = 1 WHERE id = ?", (provider_id,))
-
-    def touch_provider(self, provider_id: str) -> None:
-        with self._write() as conn:
-            conn.execute(
-                "UPDATE providers SET last_used = ? WHERE id = ?",
-                (utc_now(), provider_id),
-            )
 
     def delete_provider(self, provider_id: str) -> None:
         with self._write() as conn:

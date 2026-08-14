@@ -13,7 +13,6 @@ from typing import Any
 
 from collie_core.db import collie_home
 
-MODEL_NAME = "Moonshine Tiny Streaming (English, Q8)"
 MAX_AUDIO_BYTES = 8 * 1024 * 1024
 MAX_AUDIO_SECONDS = 60
 

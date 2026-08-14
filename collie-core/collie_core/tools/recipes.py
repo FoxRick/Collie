@@ -113,6 +113,8 @@ class RecipesTool(Tool):
         return cls()
 
     async def execute(self, **kwargs: Any) -> Any:
+        import asyncio
+
         action = str(kwargs.get("action") or "").strip().lower()
         query = str(kwargs.get("query") or "").strip()
 
@@ -120,7 +122,7 @@ class RecipesTool(Tool):
             if action == "search":
                 if not query:
                     return self.error("What dish should I look up?")
-                data = _api_get(f"{_SEARCH_URL}?{urlencode({'s': query})}")
+                data = await asyncio.to_thread(_api_get, f"{_SEARCH_URL}?{urlencode({'s': query})}")
                 meals = data.get("meals") or []
                 if not meals:
                     return (
@@ -132,19 +134,21 @@ class RecipesTool(Tool):
             if action == "by_ingredient":
                 if not query:
                     return self.error("Which ingredient should the meal use?")
-                data = _api_get(f"{_FILTER_URL}?{urlencode({'i': query})}")
+                data = await asyncio.to_thread(_api_get, f"{_FILTER_URL}?{urlencode({'i': query})}")
                 meals = data.get("meals") or []
                 if not meals:
                     return f"Nothing in the cookbook uses '{query}'. Odd pantry!"
                 first_id = str(meals[0].get("idMeal") or "")
-                detail = _api_get(f"{_LOOKUP_URL}?{urlencode({'i': first_id})}")
+                detail = await asyncio.to_thread(
+                    _api_get, f"{_LOOKUP_URL}?{urlencode({'i': first_id})}"
+                )
                 full = (detail.get("meals") or [{}])[0]
                 card = _meal_to_card(full)
                 card["alternatives"] = [str(m.get("strMeal") or "") for m in meals[1:6]]
                 return json.dumps(card)
 
             if action == "random":
-                data = _api_get(_RANDOM_URL)
+                data = await asyncio.to_thread(_api_get, _RANDOM_URL)
                 meals = data.get("meals") or []
                 if not meals:
                     return "The cookbook came up empty — try again?"

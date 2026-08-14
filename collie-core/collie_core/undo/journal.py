@@ -165,14 +165,6 @@ def discard_write(conversation_id: str, entry_id: str) -> None:
             shutil.rmtree(conversation_dir, ignore_errors=True)
 
 
-def pending_entries(conversation_id: str) -> list[dict[str, Any]]:
-    """Return not-yet-undone journal entries for a conversation, newest first."""
-    safe_id = _safe_conversation_id(conversation_id)
-    if safe_id is None:
-        return []
-    return _load_manifest(_conversation_dir(safe_id))
-
-
 def undo_entries(
     conversation_id: str, entry_ids: list[str] | None = None
 ) -> dict[str, list[dict[str, str]]]:

@@ -32,7 +32,7 @@ def test_record_and_undo_restores_original_bytes(undo_home: Path) -> None:
     assert [item["id"] for item in result["undone"]] == [entry]
     assert result["errors"] == []
     assert target.read_text(encoding="utf-8") == "original"
-    assert journal.pending_entries("conv-1") == []
+    assert journal._load_manifest(journal._conversation_dir("conv-1")) == []
 
 
 def test_create_undo_removes_created_file(undo_home: Path) -> None:
@@ -63,7 +63,7 @@ def test_undo_subset_then_rest(undo_home: Path) -> None:
 
     journal.undo_entries("conv-1")
     assert first.read_text(encoding="utf-8") == "A"
-    assert journal.pending_entries("conv-1") == []
+    assert journal._load_manifest(journal._conversation_dir("conv-1")) == []
 
 
 def test_unknown_entry_ids_are_ignored(undo_home: Path) -> None:
@@ -83,7 +83,9 @@ def test_missing_conversation_id_skips_journaling(undo_home: Path) -> None:
     assert journal.record_write("", target, "overwrite") is None
     assert journal.record_write("../evil", target, "overwrite") is None
     assert journal.record_write("..", target, "overwrite") is None
-    assert journal.pending_entries("") == []
+    assert journal._safe_conversation_id("") is None
+    assert journal._safe_conversation_id("../evil") is None
+    assert journal._safe_conversation_id("..") is None
 
 
 def test_missing_shadow_reports_error_and_keeps_entry(undo_home: Path) -> None:
@@ -98,7 +100,9 @@ def test_missing_shadow_reports_error_and_keeps_entry(undo_home: Path) -> None:
     assert len(result["errors"]) == 1
     assert result["errors"][0]["id"] == entry
     # Entry survives so a later repair attempt stays possible.
-    assert [item["id"] for item in journal.pending_entries("conv-1")] == [entry]
+    assert [item["id"] for item in journal._load_manifest(journal._conversation_dir("conv-1"))] == [
+        entry
+    ]
 
 
 def test_retention_sweep_drops_expired_entries(undo_home: Path) -> None:
@@ -117,7 +121,7 @@ def test_retention_sweep_drops_expired_entries(undo_home: Path) -> None:
     keeper.write_text("keep", encoding="utf-8")
     keeper_entry = journal.record_write("conv-1", keeper, "overwrite")
 
-    remaining = journal.pending_entries("conv-1")
+    remaining = journal._load_manifest(journal._conversation_dir("conv-1"))
     assert [item["id"] for item in remaining] == [keeper_entry]
     assert not (conversation_dir / f"{old_entry}.orig").exists()
 
@@ -142,7 +146,7 @@ def test_discard_write_removes_entry_and_shadow(undo_home: Path) -> None:
     entry = journal.record_write("conv-1", target, "overwrite")
 
     journal.discard_write("conv-1", str(entry))
-    assert journal.pending_entries("conv-1") == []
+    assert journal._load_manifest(journal._conversation_dir("conv-1")) == []
     conversation_dir = undo_home / "undo" / "conv-1"
     assert not (conversation_dir / f"{entry}.orig").exists()
 
@@ -156,7 +160,7 @@ def test_discard_write_keeps_other_entries(undo_home: Path) -> None:
     second_entry = journal.record_write("conv-1", second, "overwrite")
 
     journal.discard_write("conv-1", str(first_entry))
-    remaining = journal.pending_entries("conv-1")
+    remaining = journal._load_manifest(journal._conversation_dir("conv-1"))
     assert [item["id"] for item in remaining] == [second_entry]
 
 
@@ -166,4 +170,6 @@ def test_discard_write_unknown_entry_is_noop(undo_home: Path) -> None:
     entry = journal.record_write("conv-1", target, "overwrite")
 
     journal.discard_write("conv-1", "does-not-exist")
-    assert [item["id"] for item in journal.pending_entries("conv-1")] == [entry]
+    assert [item["id"] for item in journal._load_manifest(journal._conversation_dir("conv-1"))] == [
+        entry
+    ]

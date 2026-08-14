@@ -24,11 +24,9 @@ TRANSPARENT = (0, 0, 0, 0)
 # Border Collie palette
 BLACK = (30, 30, 35, 255)
 WHITE = (240, 240, 245, 255)
-DARK_GREY = (55, 55, 60, 255)
 EYE_AMBER = (180, 140, 60, 255)
 EYE_DARK = (40, 30, 10, 255)
 NOSE_COLOR = (20, 20, 25, 255)
-TONGUE_PINK = (230, 130, 130, 255)
 COLLAR_BLUE = (40, 80, 180, 255)
 COLLAR_GOLD = (200, 170, 50, 255)
 
@@ -323,20 +321,6 @@ def generate_sit() -> list[Image.Image]:
     return frames
 
 
-def generate_jump() -> list[Image.Image]:
-    """Jump sequence: crouch, launch, peak, descend, land (5 frames)."""
-    y_offsets = [10, -15, -35, -15, 10]
-    scales = [0.92, 1.0, 1.05, 1.0, 0.92]
-    frames = []
-    for yo, scl in zip(y_offsets, scales, strict=True):
-        img, draw = _create_frame()
-        bx = CELL_W // 2 + 2
-        by = CELL_H // 2 + 30 + yo
-        _draw_collie_base(draw, bx, by, True, scl)
-        frames.append(img)
-    return frames
-
-
 def generate_sleep() -> list[Image.Image]:
     """Sleeping pose, occasional Zzz motion (2 frames)."""
     frames = []
@@ -358,34 +342,6 @@ def generate_sleep() -> list[Image.Image]:
                 ]
             ):
                 draw.text((zx, zy), "Z", fill=(100, 150, 255, 255), font_size=10 + zi * 3)
-        frames.append(img)
-    return frames
-
-
-def generate_wag() -> list[Image.Image]:
-    """Tail wagging while standing (4 frames)."""
-    frames = []
-    # We vary the tail position — for simplicity we shift the whole
-    # body slightly to suggest a wag, plus scale phase
-    tail_phases = [0, 0.33, 0.66, 0.33]
-    for phase in tail_phases:
-        img, draw = _create_frame()
-        bx = CELL_W // 2 + 2
-        by = CELL_H // 2 + 30 + round(math.sin(phase * math.pi * 2) * 2)
-        _draw_collie_base(draw, bx, by, True, 1.0 + math.sin(phase * math.pi * 2) * 0.01)
-        frames.append(img)
-    return frames
-
-
-def generate_run() -> list[Image.Image]:
-    """Fast running pose (6 frames)."""
-    frames = []
-    for i in range(6):
-        img, draw = _create_frame()
-        phase = i / 6.0
-        bx = CELL_W // 2 + round(math.sin(phase * math.pi * 2) * 6)
-        by = CELL_H // 2 + 30 + round(abs(math.cos(phase * math.pi * 2)) * 5)
-        _draw_collie_base(draw, bx, by, True, 1.03)
         frames.append(img)
     return frames
 
@@ -495,43 +451,3 @@ def _install_asset_generators() -> None:
 
 
 _install_asset_generators()
-
-
-def generate_all_sprites() -> dict[str, list[Image.Image]]:
-    """Generate all sprite frames for all animation states."""
-    if Image is None:
-        raise ImportError("Pillow is required. Install with: pip install Pillow")
-    result = {}
-    for state in RENDER_STATES:
-        gen = STATE_GENERATORS.get(state)
-        if gen:
-            result[state] = gen()
-    return result
-
-
-def generate_spritesheet() -> Image.Image:
-    """
-    Generate a Codex-v2-style spritesheet: 8 columns x N rows.
-    Each row is an animation state, each column is a frame.
-    Layout matches Codex V2: 8 columns wide, 9+ rows of states.
-    """
-    all_sprites = generate_all_sprites()
-
-    # Determine max frames per state (Codex uses up to 8)
-    max_frames = max(len(frames) for frames in all_sprites.values())
-    n_cols = min(max_frames, 8)
-    n_rows = len(RENDER_STATES)
-
-    sheet_w = n_cols * CELL_W
-    sheet_h = n_rows * CELL_H
-
-    sheet = Image.new("RGBA", (sheet_w, sheet_h), TRANSPARENT)
-
-    for row_idx, state in enumerate(RENDER_STATES):
-        frames = all_sprites.get(state, [])
-        for col_idx, frame in enumerate(frames):
-            if col_idx >= n_cols:
-                break
-            sheet.paste(frame, (col_idx * CELL_W, row_idx * CELL_H))
-
-    return sheet

@@ -96,6 +96,8 @@ class NewsTool(Tool):
         return cls()
 
     async def execute(self, **kwargs: Any) -> Any:
+        import asyncio
+
         action = str(kwargs.get("action") or "").strip().lower()
         lang = str(kwargs.get("language") or "en").strip().lower() or "en"
         try:
@@ -106,12 +108,14 @@ class NewsTool(Tool):
 
         try:
             if action == "headlines":
-                articles = _fetch_rss(f"{_BASE}?{urlencode(params)}")
+                articles = await asyncio.to_thread(_fetch_rss, f"{_BASE}?{urlencode(params)}")
             elif action == "topic":
                 query = str(kwargs.get("query") or "").strip()
                 if not query:
                     return self.error("What topic should I dig into?")
-                articles = _fetch_rss(f"{_BASE}/search?{urlencode({'q': query, **params})}")
+                articles = await asyncio.to_thread(
+                    _fetch_rss, f"{_BASE}/search?{urlencode({'q': query, **params})}"
+                )
             else:
                 return self.error(
                     f"Not sure what to do with action '{action}'. Try headlines or topic."
