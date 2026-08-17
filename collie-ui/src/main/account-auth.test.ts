@@ -260,13 +260,19 @@ describe('startAccountSignIn', () => {
       expect(testState.openedUrl).toContain('/auth/v1/authorize')
     })
 
+    // Attach the rejection expectation BEFORE firing the callback request:
+    // startAccountSignIn rejects from the server's request handler, which
+    // runs while realFetch is still awaiting the response — a late handler
+    // becomes an unhandled rejection that fails the vitest run (CI exit 1).
+    const rejection = expect(signInPromise).rejects.toThrow('Sign-in was cancelled.')
+
     // Supabase redirects with ?error=access_denied when the user cancels.
     const callbackResponse = await realFetch(
       `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?error=access_denied&error_description=User+cancelled`
     )
     expect(callbackResponse.status).toBe(200)
 
-    await expect(signInPromise).rejects.toThrow('Sign-in was cancelled.')
+    await rejection
   })
 
   it('fails with a clear message when the session cannot be stored securely', async () => {
@@ -276,14 +282,18 @@ describe('startAccountSignIn', () => {
       expect(testState.openedUrl).toContain('/auth/v1/authorize')
     })
 
+    // Same pattern as the cancellation test — handle the rejection before
+    // the callback request can trigger it.
+    const rejection = expect(signInPromise).rejects.toThrow(
+      'could not store the session securely'
+    )
+
     const callbackResponse = await realFetch(
       `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=exchange-me`
     )
     expect(callbackResponse.status).toBe(200)
 
-    await expect(signInPromise).rejects.toThrow(
-      'could not store the session securely'
-    )
+    await rejection
     expect(getStoredSession()).toBeNull()
   })
 
