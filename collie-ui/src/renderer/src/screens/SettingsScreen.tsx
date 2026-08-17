@@ -35,6 +35,7 @@ import ServicesTab from '../components/settings/ServicesTab'
 import PetTab from '../components/settings/PetTab'
 import PhoneTab from '../components/settings/PhoneTab'
 import SafetyApprovalsTab from '../components/settings/SafetyApprovalsTab'
+import AccountTab from '../components/settings/AccountTab'
 import ProviderManager from '../components/settings/ProviderManager'
 import AudioInputTab from '../components/settings/AudioInputTab'
 import UpdateTab from '../components/settings/UpdateTab'
@@ -235,6 +236,8 @@ export default function SettingsScreen({
         return <AudioInputTab />
       case 'account':
         return (
+          <>
+            <AccountTab />
             <section className="settings-card">
               <h3 className="mb-2 font-medium">Your data</h3>
               <div className="flex gap-2">
@@ -273,6 +276,7 @@ export default function SettingsScreen({
                 </button>
               </div>
             </section>
+          </>
         )
       case 'updates':
         return <UpdateTab />
