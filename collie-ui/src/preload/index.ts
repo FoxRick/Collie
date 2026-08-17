@@ -31,6 +31,13 @@ export interface ActiveWorkSnapshot {
   externalActions: number
 }
 
+export interface AccountState {
+  signedIn: boolean
+  email: string | null
+  /** Epoch milliseconds, or null when unknown. */
+  expiresAt: number | null
+}
+
 export interface InstallResult {
   installed: boolean
   blockedBy: string[]
@@ -102,6 +109,14 @@ const api = {
   }
 }
 
+const accountApi = {
+  startSignIn: (): Promise<AccountState> => ipcRenderer.invoke('account:start-sign-in'),
+  getState: (): Promise<AccountState> => ipcRenderer.invoke('account:get-state'),
+  signOut: (): Promise<AccountState> => ipcRenderer.invoke('account:sign-out')
+}
+
 contextBridge.exposeInMainWorld('collie', api)
+contextBridge.exposeInMainWorld('account', accountApi)
 
 export type CollieBridge = typeof api
+export type AccountBridge = typeof accountApi
