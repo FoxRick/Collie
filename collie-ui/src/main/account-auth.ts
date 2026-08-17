@@ -32,6 +32,11 @@ const CALLBACK_SUCCESS_HTML =
   '<body style="font-family:system-ui,sans-serif;padding:48px;max-width:520px">' +
   '<h1>You are signed in 🐕</h1>' +
   '<p>You can close this tab and go back to Collie.</p></body></html>'
+const CALLBACK_CANCELLED_HTML =
+  '<!doctype html><html><head><meta charset="utf-8"><title>Collie sign-in</title></head>' +
+  '<body style="font-family:system-ui,sans-serif;padding:48px;max-width:520px">' +
+  '<h1>Sign-in cancelled</h1>' +
+  '<p>No problem — you can close this tab and go back to Collie.</p></body></html>'
 
 export interface AccountState {
   signedIn: boolean
@@ -254,6 +259,19 @@ function waitForCallbackCode(server: Server, timeoutMs: number): Promise<string>
         res.writeHead(404).end('Not found')
         return
       }
+      // Supabase redirects with `?error=...` when the user cancels in the
+      // browser — surface that as a friendly cancellation instead of a
+      // "Bad request" page and a 5-minute wait.
+      const oauthError = url.searchParams.get('error')
+      if (oauthError) {
+        clearTimeout(timer)
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+        res.end(CALLBACK_CANCELLED_HTML)
+        server.close()
+        server.closeAllConnections()
+        reject(new Error('Sign-in was cancelled.'))
+        return
+      }
       const code = url.searchParams.get('code')
       if (!code) {
         res.writeHead(400).end('Missing code')
@@ -333,7 +351,8 @@ export async function startAccountSignIn(
       apikey: anonKey,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({ auth_code: code, code_verifier: verifier })
+    body: JSON.stringify({ auth_code: code, code_verifier: verifier }),
+    signal: AbortSignal.timeout(10_000)
   })
   if (!response.ok) {
     throw new Error(
@@ -348,12 +367,18 @@ export async function startAccountSignIn(
     typeof data.expires_in === 'number' && Number.isFinite(data.expires_in)
       ? Date.now() + data.expires_in * 1000
       : 0
-  saveAccountSession({
+  const saved = saveAccountSession({
     access_token: data.access_token,
     refresh_token: typeof data.refresh_token === 'string' ? data.refresh_token : '',
     expires_at: expiresAt,
     email: typeof data.user?.email === 'string' ? data.user.email : ''
   })
+  if (!saved) {
+    throw new Error(
+      'You signed in, but this computer could not store the session ' +
+        'securely. Please try again.'
+    )
+  }
   return getAccountState()
 }
 

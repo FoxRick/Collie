@@ -11,6 +11,7 @@ const testState = vi.hoisted(() => {
   return {
     userData: '',
     openedUrl: '',
+    encryptionAvailable: true,
     exchange: null as {
       url: string
       body: Record<string, unknown>
@@ -22,7 +23,7 @@ const testState = vi.hoisted(() => {
 vi.mock('electron', () => ({
   app: { getPath: () => testState.userData },
   safeStorage: {
-    isEncryptionAvailable: () => true,
+    isEncryptionAvailable: () => testState.encryptionAvailable,
     encryptString: (value: string) => Buffer.from(`encrypted:${value}`, 'utf8'),
     decryptString: (value: Buffer) => value.toString('utf8').replace(/^encrypted:/, '')
   },
@@ -62,6 +63,7 @@ let fetchMock: ReturnType<typeof vi.fn>
 beforeEach(() => {
   testState.userData = mkdtempSync(join(tmpdir(), 'collie-auth-'))
   testState.openedUrl = ''
+  testState.encryptionAvailable = true
   testState.exchange = null
   fetchMock = vi.fn(async (input: unknown, init?: RequestInit) => {
     const url = String(input)
@@ -250,6 +252,39 @@ describe('startAccountSignIn', () => {
     await expect(startAccountSignIn({ timeoutMs: 150 })).rejects.toThrow(
       "Sign-in didn't finish"
     )
+  })
+
+  it('surfaces a browser-side cancellation as a friendly error', async () => {
+    const signInPromise = startAccountSignIn()
+    await vi.waitFor(() => {
+      expect(testState.openedUrl).toContain('/auth/v1/authorize')
+    })
+
+    // Supabase redirects with ?error=access_denied when the user cancels.
+    const callbackResponse = await realFetch(
+      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?error=access_denied&error_description=User+cancelled`
+    )
+    expect(callbackResponse.status).toBe(200)
+
+    await expect(signInPromise).rejects.toThrow('Sign-in was cancelled.')
+  })
+
+  it('fails with a clear message when the session cannot be stored securely', async () => {
+    testState.encryptionAvailable = false
+    const signInPromise = startAccountSignIn()
+    await vi.waitFor(() => {
+      expect(testState.openedUrl).toContain('/auth/v1/authorize')
+    })
+
+    const callbackResponse = await realFetch(
+      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=exchange-me`
+    )
+    expect(callbackResponse.status).toBe(200)
+
+    await expect(signInPromise).rejects.toThrow(
+      'could not store the session securely'
+    )
+    expect(getStoredSession()).toBeNull()
   })
 
   it('fails with a clear message when the fixed callback port is taken', async () => {
