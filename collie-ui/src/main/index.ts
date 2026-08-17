@@ -23,6 +23,7 @@ import {
   saveSecret,
   stageSecretChange
 } from './secrets'
+import { getAccountState, signOut, startAccountSignIn } from './account-auth'
 import { autoUpdater } from 'electron-updater'
 import {
   ActiveWorkTracker,
@@ -315,6 +316,9 @@ function registerIpc(): void {
   handle('collie:delete-secret', (provider: string) => deleteSecret(provider))
   handle('collie:list-secrets', () => listSecretProviders())
   handle('collie:load-secrets', () => loadSecrets())
+  handle('account:start-sign-in', () => startAccountSignIn())
+  handle('account:get-state', () => getAccountState())
+  handle('account:sign-out', () => signOut())
   handle('collie:pick-attachments', async (): Promise<SelectedAttachment[]> => {
     const options = {
       title: 'Attach files to your message',
