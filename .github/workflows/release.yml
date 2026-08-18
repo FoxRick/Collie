@@ -197,6 +197,13 @@ jobs:
         run: npm run provenance:write
 
       - name: Build renderer + main bundles
+        # Public Supabase client config for the optional Collie account
+        # sign-in (same values shipped in the website bundle — the anon key
+        # is designed to live in clients). Without these the packaged app
+        # reports "sign-in is not configured" (account-config.ts).
+        env:
+          COLLIE_SUPABASE_URL: https://uavxtllbzwygytbkrpwd.supabase.co
+          COLLIE_SUPABASE_ANON_KEY: sb_publishable_S9I3uB67XI93xhJ3OKM6Rw_Ejyc6aci
         run: npm run build
 
       - name: Stage the bundled Python core + MCP runtime
