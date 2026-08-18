@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ChevronDown, ChevronUp, Key, Search, Sparkles } from 'lucide-react'
 import { collieClient, type CatalogueProvider } from '../lib/ipc'
-import { configureApiKeyProvider } from '../lib/providerConfiguration'
+import {
+  configureApiKeyProvider,
+  SecureStorageUnavailableError
+} from '../lib/providerConfiguration'
 import BrandLogo from '../components/BrandLogo'
 import CollieFace from '../components/CollieFace'
 
@@ -38,6 +41,24 @@ function linkify(text: string): React.ReactNode[] {
   )
 }
 
+/**
+ * Actionable copy for when the OS keychain (DPAPI/Keychain/keyring) refused
+ * to store the API key. Verified failure mode on the QA rig: on machines
+ * with no unlocked keyring, Connect used to dead-end with "Collie could not
+ * store that API key securely." and nothing else.
+ */
+function secureStorageGuidance(platform: string | null | undefined): string {
+  switch (platform) {
+    case 'darwin':
+      return "Your Mac's Keychain is locked or unavailable, so Collie can't save your API key. Open the \u201cKeychain Access\u201d app and unlock your \u201clogin\u201d keychain (or sign back in to your Mac account), then try Connect again."
+    case 'linux':
+      return "This computer has no unlocked keyring, so Collie can't save your API key. Start your desktop keyring (GNOME Keyring or KWallet), or use Collie just for this session below."
+    case 'win32':
+    default:
+      return "Windows secure storage is locked or turned off, so Collie can't save your API key. Sign back in to your Windows account and try Connect again. (If your work computer blocks it, ask your IT about BitLocker or credential policies.)"
+  }
+}
+
 export default function WelcomeScreen({ onDone, onCancel }: Props): React.JSX.Element {
   const [busyOAuth, setBusyOAuth] = useState<string | null>(null)
   const [busyKey, setBusyKey] = useState(false)
@@ -63,6 +84,9 @@ export default function WelcomeScreen({ onDone, onCancel }: Props): React.JSX.El
   })
   const [localModel, setLocalModel] = useState('')
   const [busyLocal, setBusyLocal] = useState(false)
+  const [secureStoragePlatform, setSecureStoragePlatform] = useState<string | null>(null)
+  const [secureStorageBlocked, setSecureStorageBlocked] = useState(false)
+  const [sessionOnlyBusy, setSessionOnlyBusy] = useState(false)
   const [wsConnected, setWsConnected] = useState(false)
   const mountedRef = useRef(true)
   const oauthAttemptRef = useRef(0)
@@ -96,6 +120,13 @@ export default function WelcomeScreen({ onDone, onCancel }: Props): React.JSX.El
         if (result.available && result.models.length > 0) {
           setLocalModel(result.models[0])
         }
+      })
+      .catch(() => undefined)
+    // Which OS keychain we are on, for the storage-failure guidance copy.
+    void window.collie
+      ?.secureStorageStatus?.()
+      .then((status) => {
+        if (mountedRef.current) setSecureStoragePlatform(status.platform)
       })
       .catch(() => undefined)
     return () => {
@@ -238,6 +269,7 @@ export default function WelcomeScreen({ onDone, onCancel }: Props): React.JSX.El
     setBusyKey(true)
     setError('')
     setSuccess('')
+    setSecureStorageBlocked(false)
     try {
       const result = await configureWelcomeApiKey({
         provider,
@@ -255,9 +287,56 @@ export default function WelcomeScreen({ onDone, onCancel }: Props): React.JSX.El
       }, 1100)
     } catch (e) {
       if (!mountedRef.current) return
+      if (e instanceof SecureStorageUnavailableError) {
+        setSecureStorageBlocked(true)
+        setError(secureStorageGuidance(secureStoragePlatform))
+        return
+      }
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       if (mountedRef.current) setBusyKey(false)
+    }
+  }, [apiKey, displayName, provider, protocolForProvider, custom, model, baseUrl, onDone, secureStoragePlatform])
+
+  /**
+   * Graceful fallback for locked/unavailable OS keychains: the provider is
+   * configured for THIS session only — the key is never written to disk and
+   * must be re-entered after a restart. Better than a dead end, and the copy
+   * says so honestly.
+   */
+  const connectSessionOnly = useCallback(async (): Promise<void> => {
+    if (!apiKey.trim()) return
+    setSessionOnlyBusy(true)
+    setError('')
+    setSuccess('')
+    try {
+      const result = await configureWelcomeApiKey(
+        {
+          provider,
+          displayName: displayName.trim() || provider,
+          protocol: protocolForProvider,
+          apiKey,
+          model: custom ? model : model || undefined,
+          baseUrl: custom ? baseUrl : baseUrl || undefined
+        },
+        undefined,
+        undefined,
+        { persistSecret: false }
+      )
+      if (!mountedRef.current) return
+      const label = result.model_label || model || 'your model'
+      setSecureStorageBlocked(false)
+      setSuccess(
+        `Connected — using ${label}. Heads up: your key isn't saved on this computer, so you'll add it again after you restart Collie.`
+      )
+      window.setTimeout(() => {
+        if (mountedRef.current) void onDone()
+      }, 2600)
+    } catch (e) {
+      if (!mountedRef.current) return
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      if (mountedRef.current) setSessionOnlyBusy(false)
     }
   }, [apiKey, displayName, provider, protocolForProvider, custom, model, baseUrl, onDone])
 
@@ -689,6 +768,28 @@ export default function WelcomeScreen({ onDone, onCancel }: Props): React.JSX.El
             <span>
               <span>Uh oh. </span>
               {linkify(error)}
+            </span>
+          </div>
+        )}
+
+        {secureStorageBlocked && (
+          <div
+            className="flex flex-col items-start gap-2 rounded-lg border p-3 text-sm"
+            style={{ borderColor: 'var(--collie-gold)', background: 'var(--collie-surface)' }}
+          >
+            <span style={{ color: 'var(--collie-text)' }}>
+              You can still use Collie right now — the key just won't be saved.
+            </span>
+            <button
+              onClick={() => void connectSessionOnly()}
+              disabled={sessionOnlyBusy}
+              className="rounded-lg px-4 py-2 font-medium text-white transition disabled:opacity-50"
+              style={{ background: 'var(--collie-btn-primary-bg)' }}
+            >
+              {sessionOnlyBusy ? 'Connecting…' : 'Use it for this session only'}
+            </button>
+            <span className="text-xs" style={{ color: 'var(--collie-text-muted)' }}>
+              You'll add your key again next time you open Collie.
             </span>
           </div>
         )}

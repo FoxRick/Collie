@@ -21,8 +21,33 @@ const pendingSecretChanges = new Map<
   { provider: string; previous: string | undefined }
 >()
 
+let secureStorageKnown: boolean | null = null
+
+/**
+ * Defensive safeStorage probe: on some Linux setups (no keyring bus, or a
+ * broken keyring daemon) `isEncryptionAvailable()` throws instead of
+ * returning false. Never throw from the storage path — treat as unavailable
+ * and let the UI explain. Cached so the probe (which can block) runs at
+ * most once per process.
+ */
+export function secureStorageAvailable(): boolean {
+  if (secureStorageKnown === null) {
+    try {
+      secureStorageKnown = safeStorage.isEncryptionAvailable()
+    } catch {
+      secureStorageKnown = false
+    }
+  }
+  return secureStorageKnown
+}
+
 export function resetSecretsConsumption(): void {
   secretsConsumed = false
+}
+
+/** Test hook: drop the cached probe result so a fresh environment is re-read. */
+export function resetSecureStorageCache(): void {
+  secureStorageKnown = null
 }
 
 function secretsPath(): string {
@@ -46,7 +71,7 @@ function writeFile(data: SecretFile): void {
 
 export function saveSecret(provider: string, key: string): boolean {
   if (!provider || !key) return false
-  if (!safeStorage.isEncryptionAvailable()) return false
+  if (!secureStorageAvailable()) return false
   const data = readFile()
   data[provider.toLowerCase()] = safeStorage.encryptString(key).toString('base64')
   writeFile(data)
@@ -57,7 +82,7 @@ export function stageSecretChange(
   provider: string,
   key: string
 ): { saved: boolean; transactionId?: string } {
-  if (!provider || !key || !safeStorage.isEncryptionAvailable()) return { saved: false }
+  if (!provider || !key || !secureStorageAvailable()) return { saved: false }
   const canonical = provider.toLowerCase()
   const data = readFile()
   const previous = data[canonical]
@@ -117,7 +142,7 @@ export function loadSecrets(): Record<string, string> {
   if (secretsConsumed) return {}
   secretsConsumed = true
   const out: Record<string, string> = {}
-  if (!safeStorage.isEncryptionAvailable()) return out
+  if (!secureStorageAvailable()) return out
   const data = readFile()
   for (const [provider, blob] of Object.entries(data)) {
     try {

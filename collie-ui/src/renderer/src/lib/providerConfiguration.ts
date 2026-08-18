@@ -54,9 +54,23 @@ export function apiKeyProviderCandidate(input: ApiKeyProviderInput): ProviderCan
   }
 }
 
-function failureMessage(result: ProviderCandidateResult): string {
+export function failureMessage(result: ProviderCandidateResult): string {
   const base = result.error || 'That provider could not connect.'
   return result.rollback_error ? `${base} Rollback also failed: ${result.rollback_error}` : base
+}
+
+/**
+ * The OS secure storage (DPAPI/Keychain/keyring) refused to store the key —
+ * either unavailable or locked. The UI catches this kind to explain what to
+ * do and to offer the session-only fallback instead of a dead end.
+ */
+export class SecureStorageUnavailableError extends Error {
+  readonly kind = 'secure-storage-unavailable'
+
+  constructor(message: string) {
+    super(message)
+    this.name = 'SecureStorageUnavailableError'
+  }
 }
 
 let providerConfigurationQueue: Promise<void> = Promise.resolve()
@@ -64,7 +78,8 @@ let providerConfigurationQueue: Promise<void> = Promise.resolve()
 async function runProviderConfiguration(
   candidate: ProviderCandidate,
   client: ProviderConfigurationClient,
-  secrets: SecretTransactionBridge
+  secrets: SecretTransactionBridge,
+  options: { persistSecret?: boolean } = {}
 ): Promise<ProviderCandidateResult> {
   const result = await client.configureProviderCandidate(candidate)
   if (!result.configured) throw new Error(failureMessage(result))
@@ -75,7 +90,7 @@ async function runProviderConfiguration(
   }
 
   let secretTransactionId: string | undefined
-  if (candidate.api_key) {
+  if (candidate.api_key && options.persistSecret !== false) {
     let staged: { saved: boolean; transactionId?: string }
     try {
       staged = await secrets.stageSecretChange(candidate.secret_name, candidate.api_key)
@@ -87,7 +102,9 @@ async function runProviderConfiguration(
       const detail = rollback.rolled_back
         ? ''
         : ` Core rollback also failed: ${rollback.rollback_error || 'unknown error'}`
-      throw new Error(`Collie could not store that API key securely.${detail}`)
+      throw new SecureStorageUnavailableError(
+        `Collie could not store that API key securely on this computer.${detail}`
+      )
     }
     secretTransactionId = staged.transactionId
   }
@@ -119,11 +136,12 @@ async function runProviderConfiguration(
 export function configureProvider(
   candidate: ProviderCandidate,
   client: ProviderConfigurationClient = collieClient,
-  secrets: SecretTransactionBridge = window.collie
+  secrets: SecretTransactionBridge = window.collie,
+  options: { persistSecret?: boolean } = {}
 ): Promise<ProviderCandidateResult> {
   const attempt = providerConfigurationQueue.then(
-    () => runProviderConfiguration(candidate, client, secrets),
-    () => runProviderConfiguration(candidate, client, secrets)
+    () => runProviderConfiguration(candidate, client, secrets, options),
+    () => runProviderConfiguration(candidate, client, secrets, options)
   )
   providerConfigurationQueue = attempt.then(
     () => undefined,
@@ -135,7 +153,8 @@ export function configureProvider(
 export function configureApiKeyProvider(
   input: ApiKeyProviderInput,
   client?: ProviderConfigurationClient,
-  secrets?: SecretTransactionBridge
+  secrets?: SecretTransactionBridge,
+  options?: { persistSecret?: boolean }
 ): Promise<ProviderCandidateResult> {
-  return configureProvider(apiKeyProviderCandidate(input), client, secrets)
+  return configureProvider(apiKeyProviderCandidate(input), client, secrets, options)
 }
