@@ -46,6 +46,8 @@ export interface InstallResult {
 const api = {
   coreState: (): Promise<{ state: string; port: number; token: string; error: string }> =>
     ipcRenderer.invoke('collie:core-state'),
+  secureStorageStatus: (): Promise<{ available: boolean; platform: string }> =>
+    ipcRenderer.invoke('collie:secure-storage-status'),
   saveSecret: (provider: string, key: string): Promise<boolean> =>
     ipcRenderer.invoke('collie:save-secret', provider, key),
   stageSecretChange: (

@@ -2,7 +2,7 @@ import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell, nativeImage, se
 import { basename, extname, isAbsolute, join } from 'path'
 import { homedir } from 'os'
 import { pathToFileURL } from 'url'
-import { existsSync, mkdirSync, writeFileSync } from 'fs'
+import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'fs'
 import { readFile as readFileAsync, realpath as realpathAsync, stat as statAsync } from 'fs/promises'
 import { assertLocalWindowsFileAccessFolder } from './local-file-access'
 import { spawnCore, stopCore, coreState } from './python'
@@ -21,6 +21,7 @@ import {
   loadSecrets,
   rollbackSecretChange,
   saveSecret,
+  secureStorageAvailable,
   stageSecretChange
 } from './secrets'
 import { getAccountState, signOut, startAccountSignIn } from './account-auth'
@@ -56,6 +57,42 @@ function ignoreBrokenPipe(stream: NodeJS.WriteStream): void {
 ignoreBrokenPipe(process.stdout)
 ignoreBrokenPipe(process.stderr)
 
+/**
+ * Crash breadcrumbs: when the main process dies hard (uncaught exception,
+ * unhandled rejection) there is usually no Crashpad dump to diagnose from —
+ * the window is simply gone and the Python core is orphaned on its port.
+ * Record the failure to userData/crash-breadcrumbs.log before exiting so the
+ * next incident has evidence, and quit cleanly (fires will-quit → stopCore)
+ * instead of dying mid-state.
+ */
+function writeCrashBreadcrumb(kind: string, detail: string): void {
+  try {
+    const dir = app.getPath('userData')
+    mkdirSync(dir, { recursive: true })
+    appendFileSync(
+      join(dir, 'crash-breadcrumbs.log'),
+      `${new Date().toISOString()} ${kind}: ${detail}\n`
+    )
+  } catch {
+    // Logging must never be the thing that crashes.
+  }
+}
+
+process.on('uncaughtException', (error) => {
+  writeCrashBreadcrumb('uncaughtException', error?.stack || String(error))
+  // Let the app exit on its own terms so will-quit stops the core cleanly.
+  const forceExit = setTimeout(() => process.exit(1), 3000)
+  forceExit.unref()
+  app.quit()
+})
+
+process.on('unhandledRejection', (reason) => {
+  writeCrashBreadcrumb(
+    'unhandledRejection',
+    reason instanceof Error ? reason.stack || reason.message : String(reason)
+  )
+})
+
 const isDev = !app.isPackaged
 const devRendererUrl = process.env.ELECTRON_RENDERER_URL?.trim()
 const packagedRendererPath = join(__dirname, '../renderer/index.html')
@@ -76,9 +113,14 @@ const rendererRecoverySupervisor = new RendererRecoverySupervisor({
     // Re-check app state before acting: the timer may have outlived a quit
     // or the window it was scheduled for may have been replaced.
     if (quitting) return
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.reload()
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      // A hard renderer/GPU crash can take the whole window frame down. The
+      // app is still alive in the tray — recreate the window instead of
+      // leaving an invisible app with a live core behind it.
+      createWindow()
+      return
     }
+    mainWindow.webContents.reload()
   },
   scheduleReload: (fn, delayMs) => setTimeout(fn, delayMs),
   cancelReload: (handle) => {
@@ -301,6 +343,10 @@ function registerIpc(): void {
   }
 
   handle('collie:core-state', () => coreState())
+  handle('collie:secure-storage-status', () => ({
+    available: secureStorageAvailable(),
+    platform: process.platform
+  }))
   handle('collie:save-secret', (provider: string, key: string) =>
     saveSecret(provider, key)
   )

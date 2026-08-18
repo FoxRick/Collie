@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   apiKeyProviderCandidate,
   configureProvider,
+  SecureStorageUnavailableError,
   type ApiKeyProviderInput
 } from './providerConfiguration'
 import type { ProviderCandidate, ProviderCandidateResult } from './ipc'
@@ -106,9 +107,17 @@ describe('transactional provider configuration', () => {
     const { client, secrets } = fakes()
     secrets.stageSecretChange.mockResolvedValue({ saved: false })
 
-    await expect(
-      configureProvider(apiKeyProviderCandidate(input), client, secrets)
-    ).rejects.toThrow('store that API key securely')
+    const error = await configureProvider(
+      apiKeyProviderCandidate(input),
+      client,
+      secrets
+    ).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(SecureStorageUnavailableError)
+    expect((error as SecureStorageUnavailableError).kind).toBe(
+      'secure-storage-unavailable'
+    )
+    expect((error as Error).message).toContain('store that API key securely')
     expect(client.rollbackProviderCandidate).toHaveBeenCalledWith('core-tx')
     expect(client.finalizeProviderCandidate).not.toHaveBeenCalled()
   })
@@ -146,6 +155,42 @@ describe('transactional provider configuration', () => {
 
     expect(secrets.stageSecretChange).not.toHaveBeenCalled()
     expect(client.finalizeProviderCandidate).toHaveBeenCalledWith('core-tx')
+  })
+
+  it('session-only mode skips safeStorage entirely and still finalizes', async () => {
+    const { client, secrets } = fakes()
+    secrets.stageSecretChange.mockRejectedValue(
+      new Error('safeStorage should not have been touched')
+    )
+
+    const result = await configureProvider(
+      apiKeyProviderCandidate(input),
+      client,
+      secrets,
+      { persistSecret: false }
+    )
+
+    expect(result.configured).toBe(true)
+    expect(secrets.stageSecretChange).not.toHaveBeenCalled()
+    expect(secrets.rollbackSecretChange).not.toHaveBeenCalled()
+    expect(client.rollbackProviderCandidate).not.toHaveBeenCalled()
+    expect(client.finalizeProviderCandidate).toHaveBeenCalledWith('core-tx')
+  })
+
+  it('session-only mode still rolls back when core finalization fails', async () => {
+    const { client, secrets } = fakes()
+    client.finalizeProviderCandidate.mockResolvedValue({ finalized: false })
+
+    await expect(
+      configureProvider(
+        apiKeyProviderCandidate(input),
+        client,
+        secrets,
+        { persistSecret: false }
+      )
+    ).rejects.toThrow('could not be finalized')
+    expect(client.rollbackProviderCandidate).toHaveBeenCalledWith('core-tx')
+    expect(secrets.rollbackSecretChange).not.toHaveBeenCalled()
   })
 
   it('queues the entire core, safeStorage, and finalize sequence', async () => {

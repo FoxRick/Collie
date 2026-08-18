@@ -376,7 +376,8 @@ export async function startAccountSignIn(
   if (!saved) {
     throw new Error(
       'You signed in, but this computer could not store the session ' +
-        'securely. Please try again.'
+        'securely. Unlock your system keychain (Keychain Access on macOS, ' +
+        'or your Windows sign-in on Windows) and try again.'
     )
   }
   return getAccountState()

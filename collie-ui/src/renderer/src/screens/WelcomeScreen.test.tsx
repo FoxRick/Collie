@@ -30,9 +30,13 @@ vi.mock('lucide-react', () => ({
   Sparkles: () => null
 }))
 vi.mock('../lib/ipc', () => ({ collieClient: hooks.client }))
-vi.mock('../lib/providerConfiguration', () => ({
-  configureApiKeyProvider: hooks.configureApiKeyProvider
-}))
+vi.mock('../lib/providerConfiguration', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/providerConfiguration')>()
+  return {
+    ...actual,
+    configureApiKeyProvider: hooks.configureApiKeyProvider
+  }
+})
 vi.mock('../components/BrandLogo', () => ({ default: () => <span /> }))
 vi.mock('../components/CollieFace', () => ({ default: () => <span /> }))
 
@@ -117,7 +121,10 @@ beforeEach(() => {
   hooks.configureApiKeyProvider.mockReset()
   Object.defineProperty(window, 'collie', {
     configurable: true,
-    value: { openExternal: vi.fn() }
+    value: {
+      openExternal: vi.fn(),
+      secureStorageStatus: vi.fn().mockResolvedValue({ available: true, platform: 'linux' })
+    }
   })
 })
 
@@ -255,6 +262,91 @@ describe('WelcomeScreen API-key form', () => {
     expect(container.textContent).not.toContain('could not reach that provider')
     const helpLink = container.querySelector<HTMLAnchorElement>('a[href="https://heycollie.com/get-started"]')
     expect(helpLink).not.toBeNull()
+  })
+
+  it('explains a locked keychain and offers session-only use', async () => {
+    const { SecureStorageUnavailableError } = await import(
+      '../lib/providerConfiguration'
+    )
+    hooks.configureApiKeyProvider.mockRejectedValue(
+      new SecureStorageUnavailableError(
+        'Collie could not store that API key securely on this computer.'
+      )
+    )
+    ;(window.collie.secureStorageStatus as ReturnType<typeof vi.fn>).mockResolvedValue({
+      available: false,
+      platform: 'linux'
+    })
+    const { container } = renderWelcome()
+    await expandApiKeyForm(container)
+    const keyField = container.querySelector<HTMLInputElement>('input[placeholder="Paste your API key"]')!
+    typeInto(keyField, 'sk-test-123')
+    const connectButton = Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent === 'Connect'
+    )!
+    act(() => connectButton.click())
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    // Platform guidance instead of a dead-end "could not store" one-liner.
+    expect(container.textContent).toContain('no unlocked keyring')
+    expect(container.textContent).toContain('Use it for this session only')
+  })
+
+  it('session-only connect keeps working and says the key is not saved', async () => {
+    vi.useFakeTimers()
+    const { SecureStorageUnavailableError } = await import(
+      '../lib/providerConfiguration'
+    )
+    // First Connect hits the locked keychain...
+    hooks.configureApiKeyProvider.mockRejectedValueOnce(
+      new SecureStorageUnavailableError(
+        'Collie could not store that API key securely on this computer.'
+      )
+    )
+    // ...then the session-only fallback succeeds.
+    hooks.configureApiKeyProvider.mockResolvedValueOnce({
+      configured: true,
+      transaction_id: 'tx-session',
+      validated: true,
+      model_label: 'DeepSeek V4 Flash'
+    })
+    const { container, onDone } = renderWelcome()
+    await expandApiKeyForm(container)
+    const keyField = container.querySelector<HTMLInputElement>('input[placeholder="Paste your API key"]')!
+    typeInto(keyField, 'sk-test-123')
+    const connectButton = Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent === 'Connect'
+    )!
+    act(() => connectButton.click())
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(container.textContent).toContain('Use it for this session only')
+
+    const sessionButton = Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent === 'Use it for this session only'
+    )!
+    act(() => sessionButton.click())
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(hooks.configureApiKeyProvider).toHaveBeenLastCalledWith(
+      expect.objectContaining({ apiKey: 'sk-test-123' }),
+      undefined,
+      undefined,
+      { persistSecret: false }
+    )
+    expect(container.textContent).toContain("isn't saved on this computer")
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_800)
+    })
+    expect(onDone).toHaveBeenCalledTimes(1)
   })
 })
 
