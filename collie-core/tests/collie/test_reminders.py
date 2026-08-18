@@ -182,9 +182,9 @@ def test_nl_due_accepts_tonight_without_clock() -> None:
 
 
 def test_nl_due_accepts_in_duration() -> None:
-    from collie_core.tools.reminders import _normalize_due
-
     import datetime as _dt
+
+    from collie_core.tools.reminders import _normalize_due
 
     before = _dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=2)
     result = _normalize_due("in 2 hours")

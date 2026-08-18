@@ -7,7 +7,7 @@ Create, list, complete, snooze, and delete reminders. Data lives in the
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
 from collie_core.db import CollieDB
@@ -41,7 +41,7 @@ def _normalize_due(value: str, *, label: str = "time") -> str:
     parsed = _parse_due(value, label)
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=datetime.now().astimezone().tzinfo)
-    return parsed.astimezone(timezone.utc).isoformat(timespec="seconds")
+    return parsed.astimezone(datetime.UTC).isoformat(timespec="seconds")
 
 
 _WEEKDAYS = {

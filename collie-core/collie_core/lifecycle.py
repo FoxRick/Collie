@@ -28,7 +28,7 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Iterable
+from collections.abc import Iterable
 
 WATCHDOG_INTERVAL_S = 5.0
 _RECLAIM_GRACE_S = 1.5
@@ -63,11 +63,11 @@ def _parent_still_alive(original: int) -> bool:
             import ctypes
             from ctypes import wintypes
 
-            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-            STILL_ACTIVE = 259
+            process_query_limited = 0x1000
+            still_active = 259
             kernel32 = ctypes.windll.kernel32
             handle = kernel32.OpenProcess(
-                PROCESS_QUERY_LIMITED_INFORMATION, False, wintypes.DWORD(original)
+                process_query_limited, False, wintypes.DWORD(original)
             )
             if not handle:
                 return False
@@ -75,7 +75,7 @@ def _parent_still_alive(original: int) -> bool:
                 code = wintypes.DWORD()
                 if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
                     return True
-                return code.value == STILL_ACTIVE
+                return code.value == still_active
             finally:
                 kernel32.CloseHandle(handle)
         except Exception:
@@ -146,10 +146,10 @@ def _windows_core_holders(port: int) -> list[int]:
         script = (
             "Get-CimInstance Win32_Process | Where-Object {"
             " $_.CommandLine -match 'collie_core[.]runtime'"
-            " -and $_.CommandLine -match '--port {port}'"
+            f" -and $_.CommandLine -match '--port {port}'"
             " -and $_.ProcessId -ne $PID"
             "} | ForEach-Object { $_.ProcessId }"
-        ).format(port=port)
+        )
         output = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
             capture_output=True,
