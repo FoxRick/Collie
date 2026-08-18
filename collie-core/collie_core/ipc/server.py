@@ -1605,6 +1605,18 @@ class CollieIPCServer:
         raw = Path(path)
         if raw.drive or raw.is_absolute() or path.startswith(("\\\\", "//")):
             raise ValueError("Invalid path")
+        # Windows-style separators are literal filename characters on POSIX,
+        # so "..\\outside.txt" or "C:\\Windows\\evil.txt" would sail past the
+        # relative-path check as harmless in-scope names, and drive-relative
+        # spellings ("C:evil.txt", "C:/evil.txt") are ordinary names there
+        # too. On POSIX hosts those spellings are never legitimate client
+        # paths (the UI sends "/"), so reject them outright; on Windows
+        # Path() already interprets them as real separators/drives and the
+        # scope checks below catch the escape.
+        if os.sep != "\\" and (
+            "\\" in path or (len(path) >= 2 and path[0].isalpha() and path[1] == ":")
+        ):
+            raise ValueError("Invalid path")
         workspace = Path(os.path.normpath(collie_home() / "workspace"))
         candidate = Path(os.path.normpath(workspace / path))
         if not candidate.is_relative_to(workspace):

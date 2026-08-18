@@ -6,6 +6,8 @@ Create, list, complete, snooze, and delete reminders. Data lives in the
 
 from __future__ import annotations
 
+import re
+from datetime import datetime, timedelta
 from typing import Any
 
 from collie_core.db import CollieDB
@@ -28,23 +30,171 @@ def _store() -> CollieDB | None:
 
 
 def _normalize_due(value: str, *, label: str = "time") -> str:
-    """Parse an ISO datetime and normalize it to aware UTC.
+    """Parse a due time and normalize it to aware UTC.
 
-    Naive values (what an LLM usually writes, e.g. ``2026-07-20T15:00:00``)
-    are interpreted as the user's local time and converted to UTC so the
-    firing loop and storage share one clock.
+    Accepts strict ISO datetimes plus the natural-language forms the model
+    tends to pass: ``tomorrow at 3pm``, ``in 2 hours``, ``next monday 9am``,
+    ``3pm``, ``July 20 at 3pm``. Naive results are interpreted as the
+    user's local time and converted to UTC so the firing loop and storage
+    share one clock.
     """
-    import datetime as _dt
-
-    try:
-        parsed = _dt.datetime.fromisoformat(str(value).strip())
-    except ValueError:
-        raise ValueError(
-            f"That {label} didn't parse. Use a date and time like 2026-07-20T15:00."
-        ) from None
+    parsed = _parse_due(value, label)
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=_dt.datetime.now().astimezone().tzinfo)
-    return parsed.astimezone(_dt.UTC).isoformat(timespec="seconds")
+        parsed = parsed.replace(tzinfo=datetime.now().astimezone().tzinfo)
+    return parsed.astimezone(datetime.UTC).isoformat(timespec="seconds")
+
+
+_WEEKDAYS = {
+    "monday": 0,
+    "tuesday": 1,
+    "wednesday": 2,
+    "thursday": 3,
+    "friday": 4,
+    "saturday": 5,
+    "sunday": 6,
+}
+_TIME_RE = re.compile(
+    r"^(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$|^(noon|midnight)$"
+)
+_UNIT_SECONDS = {
+    "minute": 60,
+    "hour": 3600,
+    "day": 86400,
+    "week": 604800,
+    "month": 2_592_000,  # 30 days — good enough for a reminder nudge
+}
+
+
+def _apply_clock(base, clock: str) -> datetime:
+    """Resolve a clock token (``3pm`` / ``15:00`` / ``noon``) onto a date."""
+    text = clock.strip().lower()
+    if text == "noon":
+        return base.replace(hour=12, minute=0, second=0, microsecond=0)
+    if text == "midnight":
+        return base.replace(hour=0, minute=0, second=0, microsecond=0)
+    match = _TIME_RE.match(text)
+    if not match:
+        raise ValueError(f"'{clock}' is not a time I understand.")
+    hour = int(match.group(1))
+    minute = int(match.group(2) or 0)
+    suffix = match.group(3)
+    if suffix == "pm" and hour < 12:
+        hour += 12
+    if suffix == "am" and hour == 12:
+        hour = 0
+    if hour > 23 or minute > 59:
+        raise ValueError(f"'{clock}' is not a time I understand.")
+    return base.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+
+def _parse_due(value: str, label: str) -> datetime:
+    """Parse a due string into a local-aware datetime, or raise ValueError."""
+    text = str(value).strip()
+    lowered = text.lower()
+
+    # Fast path: strict ISO (covers "2026-07-20T15:00:00" and the
+    # space-separated "2026-07-20 15:00" form).
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        pass
+
+    now = datetime.now().astimezone()
+
+    # "in 2 hours", "in 30 minutes", "3 days from now"
+    in_match = re.match(
+        r"^in\s+(\d+)\s+(minute|minutes|hour|hours|day|days|week|weeks|month|months)$",
+        lowered,
+    )
+    if in_match:
+        seconds = int(in_match.group(1)) * _UNIT_SECONDS[
+            in_match.group(2).rstrip("s")
+        ]
+        return now + timedelta(seconds=seconds)
+    from_match = re.match(
+        r"^(\d+)\s+(minute|minutes|hour|hours|day|days|week|weeks|month|months)\s+from\s+now$",
+        lowered,
+    )
+    if from_match:
+        seconds = int(from_match.group(1)) * _UNIT_SECONDS[
+            from_match.group(2).rstrip("s")
+        ]
+        return now + timedelta(seconds=seconds)
+
+    # "tomorrow at 3pm" / "tomorrow 3pm" / "today 6pm" / "tonight"
+    day_shift: int | None = None
+    rest = ""
+    if lowered.startswith("tomorrow"):
+        day_shift = 1
+        rest = lowered[len("tomorrow") :]
+    elif lowered.startswith("tonight"):
+        day_shift = 0
+        rest = lowered[len("tonight") :]
+    elif lowered.startswith("today"):
+        day_shift = 0
+        rest = lowered[len("today") :]
+    if day_shift is not None:
+        base = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(
+            days=day_shift
+        )
+        clock = rest.strip()
+        if not clock:
+            clock = "20:00" if lowered.startswith("tonight") else "09:00"
+        return _apply_clock(base, clock)
+
+    # "next monday 9am" / "monday at 5pm" / "friday 5pm"
+    weekday_match = re.match(r"^(next\s+)?([a-z]+)(?:\s+at\s+|\s+)?(.*)$", lowered)
+    if weekday_match and weekday_match.group(2) in _WEEKDAYS:
+        is_next = bool(weekday_match.group(1))
+        weekday = _WEEKDAYS[weekday_match.group(2)]
+        clock = weekday_match.group(3).strip()
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        days_ahead = (weekday - today.weekday()) % 7
+        if is_next and days_ahead == 0:
+            days_ahead = 7
+        base = today + timedelta(days=days_ahead)
+        if not is_next and days_ahead == 0 and not clock:
+            clock = "09:00"
+        result = _apply_clock(base, clock or "09:00")
+        # A bare weekday with an explicit time still means the *coming*
+        # occurrence: if that lands today but has already passed, roll to
+        # next week rather than silently firing in the past.
+        if not is_next and result.date() == now.date() and result <= now:
+            result += timedelta(days=7)
+        return result
+
+    # Bare clock: "3pm", "15:00", "at 8:30 am" -> today, rolling to tomorrow
+    # if that moment has already passed.
+    bare_clock = text.strip()
+    try:
+        result = _apply_clock(now.replace(hour=0, minute=0, second=0, microsecond=0), bare_clock)
+    except ValueError:
+        result = None
+    if result is not None:
+        if result <= now:
+            result += timedelta(days=1)
+        return result
+
+    # Last resort: dateutil's lenient parser for "July 20 at 3pm",
+    # "20th of July 2026", etc. Date-only strings get a 9am default clock
+    # so a reminder never fires at midnight.
+    try:
+        from dateutil import parser as _dateutil_parser
+    except ImportError:  # pragma: no cover - dependency is declared
+        raise ValueError(
+            f"That {label} didn't parse. Use a date and time like 2026-07-20T15:00 "
+            "or plain words like 'tomorrow at 3pm'."
+        ) from None
+    if not re.search(r"\d{1,2}:\d{2}|[ap]m\b|\bnoon\b|\bmidnight\b", lowered):
+        text = f"{text} 09:00"
+    default = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    try:
+        return _dateutil_parser.parse(text, default=default, fuzzy=False)
+    except (ValueError, OverflowError):
+        raise ValueError(
+            f"That {label} didn't parse. Use a date and time like 2026-07-20T15:00 "
+            "or plain words like 'tomorrow at 3pm'."
+        ) from None
 
 
 @tool_parameters(
@@ -62,7 +212,7 @@ def _normalize_due(value: str, *, label: str = "time") -> str:
             },
             "due_at": {
                 "type": "string",
-                "description": "For action=create: ISO datetime string, e.g. '2026-07-20T15:00:00'. Collie will interpret natural-language dates and convert them.",
+                "description": "For action=create: when to fire. ISO datetime like '2026-07-20T15:00:00' or natural language: 'tomorrow at 3pm', 'in 2 hours', 'next monday 9am', '3pm'.",
             },
             "recurrence": {
                 "type": "string",
@@ -74,7 +224,7 @@ def _normalize_due(value: str, *, label: str = "time") -> str:
             },
             "snooze_until": {
                 "type": "string",
-                "description": "For action=snooze: ISO datetime to snooze until, e.g. '2026-07-20T16:00:00'.",
+                "description": "For action=snooze: when to nudge again. ISO datetime like '2026-07-20T16:00:00' or natural language: 'tomorrow at 9am', 'in 1 hour'.",
             },
         },
         "required": ["action"],

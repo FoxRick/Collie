@@ -1455,6 +1455,15 @@ class CollieRuntime:
 
         self._gc_media_uploads()
         try:
+            # A leftover core from a crashed app session can still own the
+            # fixed IPC port; clear it before binding so the boot probe never
+            # hangs on a phantom holder.
+            from collie_core.lifecycle import reclaim_stale_core_port
+
+            if not reclaim_stale_core_port(self.ipc.port):
+                logger.warning(
+                    "IPC port {} is still held after reclaim; boot may fail", self.ipc.port
+                )
             await self.ipc.start()
             if self._scheduler:
                 await self._scheduler.start()
@@ -1529,6 +1538,12 @@ def main(argv: list[str] | None = None) -> int:
     if port < 1 or port > 65535:
         parser.error(f"invalid port: {port}")
     ipc_token = os.environ.get("COLLIE_IPC_TOKEN") or None
+
+    # If the Electron shell dies hard (OOM kill, crash), the core must not
+    # outlive it holding the IPC port for the next launch to trip over.
+    from collie_core.lifecycle import arm_parent_watchdog
+
+    arm_parent_watchdog()
 
     runtime = CollieRuntime(port=port, ipc_token=ipc_token)
     with suppress(KeyboardInterrupt):

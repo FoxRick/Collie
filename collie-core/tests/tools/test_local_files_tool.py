@@ -406,3 +406,70 @@ async def test_local_files_failed_write_discards_phantom_entry(
         entries = undo_entries("conv-undo")
         assert [item["id"] for item in entries["undone"]] == [created_id]
         assert not (root / "notes.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_local_files_mkdir_creates_nested_folders(scoped_tool) -> None:
+    """mkdir creates the folder and any missing parents inside the scope."""
+    tool, root = scoped_tool
+
+    made = await tool.execute(operation="mkdir", path="docs/2026/notes")
+    assert not made.is_error
+    assert json.loads(made)["operation"] == "mkdir"
+    assert (root / "docs" / "2026" / "notes").is_dir()
+
+    listing = await tool.execute(operation="list", path="docs/2026")
+    assert json.loads(listing)["entries"] == [{"name": "notes", "kind": "directory"}]
+
+
+@pytest.mark.asyncio
+async def test_local_files_mkdir_refuses_existing_paths(scoped_tool) -> None:
+    tool, root = scoped_tool
+
+    (root / "existing").mkdir()
+    already = await tool.execute(operation="mkdir", path="existing")
+    assert already.is_error
+    assert "already exists" in str(already)
+
+    (root / "plain.txt").write_text("hi", encoding="utf-8")
+    is_file = await tool.execute(operation="mkdir", path="plain.txt")
+    assert is_file.is_error
+    assert "not a folder" in str(is_file)
+
+    # mkdir is bounded to the granted scope like every other operation.
+    denied = await tool.execute(operation="mkdir", path="../outside")
+    assert denied.is_error
+    assert not (root.parent / "outside").exists()
+
+
+@pytest.mark.asyncio
+async def test_local_files_create_and_save_auto_create_parent_folders(
+    scoped_tool,
+) -> None:
+    """create/save inside missing folders now make the folders instead of failing."""
+    tool, root = scoped_tool
+
+    created = await tool.execute(operation="create", path="journal/2026/entry.md", content="hello")
+    assert not created.is_error
+    assert (root / "journal" / "2026" / "entry.md").read_text(encoding="utf-8") == "hello"
+
+    saved = await tool.execute(operation="save", path="journal/2026/draft.md", content="draft")
+    assert not saved.is_error
+    assert (root / "journal" / "2026" / "draft.md").read_text(encoding="utf-8") == "draft"
+
+
+def test_local_files_mkdir_permission_metadata(scoped_tool) -> None:
+    """mkdir inside a granted folder is reversible bounded work: no card."""
+    tool, root = scoped_tool
+
+    made = tool.permission_request({"operation": "mkdir", "path": "docs/2026"})
+    assert made.action == "local_file.write"
+    assert made.resource == str((root / "docs" / "2026").resolve())
+    assert made.risk.value == "local_write"
+    assert made.approval_free is True
+    assert made.approve_for_me is True
+    assert made.data_leaving_device == ()
+    assert made.redacted_parameters["operation"] == "mkdir"
+
+    with pytest.raises(PermissionDeniedError):
+        tool.permission_request({"operation": "mkdir", "path": "../outside"})

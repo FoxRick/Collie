@@ -139,3 +139,124 @@ async def test_unknown_action(db: CollieDB) -> None:
     tool = RemindersTool()
     result = await tool.execute(action="fly")
     assert "not sure" in str(result).lower()
+
+
+# -- natural-language due times -------------------------------------------------
+
+def _local(month: int, day: int, hour: int = 0, minute: int = 0, year: int = 2026):
+    """A local-tz aware datetime (naive input interpreted as local, like the tool)."""
+    import datetime as _dt
+
+    return (
+        _dt.datetime(year, month, day, hour, minute)
+        .astimezone()
+        .astimezone(_dt.timezone.utc)
+        .isoformat(timespec="seconds")
+    )
+
+
+def test_nl_due_accepts_space_separated_iso() -> None:
+    from collie_core.tools.reminders import _normalize_due
+
+    assert _normalize_due("2026-07-20 15:00") == _local(7, 20, 15)
+
+
+def test_nl_due_accepts_tomorrow_at_clock() -> None:
+    from collie_core.tools.reminders import _normalize_due
+
+    result = _normalize_due("tomorrow at 3pm")
+    import datetime as _dt
+
+    expected_date = _dt.datetime.now().astimezone().date() + _dt.timedelta(days=1)
+    assert result == _local(expected_date.month, expected_date.day, 15)
+
+
+def test_nl_due_accepts_tonight_without_clock() -> None:
+    from collie_core.tools.reminders import _normalize_due
+
+    result = _normalize_due("tonight")
+    import datetime as _dt
+
+    today = _dt.datetime.now().astimezone().date()
+    assert result == _local(today.month, today.day, 20)
+
+
+def test_nl_due_accepts_in_duration() -> None:
+    import datetime as _dt
+
+    from collie_core.tools.reminders import _normalize_due
+
+    before = _dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=2)
+    result = _normalize_due("in 2 hours")
+    after = _dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=2)
+    parsed = _dt.datetime.fromisoformat(result)
+    # Tolerate the second tick between the window snapshots.
+    assert before - _dt.timedelta(seconds=2) <= parsed <= after + _dt.timedelta(seconds=2)
+
+
+def test_nl_due_accepts_next_weekday() -> None:
+    from collie_core.tools.reminders import _normalize_due
+
+    result = _normalize_due("next monday 9am")
+    import datetime as _dt
+
+    today = _dt.datetime.now().astimezone().date()
+    days_ahead = (0 - today.weekday()) % 7
+    if days_ahead == 0:
+        days_ahead = 7
+    expected = today + _dt.timedelta(days=days_ahead)
+    assert result == _local(expected.month, expected.day, 9, year=expected.year)
+
+
+def test_nl_due_accepts_bare_clock() -> None:
+    from collie_core.tools.reminders import _normalize_due
+
+    result = _normalize_due("3pm")
+    import datetime as _dt
+
+    today = _dt.datetime.now().astimezone().date()
+    # "3pm" means today at 15:00, or tomorrow when that moment already passed.
+    assert result in {
+        _local(today.month, today.day, 15),
+        _local(today.month, today.day + 1, 15, year=today.year),
+    }
+
+
+def test_nl_due_accepts_dateutil_style() -> None:
+    from collie_core.tools.reminders import _normalize_due
+
+    assert _normalize_due("July 20, 2026 at 3pm") == _local(7, 20, 15)
+
+
+def test_nl_due_rejects_gibberish_with_guidance() -> None:
+    from collie_core.tools.reminders import _normalize_due
+
+    with pytest.raises(ValueError, match="didn't parse"):
+        _normalize_due("sometime soonish")
+
+
+@pytest.mark.asyncio
+async def test_create_reminder_with_natural_language_due(db: CollieDB) -> None:
+    tool = RemindersTool()
+    result = await tool.execute(action="create", text="Water plants", due_at="tomorrow at 9am")
+    assert "Water plants" in str(result)
+    assert "didn't parse" not in str(result)
+
+    reminders = db.list_reminders()
+    assert len(reminders) == 1
+    assert reminders[0]["text"] == "Water plants"
+    # Stored as aware UTC, not the raw phrase.
+    import datetime as _dt
+
+    stored = _dt.datetime.fromisoformat(reminders[0]["due_at"])
+    assert stored.tzinfo is not None
+
+
+@pytest.mark.asyncio
+async def test_snooze_with_natural_language_until(db: CollieDB) -> None:
+    r = db.add_reminder("Nap", "2026-07-20T12:00:00")
+    tool = RemindersTool()
+    result = await tool.execute(
+        action="snooze", reminder_id=r["id"], snooze_until="in 1 hour"
+    )
+    assert "Snoozed" in str(result)
