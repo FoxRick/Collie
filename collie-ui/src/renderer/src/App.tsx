@@ -27,26 +27,10 @@ export default function App(): React.JSX.Element {
     let cancelled = false
 
     const injectSecrets = async (): Promise<number> => {
-      let providerKeys = 0
-      let messengerSecrets = 0
-      try {
-        const secrets = (await window.collie?.loadSecrets()) ?? {}
-        for (const [name, key] of Object.entries(secrets)) {
-          if (name.startsWith('messenger:')) {
-            const [, messenger, secretKey] = name.split(':')
-            if (messenger && secretKey) {
-              await collieClient.setMessengerSecret(messenger, secretKey, key)
-              messengerSecrets += 1
-            }
-          } else {
-            await collieClient.setApiKey(name, key)
-            providerKeys += 1
-          }
-        }
-      } catch {
-        // fall through — secrets can be re-entered in Settings
-      }
-      return providerKeys + messengerSecrets
+      // Stored secrets are pushed to the core by the main process over its
+      // own connection (core-client.ts). The renderer only learns how many
+      // exist for boot decisions — never the values.
+      return (await window.collie?.storedSecretCount()) ?? 0
     }
 
     const probeController = new BootProbeController({

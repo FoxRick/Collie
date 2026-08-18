@@ -24,6 +24,16 @@ let readyPort: number | null = null
 let respawnTimer: NodeJS.Timeout | null = null
 let healthyTimer: NodeJS.Timeout | null = null
 
+const coreReadyListeners = new Set<() => void>()
+
+/** Subscribe to the first 'ready' of each core spawn (fires again on respawn). */
+export function onCoreReady(listener: () => void): () => void {
+  coreReadyListeners.add(listener)
+  return () => {
+    coreReadyListeners.delete(listener)
+  }
+}
+
 const MAX_ABNORMAL_EXITS = 3
 const RESPAWN_DELAY_MS = 3000
 const HEALTHY_WINDOW_MS = 5 * 60 * 1000
@@ -146,6 +156,7 @@ export async function spawnCore(isDev: boolean): Promise<void> {
         restartBudget.decayAfterSustainedHealth(Date.now())
       }
     }, HEALTHY_WINDOW_MS)
+    for (const listener of coreReadyListeners) listener()
   }
 
   const flushOutput = (): void => {

@@ -3,10 +3,12 @@
  * (DPAPI on Windows, Keychain on macOS). Never written in plaintext (F020).
  *
  * The encrypted blobs live in userData/secrets.json. Decrypted values are
- * only ever held in memory and handed to the Python core over localhost IPC.
- * `loadSecrets` is one-shot: it decrypts once at the core handshake and then
- * returns nothing until the core process is (re)spawned, so a compromised
- * renderer cannot keep pulling plaintext keys on demand.
+ * only ever held in memory and handed to the Python core over localhost IPC
+ * by the MAIN process (core-client.ts pushStoredSecretsToCore, fired on
+ * core-ready). The renderer never receives decrypted values — the preload
+ * bridge only exposes a count (collie:stored-secret-count). `loadSecrets`
+ * is one-shot: it decrypts once per core spawn and then returns nothing
+ * until the core process is (re)spawned.
  */
 import { app, safeStorage } from 'electron'
 import { randomUUID } from 'crypto'
