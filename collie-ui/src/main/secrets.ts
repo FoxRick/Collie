@@ -29,11 +29,20 @@ let secureStorageKnown: boolean | null = null
  * returning false. Never throw from the storage path — treat as unavailable
  * and let the UI explain. Cached so the probe (which can block) runs at
  * most once per process.
+ *
+ * Linux additionally rejects the `basic_text` backend: without a keyring
+ * daemon Electron "encrypts" with a hardcoded password shipped in the
+ * Electron source, which is effectively no protection. Values are only ever
+ * stored when a real keyring backend is selected.
  */
 export function secureStorageAvailable(): boolean {
   if (secureStorageKnown === null) {
     try {
-      secureStorageKnown = safeStorage.isEncryptionAvailable()
+      let available = safeStorage.isEncryptionAvailable()
+      if (available && process.platform === 'linux') {
+        available = safeStorage.getSelectedStorageBackend() !== 'basic_text'
+      }
+      secureStorageKnown = available
     } catch {
       secureStorageKnown = false
     }

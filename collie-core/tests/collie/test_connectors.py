@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -67,15 +68,21 @@ def connector_store(tmp_path: Path) -> CredentialStore:
 
 def test_launch_catalog_enables_direct_mcp_routes_ready_for_live_oauth() -> None:
     by_id = {item.id: item for item in CONNECTOR_CATALOG}
-    assert {"notion", "linear", "todoist", "atlassian", "airtable"} <= set(by_id)
+    oauth_routes = {"notion", "linear", "todoist", "atlassian", "airtable"}
+    assert oauth_routes <= set(by_id)
     enabled = {item.id for item in CONNECTOR_CATALOG if item.available}
     # Only routes that can complete OAuth today (official hosted MCP with
     # dynamic client registration) are enabled; the rest stay coming_soon.
-    assert enabled == {"notion", "linear", "todoist", "atlassian", "airtable"}
-    for provider_id in enabled:
+    # OAuth token persistence is Windows-DPAPI-only for now, so on other
+    # platforms none of the OAuth routes are enabled.
+    assert enabled == (oauth_routes if sys.platform == "win32" else set())
+    for provider_id in oauth_routes:
         definition = by_id[provider_id]
         assert definition.driver == ConnectorDriverKind.OFFICIAL_MCP
-        assert definition.release_status == "alpha"
+        # release_status derives from available: alpha where the route is
+        # enabled, coming_soon where the platform can't persist OAuth yet.
+        expected_status = "alpha" if sys.platform == "win32" else "coming_soon"
+        assert definition.release_status == expected_status
         assert definition.endpoint
     assert connector_def("NoTiOn") is by_id["notion"]
     assert by_id["notion"].endpoint == "https://mcp.notion.com/mcp"
@@ -83,12 +90,15 @@ def test_launch_catalog_enables_direct_mcp_routes_ready_for_live_oauth() -> None
 
 def test_enabled_catalog_routes_declare_explicit_least_privilege_scopes() -> None:
     by_id = {item.id: item for item in CONNECTOR_CATALOG}
+    oauth_routes = {"notion", "linear", "todoist", "atlassian", "airtable"}
     enabled = {item.id for item in CONNECTOR_CATALOG if item.available}
-    assert enabled == {"notion", "linear", "todoist", "atlassian", "airtable"}
-    for provider_id in enabled:
+    assert enabled == (oauth_routes if sys.platform == "win32" else set())
+    for provider_id in oauth_routes:
         definition = by_id[provider_id]
         # Empty scopes make the MCP SDK omit the scope parameter, which the
-        # authorization server reads as "everything advertised".
+        # authorization server reads as "everything advertised". Scope
+        # declarations must exist on every platform, even where the route is
+        # not yet enabled.
         assert definition.scopes, f"{provider_id} must request explicit scopes"
     assert by_id["linear"].scopes == ("read", "write")
     assert by_id["todoist"].scopes == ("data:read_write",)
@@ -209,8 +219,10 @@ def test_disabled_connector_cannot_connect_or_rebind_existing_runtime(
 
 
 def test_enabled_provider_historical_connected_row_without_credentials_requires_auth(
-    tmp_path: Path, connector_store: CredentialStore
+    tmp_path: Path, connector_store: CredentialStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # The enabled-provider path is platform-independent — pin the definition.
+    _enable_connector_for_unit_test(monkeypatch, "notion")
     db = CollieDB(tmp_path / "collie.db")
     manager = ConnectorManager(db, credentials=connector_store)
     db.upsert_connector_connection(
@@ -237,8 +249,9 @@ def test_enabled_provider_historical_connected_row_without_credentials_requires_
 
 
 def test_enabled_provider_connected_row_with_credentials_stays_healthy_and_rebinds(
-    tmp_path: Path, connector_store: CredentialStore
+    tmp_path: Path, connector_store: CredentialStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _enable_connector_for_unit_test(monkeypatch, "notion")
     db = CollieDB(tmp_path / "collie.db")
     manager = ConnectorManager(db, credentials=connector_store)
     connector_store.save(
@@ -266,8 +279,9 @@ def test_enabled_provider_connected_row_with_credentials_stays_healthy_and_rebin
 
 
 def test_connected_row_requires_usable_access_token(
-    tmp_path: Path, connector_store: CredentialStore
+    tmp_path: Path, connector_store: CredentialStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    _enable_connector_for_unit_test(monkeypatch, "notion")
     db = CollieDB(tmp_path / "collie.db")
     manager = ConnectorManager(db, credentials=connector_store)
     try:

@@ -10,6 +10,7 @@ vi.mock('electron', () => ({
   app: { getPath: () => testState.userData },
   safeStorage: {
     isEncryptionAvailable: () => true,
+    getSelectedStorageBackend: () => 'gnome_libsecret',
     encryptString: (value: string) => Buffer.from(`encrypted:${value}`, 'utf8'),
     decryptString: (value: Buffer) => value.toString('utf8').replace(/^encrypted:/, '')
   }
@@ -88,6 +89,36 @@ describe('encrypted provider secret transactions', () => {
       expect(probe).toHaveBeenCalledTimes(1)
     } finally {
       safeStorage.isEncryptionAvailable = original
+      resetSecureStorageCache()
+    }
+  })
+
+  it('rejects the Linux basic_text backend (hardcoded-password "encryption")', () => {
+    // Without a keyring daemon Electron falls back to basic_text, which
+    // "encrypts" with a hardcoded password shipped in the Electron source.
+    // isEncryptionAvailable() still reports true — the wrapper must refuse.
+    const original = safeStorage.getSelectedStorageBackend
+    safeStorage.getSelectedStorageBackend = () => 'basic_text'
+    resetSecureStorageCache()
+    try {
+      expect(secureStorageAvailable()).toBe(false)
+      expect(saveSecret('work', 'key')).toBe(false)
+      expect(loadSecrets()).toEqual({})
+    } finally {
+      safeStorage.getSelectedStorageBackend = original
+      resetSecureStorageCache()
+    }
+  })
+
+  it('accepts a real Linux keyring backend', () => {
+    const original = safeStorage.getSelectedStorageBackend
+    safeStorage.getSelectedStorageBackend = () => 'gnome_libsecret'
+    resetSecureStorageCache()
+    try {
+      expect(secureStorageAvailable()).toBe(true)
+      expect(saveSecret('work', 'key')).toBe(true)
+    } finally {
+      safeStorage.getSelectedStorageBackend = original
       resetSecureStorageCache()
     }
   })

@@ -37,7 +37,11 @@ def _blob(data: bytes) -> tuple[_DataBlob, object]:
 
 def _dpapi_protect(data: bytes) -> bytes:
     if sys.platform != "win32":
-        raise RuntimeError("Encrypted service credentials require Windows DPAPI.")
+        raise RuntimeError(
+            "Connected-service credentials can only be stored securely on "
+            "Windows for now (Windows DPAPI). On macOS and Linux these "
+            "connectors aren't available yet."
+        )
     import ctypes
 
     source, source_buffer = _blob(data)

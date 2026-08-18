@@ -8,7 +8,14 @@ with its pending packaged-app verification — it is not a release claim.
 
 from __future__ import annotations
 
+import sys
+
 from collie_core.connectors.models import ConnectorDefinition, ConnectorDriverKind
+
+# OAuth connectors persist their tokens in CredentialStore, which is
+# Windows-DPAPI-only for now. On macOS/Linux they surface as coming-soon
+# instead of failing at connect time.
+_OAUTH_AVAILABLE = sys.platform == "win32"
 
 __all__ = ["CONNECTOR_CATALOG", "connector_def"]
 
@@ -94,7 +101,7 @@ CONNECTOR_CATALOG: tuple[ConnectorDefinition, ...] = (
         capabilities=("Read", "Create", "Update"),
         permissions=("read pages", "search", "create and update with approval"),
         featured=True,
-        available=True,
+        available=_OAUTH_AVAILABLE,
         note=_ALPHA_VERIFICATION,
         scopes=_SCOPES["notion"],
     ),
@@ -106,7 +113,7 @@ CONNECTOR_CATALOG: tuple[ConnectorDefinition, ...] = (
         "https://mcp.linear.app/mcp",
         capabilities=("Read", "Create", "Update"),
         permissions=("read issues", "create and update with approval"),
-        available=True,
+        available=_OAUTH_AVAILABLE,
         note=_ALPHA_VERIFICATION,
         overrides={"delete_issue": "destructive"},
         scopes=_SCOPES["linear"],
@@ -120,7 +127,7 @@ CONNECTOR_CATALOG: tuple[ConnectorDefinition, ...] = (
         capabilities=("Read", "Create", "Update"),
         permissions=("read tasks", "create and complete with approval"),
         featured=True,
-        available=True,
+        available=_OAUTH_AVAILABLE,
         note=_ALPHA_VERIFICATION,
         scopes=_SCOPES["todoist"],
     ),
@@ -132,7 +139,7 @@ CONNECTOR_CATALOG: tuple[ConnectorDefinition, ...] = (
         "https://mcp.atlassian.com/v1/mcp/authv2",
         capabilities=("Read", "Create", "Update"),
         permissions=("read Jira and Confluence", "create and update with approval"),
-        available=True,
+        available=_OAUTH_AVAILABLE,
         note=_ALPHA_VERIFICATION,
         scopes=_SCOPES["atlassian"],
     ),
@@ -242,8 +249,8 @@ CONNECTOR_CATALOG: tuple[ConnectorDefinition, ...] = (
         endpoint="https://mcp.airtable.com/mcp",
         capabilities=("Read", "Create", "Update"),
         permissions=("read records", "create and update with approval"),
-        available=True,
-        release_status="alpha",
+        available=_OAUTH_AVAILABLE,
+        release_status="alpha" if _OAUTH_AVAILABLE else "coming_soon",
         note=_ALPHA_VERIFICATION,
         scopes=_SCOPES["airtable"],
     ),

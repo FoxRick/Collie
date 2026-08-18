@@ -8,10 +8,26 @@ const { findPortabilityLeaks } = require('./packaging-portability.cjs')
 
 const uiRoot = resolve(__dirname, '..')
 const repositoryRoot = resolve(uiRoot, '..')
+// Auto-detect the electron-builder unpacked output (win-unpacked on Windows,
+// linux-unpacked on Linux, mac/mac-arm64 on macOS) so the same smoke runs on
+// every platform. COLLIE_PACKAGED_RESOURCES overrides for odd layouts.
+const defaultUnpackedResources = [
+  'win-unpacked',
+  'linux-unpacked',
+  'mac',
+  'mac-arm64',
+  'mac-x64',
+  'mac-universal'
+]
+  .map((dir) => resolve(uiRoot, 'dist', dir, 'resources'))
+  .find((candidate) => existsSync(candidate))
 const resources = process.env.COLLIE_PACKAGED_RESOURCES
   ? resolve(process.env.COLLIE_PACKAGED_RESOURCES)
-  : resolve(uiRoot, 'dist', 'win-unpacked', 'resources')
-const python = resolve(resources, 'collie-core', 'python', 'python.exe')
+  : (defaultUnpackedResources ?? resolve(uiRoot, 'dist', 'win-unpacked', 'resources'))
+const python =
+  process.platform === 'win32'
+    ? resolve(resources, 'collie-core', 'python', 'python.exe')
+    : resolve(resources, 'collie-core', 'python', 'bin', 'python3')
 const core = resolve(resources, 'collie-core')
 const smokeHome = resolve(repositoryRoot, '.pytest-tmp', `packaged-smoke-${process.pid}`)
 const token = randomBytes(32).toString('hex')
@@ -33,7 +49,7 @@ function freshPort() {
       const port = typeof address === 'object' && address ? address.port : 0
       server.close((error) => {
         if (error) reject(error)
-        else if (!port) reject(new Error('Windows did not assign a smoke-test port.'))
+        else if (!port) reject(new Error('The OS did not assign a smoke-test port.'))
         else resolvePort(port)
       })
     })

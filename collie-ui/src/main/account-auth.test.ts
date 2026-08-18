@@ -24,6 +24,7 @@ vi.mock('electron', () => ({
   app: { getPath: () => testState.userData },
   safeStorage: {
     isEncryptionAvailable: () => testState.encryptionAvailable,
+    getSelectedStorageBackend: () => 'gnome_libsecret',
     encryptString: (value: string) => Buffer.from(`encrypted:${value}`, 'utf8'),
     decryptString: (value: Buffer) => value.toString('utf8').replace(/^encrypted:/, '')
   },
@@ -47,6 +48,7 @@ import {
   signOut,
   startAccountSignIn
 } from './account-auth'
+import { resetSecureStorageCache } from './secrets'
 
 /** Minimal fake JWT: base64url header.payload.signature. No verification is done. */
 function makeJwt(payload: Record<string, unknown>): string {
@@ -64,6 +66,7 @@ beforeEach(() => {
   testState.userData = mkdtempSync(join(tmpdir(), 'collie-auth-'))
   testState.openedUrl = ''
   testState.encryptionAvailable = true
+  resetSecureStorageCache()
   testState.exchange = null
   fetchMock = vi.fn(async (input: unknown, init?: RequestInit) => {
     const url = String(input)
@@ -277,6 +280,7 @@ describe('startAccountSignIn', () => {
 
   it('fails with a clear message when the session cannot be stored securely', async () => {
     testState.encryptionAvailable = false
+    resetSecureStorageCache() // secureStorageAvailable caches its probe result
     const signInPromise = startAccountSignIn()
     await vi.waitFor(() => {
       expect(testState.openedUrl).toContain('/auth/v1/authorize')

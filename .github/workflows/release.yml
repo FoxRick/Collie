@@ -223,12 +223,12 @@ jobs:
       - name: Package installer (${{ matrix.flags }})
         run: npx electron-builder ${{ matrix.flags }} --publish never
 
-      - name: Smoke test the packaged core (Windows)
-        # Boots the staged python.exe from dist/win-unpacked/resources,
-        # asserts COLLIE_READY on an ephemeral port, anonymous WS rejection,
-        # and an authenticated ping — the end-to-end packaged-runtime check.
-        # Must run BEFORE the finalize step removes dist/win-unpacked.
-        if: runner.os == 'Windows'
+      - name: Smoke test the packaged core
+        # Boots the staged python from the unpacked app resources, asserts
+        # COLLIE_READY on an ephemeral port, anonymous WS rejection, and an
+        # authenticated ping — the end-to-end packaged-runtime check on
+        # every platform. Must run BEFORE the finalize step removes
+        # dist/win-unpacked.
         shell: bash
         working-directory: collie-ui
         run: npm run smoke:packaged-core
