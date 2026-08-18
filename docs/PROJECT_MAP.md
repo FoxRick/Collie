@@ -89,7 +89,11 @@ React renderer
 
 Electron owns OS integration and protected secret storage. Python owns agent
 behavior, durable product state, tool execution, and central permission
-evaluation. The renderer must not receive decrypted long-lived secrets.
+evaluation. The renderer must not receive decrypted long-lived secrets:
+stored secrets are decrypted and pushed to the core by the main process only
+(`src/main/core-client.ts`, fired on core-ready); the renderer sees a bare
+count (`collie:stored-secret-count`). See
+[docs/engineering/security/renderer-trust-boundary.md](engineering/security/renderer-trust-boundary.md).
 
 ### Local-file access boundary
 

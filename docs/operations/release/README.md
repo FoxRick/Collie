@@ -4,6 +4,12 @@ The current public source release is `v0.1.0-alpha.4`. It contains the Windows
 desktop application source and uses the official Collie portrait consistently
 for the executable, system tray, window, and in-app brand mark.
 
+**In-progress release (alpha.5):** fixes from the 2026-08-18 pre-release
+security review are merged (or pending merge) — see
+[alpha5-release-status.md](alpha5-release-status.md) for the current status,
+what was verified, and the remaining sequence (merge, re-deploy, tag, owner
+acceptance).
+
 This repository does not currently publish a Windows installer or GitHub
 Release. Building from source does not create an official distribution, and
 mutable local `dist/` output must never be represented as one.
