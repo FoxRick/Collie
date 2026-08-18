@@ -143,6 +143,7 @@ async def test_unknown_action(db: CollieDB) -> None:
 
 # -- natural-language due times -------------------------------------------------
 
+
 def _local(month: int, day: int, hour: int = 0, minute: int = 0, year: int = 2026):
     """A local-tz aware datetime (naive input interpreted as local, like the tool)."""
     import datetime as _dt
@@ -256,9 +257,7 @@ async def test_create_reminder_with_natural_language_due(db: CollieDB) -> None:
 async def test_snooze_with_natural_language_until(db: CollieDB) -> None:
     r = db.add_reminder("Nap", "2026-07-20T12:00:00")
     tool = RemindersTool()
-    result = await tool.execute(
-        action="snooze", reminder_id=r["id"], snooze_until="in 1 hour"
-    )
+    result = await tool.execute(action="snooze", reminder_id=r["id"], snooze_until="in 1 hour")
     assert "Snoozed" in str(result)
 
 

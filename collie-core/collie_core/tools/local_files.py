@@ -440,9 +440,7 @@ class LocalFilesTool(Tool):
             # approval-free; overwriting or editing an existing file stays an
             # explicit approval because it destroys prior content. The
             # execution path revalidates scope before every change.
-            approval_free=bool(
-                safe_write and (reversible or operation == "mkdir")
-            ),
+            approval_free=bool(safe_write and (reversible or operation == "mkdir")),
             approve_for_me=safe_write,
         )
 
@@ -450,9 +448,7 @@ class LocalFilesTool(Tool):
         errors = super().validate_params(params)
         operation = str(params.get("operation") or "").lower()
         if operation == "mkdir":
-            if not isinstance(params.get("path"), str) or not str(
-                params.get("path") or ""
-            ).strip():
+            if not isinstance(params.get("path"), str) or not str(params.get("path") or "").strip():
                 errors.append("path is required for mkdir")
             return errors
         if operation in {"create", "overwrite", "save"} and not isinstance(
@@ -487,9 +483,7 @@ class LocalFilesTool(Tool):
                 _ensure_parent_dirs(target)
                 target.mkdir(parents=True, exist_ok=False)
                 return ToolResult(
-                    json.dumps(
-                        {"operation": "mkdir", "path": str(target), "local_only": True}
-                    )
+                    json.dumps({"operation": "mkdir", "path": str(target), "local_only": True})
                 )
             _require_text_artifact(target)
             if operation == "read":
@@ -525,9 +519,7 @@ class LocalFilesTool(Tool):
                     return ToolResult(json.dumps(edited_payload))
                 return result
             else:
-                raise _LocalFileError(
-                    "Choose list, read, create, overwrite, edit, save, or mkdir."
-                )
+                raise _LocalFileError("Choose list, read, create, overwrite, edit, save, or mkdir.")
         except (OSError, UnicodeError, WorkspaceBoundaryError, _LocalFileError) as exc:
             if undo_entry_id and conversation_id:
                 # The write never happened — don't leave an undoable entry
