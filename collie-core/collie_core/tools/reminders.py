@@ -57,9 +57,7 @@ _WEEKDAYS = {
     "saturday": 5,
     "sunday": 6,
 }
-_TIME_RE = re.compile(
-    r"^(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$|^(noon|midnight)$"
-)
+_TIME_RE = re.compile(r"^(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$|^(noon|midnight)$")
 _UNIT_SECONDS = {
     "minute": 60,
     "hour": 3600,
@@ -111,18 +109,14 @@ def _parse_due(value: str, label: str) -> datetime:
         lowered,
     )
     if in_match:
-        seconds = int(in_match.group(1)) * _UNIT_SECONDS[
-            in_match.group(2).rstrip("s")
-        ]
+        seconds = int(in_match.group(1)) * _UNIT_SECONDS[in_match.group(2).rstrip("s")]
         return now + timedelta(seconds=seconds)
     from_match = re.match(
         r"^(\d+)\s+(minute|minutes|hour|hours|day|days|week|weeks|month|months)\s+from\s+now$",
         lowered,
     )
     if from_match:
-        seconds = int(from_match.group(1)) * _UNIT_SECONDS[
-            from_match.group(2).rstrip("s")
-        ]
+        seconds = int(from_match.group(1)) * _UNIT_SECONDS[from_match.group(2).rstrip("s")]
         return now + timedelta(seconds=seconds)
 
     # "tomorrow at 3pm" / "tomorrow 3pm" / "today 6pm" / "tonight"
@@ -138,9 +132,7 @@ def _parse_due(value: str, label: str) -> datetime:
         day_shift = 0
         rest = lowered[len("today") :]
     if day_shift is not None:
-        base = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(
-            days=day_shift
-        )
+        base = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=day_shift)
         clock = rest.strip().lstrip(",;: ")
         if not clock:
             clock = "20:00" if lowered.startswith("tonight") else "09:00"

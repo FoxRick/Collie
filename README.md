@@ -127,8 +127,9 @@ are welcome too — but the normal path never requires them.
 **🛡️ Safety & reliability**
 
 - **Local-first everything** — memory, settings, and history in local SQLite;
-  no mandatory account, no silent uploads. The optional Collie account is
-  identity only — nothing leaves your machine.
+  no mandatory account, no silent uploads. The optional Collie account only
+  verifies your identity (hosted by Supabase) — chats, files, and history
+  stay on your machine.
 - Permissions engine with a broker → classifier → evaluator → store pipeline
 - **Rollback-safe updates** — a new version must boot healthy, or Collie
   rolls back to the last good one

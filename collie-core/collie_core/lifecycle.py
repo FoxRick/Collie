@@ -37,6 +37,7 @@ _RECLAIM_TIMEOUT_S = 5.0
 
 # -- parent-death watchdog -------------------------------------------------------
 
+
 def _arm_pdeathsig_linux() -> None:
     """Ask the kernel to SIGTERM us the moment our parent dies (Linux only)."""
     if sys.platform != "linux":
@@ -66,9 +67,7 @@ def _parent_still_alive(original: int) -> bool:
             process_query_limited = 0x1000
             still_active = 259
             kernel32 = ctypes.windll.kernel32
-            handle = kernel32.OpenProcess(
-                process_query_limited, False, wintypes.DWORD(original)
-            )
+            handle = kernel32.OpenProcess(process_query_limited, False, wintypes.DWORD(original))
             if not handle:
                 return False
             try:
@@ -106,12 +105,11 @@ def arm_parent_watchdog(interval: float = WATCHDOG_INTERVAL_S) -> None:
             except Exception:
                 os._exit(0)
 
-    threading.Thread(
-        target=_watch, name="collie-parent-watchdog", daemon=True
-    ).start()
+    threading.Thread(target=_watch, name="collie-parent-watchdog", daemon=True).start()
 
 
 # -- stale-core port reclaim -----------------------------------------------------
+
 
 def _port_in_use(port: int) -> bool:
     """True when anything is accepting TCP connections on 127.0.0.1:port."""
@@ -198,9 +196,7 @@ def _pid_alive(pid: int) -> bool:
         return False
 
 
-def reclaim_stale_core_port(
-    port: int, *, timeout_s: float = _RECLAIM_TIMEOUT_S
-) -> bool:
+def reclaim_stale_core_port(port: int, *, timeout_s: float = _RECLAIM_TIMEOUT_S) -> bool:
     """Free the IPC port by terminating leftover cores, if any.
 
     Only ever kills processes whose command line runs ``collie_core.runtime``
@@ -242,5 +238,7 @@ def _proc_entries() -> list[_ProcEntry]:
             continue
         if not raw:
             continue
-        entries.append(_ProcEntry(int(name), raw.replace(b"\x00", b" ").decode("utf-8", "replace").split()))
+        entries.append(
+            _ProcEntry(int(name), raw.replace(b"\x00", b" ").decode("utf-8", "replace").split())
+        )
     return entries

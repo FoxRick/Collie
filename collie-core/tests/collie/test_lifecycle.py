@@ -62,9 +62,7 @@ def test_watchdog_exits_when_parent_is_killed(tmp_path: Path) -> None:
         """
     )
     shell_log = tmp_path / "shell.log"
-    shell = _run_until_marker(
-        [_python(), "-c", shell_script], "shell up", shell_log, timeout_s=15
-    )
+    shell = _run_until_marker([_python(), "-c", shell_script], "shell up", shell_log, timeout_s=15)
     # Find the grandchild core: the shell's child.
     core_pid = _child_pid(shell.pid)
     assert core_pid is not None, "core process not found under the shell"

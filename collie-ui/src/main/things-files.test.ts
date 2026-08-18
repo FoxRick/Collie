@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { realpath } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -55,14 +56,19 @@ function record(overrides: Record<string, unknown> = {}): Record<string, unknown
 
 describe('things-files (trusted-ID boundary)', () => {
   let workspaceFile: string
+  let canonicalWorkspaceFile: string
   let projectDir: string
   let projectFile: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     testState.home = mkdtempSync(join(tmpdir(), 'collie-things-'))
     process.env.COLLIE_HOME = testState.home
     writeFileSync(join(testState.home, 'workspace.md'), '# Workspace thing', 'utf-8')
     workspaceFile = join(testState.home, 'workspace.md')
+    // Production resolves the registered path through realpath() before
+    // shell.openPath/showItemInFolder; on Windows that canonicalizes case
+    // and 8.3 short names, so the expected value must be canonical too.
+    canonicalWorkspaceFile = await realpath(workspaceFile)
     // A deliverable in a user-approved project folder, OUTSIDE COLLIE_HOME.
     projectDir = mkdtempSync(join(tmpdir(), 'collie-project-'))
     projectFile = join(projectDir, 'project-notes.md')
@@ -84,7 +90,7 @@ describe('things-files (trusted-ID boundary)', () => {
     // A forged path argument is ignored — the id decides.
     const result = await thingOpen('conv-1', 'th_a')
     expect(result).toBe('')
-    expect(testState.openPathCalls).toEqual([workspaceFile])
+    expect(testState.openPathCalls).toEqual([canonicalWorkspaceFile])
   })
 
   it('surfaces OS open errors instead of swallowing them', async () => {
@@ -137,7 +143,7 @@ describe('things-files (trusted-ID boundary)', () => {
   it('shows the registered file in the folder', async () => {
     writeIndex('conv-1', [record({ id: 'th_a', path: workspaceFile })])
     await thingShowInFolder('conv-1', 'th_a')
-    expect(testState.showItemCalls).toEqual([workspaceFile])
+    expect(testState.showItemCalls).toEqual([canonicalWorkspaceFile])
   })
 
   it('save-copy defaults to the record title and copies the registered file', async () => {
