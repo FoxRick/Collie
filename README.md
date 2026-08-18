@@ -87,6 +87,9 @@ are welcome too — but the normal path never requires them.
 - Paste any **API key** — DeepSeek, OpenRouter, Groq, and any
   OpenAI-compatible provider
 - Use a **local model** via Ollama
+- **Optional Collie account** — sign in from Settings in your system browser
+  (password or magic link); it's identity only, and your chats and files stay
+  on your machine
 - Bundled **models.dev catalogue** — every provider and model at your
   fingertips, auto-refreshed weekly
 - Switch models anytime, right from the chat; connections are validated
@@ -124,7 +127,8 @@ are welcome too — but the normal path never requires them.
 **🛡️ Safety & reliability**
 
 - **Local-first everything** — memory, settings, and history in local SQLite;
-  no mandatory account, no silent uploads
+  no mandatory account, no silent uploads. The optional Collie account is
+  identity only — nothing leaves your machine.
 - Permissions engine with a broker → classifier → evaluator → store pipeline
 - **Rollback-safe updates** — a new version must boot healthy, or Collie
   rolls back to the last good one
@@ -181,6 +185,9 @@ account required:
 
 Collie validates the connection and tells you what it found — *"DeepSeek
 connected and selected."* — and you can change models anytime from the chat.
+There's also an optional free Collie account (Settings → **Account**) for
+identity — it's never required, and your chats and files stay on your
+machine.
 
 ### 3. Just talk
 
@@ -256,7 +263,8 @@ Honest status of what's next:
   the remember pill; rollback-safe updates with crash recovery; onboarding
   (paste-key connect + models.dev catalogue + starter conversation); five
   connectors (Notion, Linear, Todoist, Atlassian, Airtable); Telegram
-  messenger.
+  messenger; optional Collie account sign-in (identity only, browser
+  magic-link).
 - **In progress:** Google and Microsoft service bundles (awaiting Collie-owned
   OAuth app registrations), the installer pipeline, the Windows release
   itself, and voice.
