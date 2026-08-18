@@ -331,9 +331,10 @@ jobs:
               account (APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD /
               APPLE_TEAM_ID secrets) — a follow-up.
             - **Windows is unsigned**; SmartScreen may warn.
-            - Asset provenance is **incomplete**: per
-              `docs/operations/release/asset-provenance.md`, branded art and
-              third-party marks need a recorded clearance before this build
-              is treated as a general-distribution release.
+            - Asset provenance is **recorded**: branded art is
+              owner-created for Collie (excluded from MIT reuse) and
+              third-party marks are nominative-use only, per
+              `docs/operations/release/asset-provenance.md` (SHA-256
+              manifest in `asset-provenance.sha256`).
             - This is a **draft** release: a maintainer reviews the checksums
               and publishes it deliberately.
