@@ -51,7 +51,7 @@ _TEXT_SUFFIXES = frozenset(
         ".yml",
     }
 )
-_WRITE_OPERATIONS = frozenset({"create", "overwrite", "edit", "save"})
+_WRITE_OPERATIONS = frozenset({"create", "overwrite", "edit", "save", "mkdir"})
 
 
 class _LocalFileError(ValueError):
@@ -292,13 +292,27 @@ def _atomic_create(path: Path, payload: bytes) -> None:
             temporary.unlink(missing_ok=True)
 
 
+def _ensure_parent_dirs(path: Path) -> None:
+    """Create missing parent folders for an in-scope target.
+
+    The target was already resolved inside a granted scope root, so its
+    ancestors are inside that root by construction and the resolve step
+    already refused symlink/junction hops along the way. Creating parents
+    therefore cannot escape the granted folder.
+    """
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise _LocalFileError("I could not create the destination folder.") from exc
+
+
 @tool_parameters(
     {
         "type": "object",
         "properties": {
             "operation": {
                 "type": "string",
-                "enum": ["list", "read", "create", "overwrite", "edit", "save"],
+                "enum": ["list", "read", "create", "overwrite", "edit", "save", "mkdir"],
             },
             "path": {"type": "string", "minLength": 1, "maxLength": 4096},
             "content": {"type": ["string", "null"], "maxLength": _MAX_FILE_BYTES},
@@ -327,10 +341,12 @@ class LocalFilesTool(Tool):
     def description(self) -> str:
         return (
             "Work with small local text artifacts in the folders allowed for this task. "
-            "List folders, read text files, or create, overwrite, edit, and save .txt, .md, "
-            ".csv, .rtf, JSON, and similar text files. This tool never sends files anywhere, "
-            "cannot delete files, and does not handle Word or PDF binaries. Text read from a "
-            "file may be processed by the configured model provider to complete the request."
+            "List folders, create folders with mkdir, read text files, or create, overwrite, "
+            "edit, and save .txt, .md, .csv, .rtf, JSON, and similar text files. Missing "
+            "destination folders are created automatically inside the allowed folders. This "
+            "tool never sends files anywhere, cannot delete files, and does not handle Word or "
+            "PDF binaries. Text read from a file may be processed by the configured model "
+            "provider to complete the request."
         )
 
     def permission_request(self, params: dict[str, Any]) -> PermissionRequest:
@@ -338,7 +354,8 @@ class LocalFilesTool(Tool):
         is_write = operation in _WRITE_OPERATIONS
         try:
             target, in_scope = _resolve_local_path(
-                str(params.get("path") or ""), allow_directory=operation == "list"
+                str(params.get("path") or ""),
+                allow_directory=operation in ("list", "mkdir"),
             )
             resource = str(target)
         except _OutsideScopeError as exc:
@@ -369,6 +386,7 @@ class LocalFilesTool(Tool):
             "overwrite": "Overwrite",
             "edit": "Edit",
             "save": "Save",
+            "mkdir": "Create folder",
         }.get(operation, "Use")
         if operation == "read":
             provider = _configured_model_provider()
@@ -415,17 +433,25 @@ class LocalFilesTool(Tool):
                 "unrestricted_local_files": unrestricted,
             },
             # A folder selection defines where files may be touched. Reversible
-            # bounded work inside it (create, save of a new file) is
+            # bounded work inside it (create, save of a new file, mkdir) is
             # approval-free; overwriting or editing an existing file stays an
             # explicit approval because it destroys prior content. The
             # execution path revalidates scope before every change.
-            approval_free=bool(safe_write and reversible),
+            approval_free=bool(
+                safe_write and (reversible or operation == "mkdir")
+            ),
             approve_for_me=safe_write,
         )
 
     def validate_params(self, params: dict[str, Any]) -> list[str]:
         errors = super().validate_params(params)
         operation = str(params.get("operation") or "").lower()
+        if operation == "mkdir":
+            if not isinstance(params.get("path"), str) or not str(
+                params.get("path") or ""
+            ).strip():
+                errors.append("path is required for mkdir")
+            return errors
         if operation in {"create", "overwrite", "save"} and not isinstance(
             params.get("content"), str
         ):
@@ -443,10 +469,25 @@ class LocalFilesTool(Tool):
         conversation_id: str | None = None
         try:
             target, _in_scope = _resolve_local_path(
-                str(kwargs.get("path") or ""), allow_directory=operation == "list"
+                str(kwargs.get("path") or ""),
+                allow_directory=operation in ("list", "mkdir"),
             )
             if operation == "list":
                 return self._list(target, int(kwargs.get("max_entries") or 100))
+            if operation == "mkdir":
+                if target.exists() and not target.is_dir():
+                    raise _LocalFileError("That path is already a file, not a folder.")
+                if target.exists():
+                    raise _LocalFileError(
+                        "That folder already exists. Use list to see what's in it."
+                    )
+                _ensure_parent_dirs(target)
+                target.mkdir(parents=True, exist_ok=False)
+                return ToolResult(
+                    json.dumps(
+                        {"operation": "mkdir", "path": str(target), "local_only": True}
+                    )
+                )
             _require_text_artifact(target)
             if operation == "read":
                 return self._read(target, int(kwargs.get("max_chars") or 12_000))
@@ -456,8 +497,7 @@ class LocalFilesTool(Tool):
             conversation_id = _current_conversation_id()
             undo_entry_id = record_write(conversation_id, target, operation)
             if operation == "create":
-                if not target.parent.is_dir():
-                    raise _LocalFileError("The destination folder does not exist.")
+                _ensure_parent_dirs(target)
                 _atomic_create(target, _encoded_content(kwargs.get("content")))
             elif operation == "overwrite":
                 if not target.is_file():
@@ -465,8 +505,7 @@ class LocalFilesTool(Tool):
                 _verify_expected_hash(target, kwargs.get("expected_sha256"))
                 _atomic_replace(target, _encoded_content(kwargs.get("content")))
             elif operation == "save":
-                if not target.parent.is_dir():
-                    raise _LocalFileError("The destination folder does not exist.")
+                _ensure_parent_dirs(target)
                 payload = _encoded_content(kwargs.get("content"))
                 if target.exists():
                     _verify_expected_hash(target, kwargs.get("expected_sha256"))
@@ -483,7 +522,9 @@ class LocalFilesTool(Tool):
                     return ToolResult(json.dumps(edited_payload))
                 return result
             else:
-                raise _LocalFileError("Choose list, read, create, overwrite, edit, or save.")
+                raise _LocalFileError(
+                    "Choose list, read, create, overwrite, edit, save, or mkdir."
+                )
         except (OSError, UnicodeError, WorkspaceBoundaryError, _LocalFileError) as exc:
             if undo_entry_id and conversation_id:
                 # The write never happened — don't leave an undoable entry
@@ -503,7 +544,9 @@ class LocalFilesTool(Tool):
     @staticmethod
     def _list(path: Path, max_entries: int) -> ToolResult:
         if not path.is_dir():
-            raise _LocalFileError("That path is not a folder to list.")
+            raise _LocalFileError(
+                "That path is not a folder yet. Use mkdir to create it before listing."
+            )
         entries: list[dict[str, Any]] = []
         for entry in sorted(
             path.iterdir(), key=lambda item: (not item.is_dir(), item.name.casefold())
