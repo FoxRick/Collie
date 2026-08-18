@@ -376,8 +376,11 @@ class LocalFilesTool(Tool):
         safe_write = bool(is_write and in_scope)
         reversible = bool(
             is_write
-            and operation == "create"
-            or (operation == "save" and target is not None and not target.exists())
+            and (
+                operation == "create"
+                or operation == "mkdir"
+                or (operation == "save" and target is not None and not target.exists())
+            )
         )
         verb = {
             "list": "List",

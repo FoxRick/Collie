@@ -260,6 +260,46 @@ async def test_local_file_read_inside_granted_scope_is_authorized_silently(
 
 
 @pytest.mark.asyncio
+async def test_local_files_mkdir_auto_allowed_inside_granted_folder(scoped_tool) -> None:
+    """mkdir in-scope is reversible bounded work: the broker auto-approves it.
+
+    Regression for the launch sweep finding: the permission_request set
+    approval_free=True for mkdir but left reversible=False, so the evaluator's
+    _ordinary_safe() gate fell through to an approval card despite the
+    documented intent. Both flags must be true for the auto-allow path.
+    """
+    tool, root = scoped_tool
+    db = CollieDB(root / "collie.db")
+    events: list[dict] = []
+
+    async def broadcaster(payload: dict) -> None:
+        events.append(payload)
+
+    broker = ApprovalBroker(
+        db,
+        PermissionEvaluator(PermissionStore(db)),
+        broadcaster=broadcaster,
+        timeout_seconds=1,
+    )
+    with request_context(
+        RequestContext(
+            channel="test",
+            chat_id="test",
+            metadata={"permission_context": {"model_provider": "ChatGPT"}},
+        )
+    ):
+        await broker.authorize(
+            ExecutionContext(run_id="run-mkdir"),
+            SimpleNamespace(id="call-1", name="local_files"),
+            tool,
+            {"operation": "mkdir", "path": "docs/2026"},
+        )
+    assert events == []
+    assert broker.db.list_pending_approvals() == []
+    db.close()
+
+
+@pytest.mark.asyncio
 async def test_live_file_access_override_applies_mid_turn(tmp_path: Path) -> None:
     """A scope change while the turn runs applies to the very next tool call."""
     root = tmp_path / "project"
@@ -466,6 +506,7 @@ def test_local_files_mkdir_permission_metadata(scoped_tool) -> None:
     assert made.action == "local_file.write"
     assert made.resource == str((root / "docs" / "2026").resolve())
     assert made.risk.value == "local_write"
+    assert made.reversible is True
     assert made.approval_free is True
     assert made.approve_for_me is True
     assert made.data_leaving_device == ()
