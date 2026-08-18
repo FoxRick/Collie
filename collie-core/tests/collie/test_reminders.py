@@ -260,3 +260,16 @@ async def test_snooze_with_natural_language_until(db: CollieDB) -> None:
         action="snooze", reminder_id=r["id"], snooze_until="in 1 hour"
     )
     assert "Snoozed" in str(result)
+
+
+def test_nl_due_tolerates_sentence_punctuation() -> None:
+    """Models wrap due strings in commas/periods — those must not break parsing."""
+    from collie_core.tools.reminders import _normalize_due
+
+    import datetime as _dt
+
+    today = _dt.datetime.now().astimezone().date()
+    tomorrow = today + _dt.timedelta(days=1)
+    assert _normalize_due("tomorrow, 3pm") == _local(tomorrow.month, tomorrow.day, 15)
+    assert _normalize_due("tomorrow at 3pm.") == _local(tomorrow.month, tomorrow.day, 15)
+    assert _normalize_due("tomorrow, 3pm.") == _local(tomorrow.month, tomorrow.day, 15)

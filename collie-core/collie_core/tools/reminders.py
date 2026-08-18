@@ -93,7 +93,7 @@ def _apply_clock(base, clock: str) -> datetime:
 
 def _parse_due(value: str, label: str) -> datetime:
     """Parse a due string into a local-aware datetime, or raise ValueError."""
-    text = str(value).strip()
+    text = str(value).strip().rstrip(".,!?")
     lowered = text.lower()
 
     # Fast path: strict ISO (covers "2026-07-20T15:00:00" and the
@@ -141,7 +141,7 @@ def _parse_due(value: str, label: str) -> datetime:
         base = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(
             days=day_shift
         )
-        clock = rest.strip()
+        clock = rest.strip().lstrip(",;: ")
         if not clock:
             clock = "20:00" if lowered.startswith("tonight") else "09:00"
         return _apply_clock(base, clock)
@@ -151,7 +151,7 @@ def _parse_due(value: str, label: str) -> datetime:
     if weekday_match and weekday_match.group(2) in _WEEKDAYS:
         is_next = bool(weekday_match.group(1))
         weekday = _WEEKDAYS[weekday_match.group(2)]
-        clock = weekday_match.group(3).strip()
+        clock = weekday_match.group(3).strip().lstrip(",;: ")
         today = now.replace(hour=0, minute=0, second=0, microsecond=0)
         days_ahead = (weekday - today.weekday()) % 7
         if is_next and days_ahead == 0:
@@ -169,7 +169,7 @@ def _parse_due(value: str, label: str) -> datetime:
 
     # Bare clock: "3pm", "15:00", "at 8:30 am" -> today, rolling to tomorrow
     # if that moment has already passed.
-    bare_clock = text.strip()
+    bare_clock = text.strip().lstrip(",;: ")
     try:
         result = _apply_clock(now.replace(hour=0, minute=0, second=0, microsecond=0), bare_clock)
     except ValueError:
