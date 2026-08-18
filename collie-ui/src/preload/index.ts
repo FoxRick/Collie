@@ -62,8 +62,8 @@ const api = {
   deleteSecret: (provider: string): Promise<boolean> =>
     ipcRenderer.invoke('collie:delete-secret', provider),
   listSecrets: (): Promise<string[]> => ipcRenderer.invoke('collie:list-secrets'),
-  loadSecrets: (): Promise<Record<string, string>> =>
-    ipcRenderer.invoke('collie:load-secrets'),
+  storedSecretCount: (): Promise<number> =>
+    ipcRenderer.invoke('collie:stored-secret-count'),
   pickAttachments: (): Promise<Array<{ name: string; mime: string; size: number; data_url: string }>> =>
     ipcRenderer.invoke('collie:pick-attachments'),
   pickProjectFolder: (): Promise<string | null> =>

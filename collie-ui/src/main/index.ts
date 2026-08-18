@@ -5,7 +5,7 @@ import { pathToFileURL } from 'url'
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'fs'
 import { readFile as readFileAsync, realpath as realpathAsync, stat as statAsync } from 'fs/promises'
 import { assertLocalWindowsFileAccessFolder } from './local-file-access'
-import { spawnCore, stopCore, coreState } from './python'
+import { spawnCore, stopCore, coreState, onCoreReady } from './python'
 import { petEnabled, petRunning, setPetEnabled, spawnPet, stopPet } from './pet'
 import { isAllowedPetCommand } from './petCommands'
 import {
@@ -18,12 +18,12 @@ import {
   deleteSecret,
   finalizeSecretChange,
   listSecretProviders,
-  loadSecrets,
   rollbackSecretChange,
   saveSecret,
   secureStorageAvailable,
   stageSecretChange
 } from './secrets'
+import { pushStoredSecretsToCore } from './core-client'
 import { getAccountState, signOut, startAccountSignIn } from './account-auth'
 import { autoUpdater } from 'electron-updater'
 import {
@@ -361,7 +361,9 @@ function registerIpc(): void {
   )
   handle('collie:delete-secret', (provider: string) => deleteSecret(provider))
   handle('collie:list-secrets', () => listSecretProviders())
-  handle('collie:load-secrets', () => loadSecrets())
+  // Count only — the values themselves are pushed to the core by the main
+  // process (core-client.ts); decrypted secrets never cross into the renderer.
+  handle('collie:stored-secret-count', () => listSecretProviders().length)
   handle('account:start-sign-in', () => startAccountSignIn())
   handle('account:get-state', () => getAccountState())
   handle('account:sign-out', () => signOut())
@@ -571,6 +573,11 @@ app.whenReady().then(async () => {
     }
   })
   await spawnCore(isDev)
+  // Push stored secrets to the core over the main process's own connection
+  // (the renderer never sees decrypted values).
+  onCoreReady(() => {
+    void pushStoredSecretsToCore()
+  })
   // If this boot was an update, verify the new version came up healthy
   // before letting the update ledger treat it as last-known-good. Probation
   // (sustained running, not just a ready message) applies only when a
