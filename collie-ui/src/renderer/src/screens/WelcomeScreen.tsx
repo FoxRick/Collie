@@ -236,7 +236,8 @@ export default function WelcomeScreen({ onDone, onCancel }: Props): React.JSX.El
         return
       }
       if (candidates.length > 1) {
-        // Ambiguous (sk-): let the core probe each candidate endpoint.
+        // Ambiguous (sk-): the core never probes candidate endpoints with
+        // the user's key — ask the user to pick instead.
         setDetectHint('Checking which provider this key belongs to…')
         try {
           const result = await collieClient.detectProviderForKey(key)
@@ -246,6 +247,11 @@ export default function WelcomeScreen({ onDone, onCancel }: Props): React.JSX.El
             setDetectHint(
               `Looks like this key belongs to ${catalogue.find((item) => item.id === result.provider_id)?.name || result.provider_id}.`
             )
+          } else if (result.reason === 'ambiguous' && result.candidates?.length) {
+            const names = result.candidates
+              .map((id) => catalogue.find((item) => item.id === id)?.name || id)
+              .join(' or ')
+            setDetectHint(`This key format matches ${names} — choose the right provider above.`)
           } else if (result.detected) {
             setDetectHint('')
           } else {

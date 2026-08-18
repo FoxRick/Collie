@@ -174,23 +174,24 @@ async def test_detect_provider_for_key_uses_prefix_for_unambiguous(openai_server
 
 
 @pytest.mark.asyncio
-async def test_detect_provider_for_key_probes_ambiguous_sk(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_detect_provider_for_key_ambiguous_sk_never_probes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from collie_core.providers import validation
 
-    calls: list[str] = []
-
-    async def fake_probe(**kwargs: object) -> dict[str, object]:
-        provider_id = str(kwargs["provider_id"])
-        calls.append(provider_id)
-        if provider_id == "deepseek":
-            return {"ok": True, "model": "deepseek-v4-flash", "model_label": "DeepSeek V4 Flash"}
-        return {"ok": False, "error": "auth"}
+    async def fake_probe(**kwargs: object) -> dict[str, object]:  # pragma: no cover
+        raise AssertionError("ambiguous sk- keys must never be probed")
 
     monkeypatch.setattr(validation, "probe_api_key", fake_probe)
     result = await detect_provider_for_key("sk-abc", catalogue=CatalogueStore())
-    assert result == {"detected": True, "provider_id": "deepseek", "reason": "probe"}
-    # Ambiguous sk- is resolved by probing candidates in order; first accept wins.
-    assert calls == ["openai", "deepseek"]
+    # The key must not be shipped to candidate providers to guess which one
+    # owns it — the candidates come back and the UI asks the user to pick.
+    assert result == {
+        "detected": False,
+        "provider_id": None,
+        "reason": "ambiguous",
+        "candidates": ["openai", "deepseek"],
+    }
 
 
 @pytest.mark.asyncio
@@ -225,3 +226,16 @@ async def test_detect_local_ollama_empty_when_not_running() -> None:
     finally:
         os.environ.pop("OLLAMA_HOST", None)
     assert result == {"available": False, "models": []}
+
+
+@pytest.mark.asyncio
+async def test_detect_provider_for_key_unambiguous_prefix_resolves_instantly() -> None:
+    result = await detect_provider_for_key("gsk_abc123", catalogue=CatalogueStore())
+    assert result == {"detected": True, "provider_id": "groq", "reason": "prefix"}
+
+
+@pytest.mark.asyncio
+async def test_detect_provider_for_key_no_match() -> None:
+    result = await detect_provider_for_key("zzz-unknown-format", catalogue=CatalogueStore())
+    assert result["detected"] is False
+    assert result["reason"] == "no_prefix_match"
