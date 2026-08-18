@@ -15,5 +15,7 @@ respective owners. They are included only for nominative identification where
 present, do not imply affiliation, partnership, endorsement, or enabled
 integration, and are not licensed by this repository.
 
-The current asset review and its remaining provenance limitations are recorded
-in [docs/operations/release/asset-provenance.md](docs/operations/release/asset-provenance.md).
+The asset review and its completed provenance records are documented in
+[docs/operations/release/asset-provenance.md](docs/operations/release/asset-provenance.md)
+with a durable SHA-256 manifest
+([asset-provenance.sha256](docs/operations/release/asset-provenance.sha256)).
