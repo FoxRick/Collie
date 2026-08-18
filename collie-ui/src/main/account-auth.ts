@@ -189,14 +189,8 @@ export function clearAccountSession(): boolean {
   }
 }
 
-/**
- * Current account state for the Settings UI. The JWT payload (email/exp) is
- * decoded client-side for display only; an expired session reads as signed
- * out so the user can sign in again.
- */
-export function getAccountState(): AccountState {
-  const session = getStoredSession()
-  if (!session) return { signedIn: false, email: null, expiresAt: null }
+/** Derive the user-facing account state from a stored session. */
+function accountStateFromSession(session: StoredSession): AccountState {
   const payload = session.access_token ? decodeJwtPayload(session.access_token) : null
   const email =
     typeof payload?.email === 'string' && payload.email ? payload.email : session.email
@@ -209,6 +203,62 @@ export function getAccountState(): AccountState {
     return { signedIn: false, email: email || null, expiresAt }
   }
   return { signedIn: true, email: email || null, expiresAt }
+}
+
+/**
+ * One silent refresh attempt for an expired session. Supabase access tokens
+ * live ~1h; without this the user would be signed out every hour while the
+ * refresh token sat unused. Returns the refreshed session (already persisted)
+ * or null when there is nothing to refresh or Supabase rejects the token.
+ */
+async function refreshExpiredSession(session: StoredSession): Promise<StoredSession | null> {
+  const baseUrl = SUPABASE_URL.replace(/\/+$/, '')
+  const anonKey = SUPABASE_ANON_KEY
+  if (!baseUrl || !anonKey || !session.refresh_token) return null
+  try {
+    const response = await fetch(`${baseUrl}/auth/v1/token?grant_type=refresh_token`, {
+      method: 'POST',
+      headers: {
+        apikey: anonKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ refresh_token: session.refresh_token }),
+      signal: AbortSignal.timeout(10_000)
+    })
+    if (!response.ok) return null
+    const data = (await response.json().catch(() => null)) as TokenResponse | null
+    if (!data || typeof data.access_token !== 'string' || !data.access_token) return null
+    const refreshed: StoredSession = {
+      access_token: data.access_token,
+      refresh_token:
+        typeof data.refresh_token === 'string' && data.refresh_token
+          ? data.refresh_token
+          : session.refresh_token,
+      expires_at:
+        typeof data.expires_in === 'number' && Number.isFinite(data.expires_in)
+          ? Date.now() + data.expires_in * 1000
+          : 0,
+      email: typeof data.user?.email === 'string' ? data.user.email : session.email
+    }
+    return saveAccountSession(refreshed) ? refreshed : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Current account state for the Settings UI. The JWT payload (email/exp) is
+ * decoded client-side for display only; an expired session gets one silent
+ * refresh attempt before it reads as signed out.
+ */
+export async function getAccountState(): Promise<AccountState> {
+  const session = getStoredSession()
+  if (!session) return { signedIn: false, email: null, expiresAt: null }
+  const state = accountStateFromSession(session)
+  if (state.signedIn) return state
+  const refreshed = await refreshExpiredSession(session)
+  if (refreshed) return accountStateFromSession(refreshed)
+  return state
 }
 
 /* ------------------------------------------------------------------ *
@@ -380,7 +430,7 @@ export async function startAccountSignIn(
         'or your Windows sign-in on Windows) and try again.'
     )
   }
-  return getAccountState()
+  return await getAccountState()
 }
 
 /** Sign out: best-effort Supabase session revocation, then clear locally. */
@@ -402,5 +452,5 @@ export async function signOut(): Promise<AccountState> {
     }
   }
   clearAccountSession()
-  return getAccountState()
+  return await getAccountState()
 }

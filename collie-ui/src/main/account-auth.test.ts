@@ -71,10 +71,27 @@ beforeEach(() => {
       return realFetch(url, init)
     }
     if (url.includes('/auth/v1/token')) {
+      const isRefresh =
+        url.includes('grant_type=refresh_token') ||
+        String(init?.body ?? '').includes('grant_type=refresh_token')
       testState.exchange = {
         url,
         body: JSON.parse(String(init?.body)) as Record<string, unknown>,
         headers: (init?.headers ?? {}) as Record<string, string>
+      }
+      if (isRefresh) {
+        return new Response(
+          JSON.stringify({
+            access_token: makeJwt({
+              email: 'tester@heycollie.com',
+              exp: Math.floor(Date.now() / 1000) + 3600
+            }),
+            refresh_token: 'refresh-token-2',
+            expires_in: 3600,
+            user: { email: 'tester@heycollie.com' }
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
       }
       return new Response(
         JSON.stringify({
@@ -130,7 +147,7 @@ describe('JWT payload decoding', () => {
 })
 
 describe('encrypted session store', () => {
-  it('round-trips a session through the encrypted store and clears it', () => {
+  it('round-trips a session through the encrypted store and clears it', async () => {
     expect(
       saveAccountSession({
         access_token: 'access-token-1',
@@ -149,10 +166,10 @@ describe('encrypted session store', () => {
 
     expect(clearAccountSession()).toBe(true)
     expect(getStoredSession()).toBeNull()
-    expect(getAccountState()).toEqual({ signedIn: false, email: null, expiresAt: null })
+    expect(await getAccountState()).toEqual({ signedIn: false, email: null, expiresAt: null })
   })
 
-  it('rejects a session when safeStorage encryption is unavailable', () => {
+  it('rejects a session when safeStorage encryption is unavailable', async () => {
     // (mock always reports available; the guard is exercised via the
     // unconfigured-path behavior in the sign-in tests instead)
     expect(saveAccountSession({ access_token: '', refresh_token: '', expires_at: 0, email: '' }))
@@ -161,7 +178,7 @@ describe('encrypted session store', () => {
 })
 
 describe('getAccountState', () => {
-  it('decodes email and expiry from the access-token JWT', () => {
+  it('decodes email and expiry from the access-token JWT', async () => {
     const exp = Math.floor(Date.now() / 1000) + 3600
     saveAccountSession({
       access_token: makeJwt({ email: 'rick@heycollie.com', exp }),
@@ -170,13 +187,13 @@ describe('getAccountState', () => {
       email: ''
     })
 
-    const state = getAccountState()
+    const state = await getAccountState()
     expect(state.signedIn).toBe(true)
     expect(state.email).toBe('rick@heycollie.com')
     expect(state.expiresAt).toBe(exp * 1000)
   })
 
-  it('falls back to the stored email when the token is not a JWT', () => {
+  it('falls back to the stored email when the token is not a JWT', async () => {
     saveAccountSession({
       access_token: 'opaque-token',
       refresh_token: 'refresh-token-1',
@@ -184,12 +201,27 @@ describe('getAccountState', () => {
       email: 'stored@heycollie.com'
     })
 
-    const state = getAccountState()
+    const state = await getAccountState()
     expect(state.signedIn).toBe(true)
     expect(state.email).toBe('stored@heycollie.com')
   })
 
-  it('treats an expired session as signed out', () => {
+  it('treats an expired session without a refresh token as signed out', async () => {
+    const exp = Math.floor(Date.now() / 1000) - 60
+    saveAccountSession({
+      access_token: makeJwt({ email: 'old@heycollie.com', exp }),
+      refresh_token: '',
+      expires_at: 0,
+      email: 'old@heycollie.com'
+    })
+
+    const state = await getAccountState()
+    expect(state.signedIn).toBe(false)
+    expect(state.email).toBe('old@heycollie.com')
+    expect(state.expiresAt).toBe(exp * 1000)
+  })
+
+  it('silently refreshes an expired session instead of signing out', async () => {
     const exp = Math.floor(Date.now() / 1000) - 60
     saveAccountSession({
       access_token: makeJwt({ email: 'old@heycollie.com', exp }),
@@ -198,10 +230,14 @@ describe('getAccountState', () => {
       email: 'old@heycollie.com'
     })
 
-    const state = getAccountState()
-    expect(state.signedIn).toBe(false)
-    expect(state.email).toBe('old@heycollie.com')
-    expect(state.expiresAt).toBe(exp * 1000)
+    const state = await getAccountState()
+    expect(state.signedIn).toBe(true)
+    expect(state.email).toBe('tester@heycollie.com')
+    // The refreshed session is persisted (new tokens + expiry).
+    const stored = getStoredSession()
+    expect(stored?.access_token).toContain('eyJ')
+    expect(stored?.refresh_token).toBe('refresh-token-2')
+    expect(stored?.expires_at).toBeGreaterThan(Date.now())
   })
 })
 
@@ -321,7 +357,7 @@ describe('signOut', () => {
       expires_at: Date.now() + 60_000,
       email: 'out@heycollie.com'
     })
-    expect(getAccountState().signedIn).toBe(true)
+    expect((await getAccountState()).signedIn).toBe(true)
 
     const state = await signOut()
 

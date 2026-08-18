@@ -224,11 +224,14 @@ async def detect_provider_for_key(
     api_key: str,
     catalogue: CatalogueStore | None = None,
 ) -> dict[str, Any]:
-    """Resolve a pasted key to a provider, probing ambiguous prefixes.
+    """Resolve a pasted key to a provider using prefix hints only.
 
-    Unambiguous prefixes (``gsk_``, ``sk-ant-``, …) resolve instantly;
-    ``sk-`` (OpenAI vs DeepSeek) is resolved by probing each candidate's
-    model-list endpoint — the first one that accepts the key wins.
+    Unambiguous prefixes (``gsk_``, ``sk-ant-``, …) resolve instantly.
+    Ambiguous prefixes (``sk-`` matches OpenAI and DeepSeek) NEVER probe the
+    candidate endpoints with the user's key — that would ship the key to
+    providers that don't own it. The candidates are returned instead and the
+    UI asks the user to pick; the key then only travels to the provider they
+    chose.
     """
     catalogue = catalogue or CatalogueStore()
     candidates = catalogue.detect_provider_for_key(api_key)
@@ -236,14 +239,10 @@ async def detect_provider_for_key(
         return {"detected": False, "provider_id": None, "reason": "no_prefix_match"}
     if len(candidates) == 1:
         return {"detected": True, "provider_id": candidates[0], "reason": "prefix"}
-    for provider_id in candidates:
-        result = await probe_api_key(provider_id=provider_id, api_key=api_key, catalogue=catalogue)
-        if result.get("ok"):
-            return {"detected": True, "provider_id": provider_id, "reason": "probe"}
     return {
         "detected": False,
         "provider_id": None,
-        "reason": "probe_failed",
+        "reason": "ambiguous",
         "candidates": candidates,
     }
 
