@@ -21,6 +21,7 @@ import { createServer, type Server } from 'http'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '../shared/account-config'
+import { secureStorageAvailable } from './secrets'
 
 /** Fixed callback port — must match the Supabase redirect allowlist. */
 export const CALLBACK_PORT = 8123
@@ -142,7 +143,7 @@ function writeAuthFile(file: AuthFile): void {
 
 /** Persist a session, encrypting every field with safeStorage. */
 export function saveAccountSession(session: StoredSession): boolean {
-  if (!session.access_token || !safeStorage.isEncryptionAvailable()) return false
+  if (!session.access_token || !secureStorageAvailable()) return false
   const encrypt = (value: string): string =>
     safeStorage.encryptString(value).toString('base64')
   const file: AuthFile = {
@@ -161,7 +162,7 @@ export function saveAccountSession(session: StoredSession): boolean {
 
 /** Read the stored session back, decrypting defensively. */
 export function getStoredSession(): StoredSession | null {
-  if (!safeStorage.isEncryptionAvailable()) return null
+  if (!secureStorageAvailable()) return null
   const file = readAuthFile()
   if (!file) return null
   try {
@@ -427,7 +428,8 @@ export async function startAccountSignIn(
     throw new Error(
       'You signed in, but this computer could not store the session ' +
         'securely. Unlock your system keychain (Keychain Access on macOS, ' +
-        'or your Windows sign-in on Windows) and try again.'
+        'your Windows sign-in on Windows, or your keyring daemon — e.g. ' +
+        'gnome-keyring / KWallet — on Linux) and try again.'
     )
   }
   return await getAccountState()
