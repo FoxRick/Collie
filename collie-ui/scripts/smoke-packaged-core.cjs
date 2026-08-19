@@ -1,4 +1,4 @@
-const { existsSync } = require('fs')
+const { existsSync, readdirSync } = require('fs')
 const { spawn } = require('child_process')
 const { randomBytes } = require('crypto')
 const net = require('net')
@@ -11,16 +11,32 @@ const repositoryRoot = resolve(uiRoot, '..')
 // Auto-detect the electron-builder unpacked output (win-unpacked on Windows,
 // linux-unpacked on Linux, mac/mac-arm64 on macOS) so the same smoke runs on
 // every platform. COLLIE_PACKAGED_RESOURCES overrides for odd layouts.
-const defaultUnpackedResources = [
-  'win-unpacked',
-  'linux-unpacked',
-  'mac',
-  'mac-arm64',
-  'mac-x64',
-  'mac-universal'
-]
-  .map((dir) => resolve(uiRoot, 'dist', dir, 'resources'))
-  .find((candidate) => existsSync(candidate))
+function findMacBundleResources() {
+  // macOS: electron-builder emits dist/mac[--arch]/<App>.app/Contents/Resources
+  // — a bundle layout, NOT a flat dist/<dir>/resources like win/linux-unpacked.
+  const macDirs = ['mac', 'mac-arm64', 'mac-x64', 'mac-universal'].map((dir) =>
+    resolve(uiRoot, 'dist', dir)
+  )
+  for (const dir of macDirs) {
+    if (!existsSync(dir)) continue
+    let entries
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !entry.name.endsWith('.app')) continue
+      const candidate = resolve(dir, entry.name, 'Contents', 'Resources')
+      if (existsSync(candidate)) return candidate
+    }
+  }
+  return undefined
+}
+const defaultUnpackedResources =
+  ['win-unpacked', 'linux-unpacked', 'mac', 'mac-arm64', 'mac-x64', 'mac-universal']
+    .map((dir) => resolve(uiRoot, 'dist', dir, 'resources'))
+    .find((candidate) => existsSync(candidate)) ?? findMacBundleResources()
 const resources = process.env.COLLIE_PACKAGED_RESOURCES
   ? resolve(process.env.COLLIE_PACKAGED_RESOURCES)
   : (defaultUnpackedResources ?? resolve(uiRoot, 'dist', 'win-unpacked', 'resources'))
