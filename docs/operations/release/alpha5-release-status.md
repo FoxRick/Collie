@@ -1,8 +1,8 @@
 # Alpha 0.1.0-alpha.5 — release status
 
-**Status (2026-08-18):** fixes shipped, release not yet tagged. The remaining
-work is a merge, a re-deploy, the tag, and the owner's Windows acceptance
-pass. See the handoff section at the bottom for the exact sequence.
+**Status (2026-08-19):** all fixes merged (desktop + website), website
+re-deployed from `main` and verified live, desktop release gates green.
+Remaining: the tag and the owner's Windows acceptance pass.
 
 This document is the "where we stand" record for the alpha.5 release. It
 summarizes the pre-release security review, what was verified and fixed, and
@@ -46,19 +46,20 @@ confirmed blockers are fixed and tested.
 | #53 `fix/renderer-secret-boundary` | decrypted secrets never reach the renderer; main pushes them to the core once per spawn | 349 UI tests (incl. 5 new core-client tests) |
 | #55 `fix/alpha5-account-signin` | Supabase client config baked into builds; session auto-refresh; ambiguous API keys never probed | values verified in bundle; 345 UI tests + 12 validation tests |
 | #56 `docs/asset-provenance-clear` | provenance records complete; installer blocker cleared | `asset-provenance.sha256` (67 files) |
-
-**Open:** PR #54 `fix/storage-hardening` (Linux `basic_text` rejection,
-OAuth connectors gated off macOS/Linux, 3-OS packaged smoke test) — checks
-completed, merge pending.
+| #54 `fix/storage-hardening` | Linux `basic_text` rejected unless a real keyring backend is selected; OAuth connectors gated off Windows (`coming_soon` on macOS/Linux); `smoke:packaged-core` auto-detects unpacked resources per OS + release smoke runs on all 3 OSes | merged `0a08e43`; branch pre-check: 688 core tests, 21/21 UI tests, ruff + typecheck clean |
 
 ## Website (heycollie.com)
 
-- `fix/mfa-guard-and-waitlist-hardening` and `fix/deps-audit-upgrades` are
-  **deployed live** (integration branch `deploy/live-fixes`, worker version
-  46ba2a92) but **not merged to `collie-webiste` main** (still `72e1bd9`).
-- Live verification (2026-08-18): all pages 200 on both hosts, waitlist API
-  healthy, and a **live Playwright MFA e2e** passed (password sign-in with a
-  verified TOTP factor → 2FA challenge → dashboard at AAL2).
+- Both fix branches (`fix/mfa-guard-and-waitlist-hardening`,
+  `fix/deps-audit-upgrades`) are **merged to `collie-webiste` main**
+  (`1087e52`) and **re-deployed from main** (worker `6746f19f`) on
+  2026-08-19. `deploy/live-fixes` is redundant (main tree == live tree).
+- Post-merge verification: all 6 pages 200 on **both** hosts
+  (heycollie.com + workers.dev), waitlist probe healthy
+  (`patrickfuchs@live.at` → ok, no duplicate), `/account` serving.
+- Live **Playwright MFA e2e passed** 2026-08-18 against the same tree
+  (password sign-in with a verified TOTP factor → 2FA challenge → dashboard
+  at AAL2) — still the live build.
 - The waitlist RLS hardening migration (`db/20260818-waitlist-hardening.sql`)
   is applied to the live Supabase project.
 
@@ -77,14 +78,29 @@ completed, merge pending.
 
 ## Remaining sequence (handoff for next session)
 
-1. **Merge PR #54** (`fix/storage-hardening`) — checks are green.
-2. **Merge the two `collie-webiste` PRs** (compare URLs were handed to the
-   owner) so website main == live; then **re-deploy from main** and re-run
-   the sweep (all pages 200, waitlist probe, title fingerprint).
-3. **Full release gates** on desktop main: `ruff check` + `ruff format
-   --check`, full core pytest, UI typecheck + vitest (watch the Windows
-   job), `npm audit` (desktop), packaged smoke.
+1. ~~Merge PR #54~~ — **done** (`0a08e43`).
+2. ~~Merge the two `collie-webiste` PRs + re-deploy from main~~ — **done**
+   (`1087e52`, worker `6746f19f`); sweep green on both hosts.
+3. ~~Full release gates on desktop main~~ — **done 2026-08-19** (main
+   `0a08e43` + docs branch): ruff check + format ✅ · core pytest
+   3570 passed / 1 known load-flake (`test_watchdog_exits_when_parent_is_killed`,
+   passes in isolation + at file level) / 1 skipped / 5 deselected ·
+   coverage 76.0% (floor 42) · UI typecheck ✅ · vitest 352/352 ✅ ·
+   packaged-core smoke ✅ (Linux). Windows-specific tests verified on the
+   `collie-core-windows` / `collie-ui-windows` CI jobs.
 4. **Tag `v0.1.0-alpha.5`** → `release.yml` runs qualify → builds Windows
    NSIS x64, macOS arm64 dmg/zip, Linux AppImage x64 → **draft GitHub
    Release** with combined `SHA256SUMS.txt`.
 5. **Owner's Windows acceptance pass** on the installer = final gate.
+
+## Known items (tracked, not blocking)
+
+- **`npm audit` (desktop, 4 advisories — pre-existing, unchanged since
+  alpha.4):** js-yaml 4.3.0 (high, runtime via `electron-updater`; no fixed
+  4.x — fix needs an override to 5.x with a compat check), nanoid 3.3.16
+  (high, dev chain), postcss 8.5.19 + undici 6.27.0 (moderate, dev chain).
+  Update feed is maintainer-controlled → low practical exposure. Queued as a
+  `fix/deps-audit-hardening` PR after the Windows pass (CI has no audit
+  gate; local `npm audit fix` blocked by npm 12 EALLOWREMOTE on this VM).
+- **macOS x64/universal2** — per-arch staged Python follow-up, documented in
+  `release.yml`.

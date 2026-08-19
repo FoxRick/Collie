@@ -13,9 +13,9 @@
 
 - Core Python files: **514**
 - Core Python test files: **234**
-- Desktop TypeScript/TSX files: **157**
-- Desktop test files: **53**
-- Active Markdown docs: **29**
+- Desktop TypeScript/TSX files: **159**
+- Desktop test files: **54**
+- Active Markdown docs: **31**
 - Archived Markdown docs: **0**
 
 ## Collie-owned core module groups
