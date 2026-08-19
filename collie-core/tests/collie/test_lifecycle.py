@@ -67,6 +67,20 @@ def test_watchdog_exits_when_parent_is_killed(tmp_path: Path) -> None:
     core_pid = _child_pid(shell.pid)
     assert core_pid is not None, "core process not found under the shell"
 
+    # The core arms its watchdog during startup. Killing the shell before
+    # that arms it tests the startup race, not the watchdog: a still-booting
+    # core sees the dead shell as "already daemonized" (ppid == init) and
+    # skips arming entirely. Coverage-instrumented runs widen the window
+    # (slower subprocess imports) and flake deterministically. Wait for the
+    # arm marker — the core's stdout lands in the same inherited log.
+    armed_deadline = time.monotonic() + 30
+    while time.monotonic() < armed_deadline:
+        if "CORE_ARMED" in shell_log.read_text(encoding="utf-8", errors="replace"):
+            break
+        time.sleep(0.1)
+    else:
+        pytest.fail("core never armed its watchdog (CORE_ARMED not seen)")
+
     # Simulate a crash: SIGKILL, no cleanup, no signal to the child.
     os.kill(shell.pid, signal.SIGKILL)
 
