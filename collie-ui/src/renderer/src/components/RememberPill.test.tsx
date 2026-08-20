@@ -167,6 +167,45 @@ describe('RememberPill', () => {
     act(() => root.unmount())
   })
 
+  it('shows friendly copy when a write lands under preferences', async () => {
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    act(() => root.render(<RememberPill conversationId="c1" />))
+    await flush()
+
+    hooks.journal.entries = [
+      entry({ id: 1, subject: 'preferences', value: 'prefer short answers' })
+    ]
+    await act(async () => {
+      hooks.emit(assistantMessage('c1'))
+    })
+    await flush()
+
+    const pill = container.querySelector('.remember-pill')
+    expect(pill?.textContent).toContain("I've saved your preference")
+    expect(pill?.textContent).not.toContain('preferences is')
+    act(() => root.unmount())
+  })
+
+  it('shows friendly copy when a write lands under notes', async () => {
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    act(() => root.render(<RememberPill conversationId="c1" />))
+    await flush()
+
+    hooks.journal.entries = [
+      entry({ id: 1, subject: 'notes', value: 'prefers short answers' })
+    ]
+    await act(async () => {
+      hooks.emit(assistantMessage('c1'))
+    })
+    await flush()
+
+    const pill = container.querySelector('.remember-pill')
+    expect(pill?.textContent).toContain("I've made a note of that")
+    act(() => root.unmount())
+  })
+
   it('stays visible while the user keeps typing (consistent duration)', async () => {
     const container = document.createElement('div')
     const root = createRoot(container)

@@ -20,7 +20,9 @@ const SEEN_KEYS_KEY = 'collie.rememberPill.seen'
 /**
  * Warm one-line acknowledgement of a fresh memory write. Uses the detail
  * variant only for short, single-line facts where it reads naturally
- * ("I'll remember your name is Rick."); everything else gets the plain line.
+ * ("I'll remember your name is Rick."); preference/note writes get their own
+ * friendly lines (the raw value is a sentence fragment that would not fit
+ * the "your X is Y" template); everything else gets the plain line.
  */
 export function rememberPillText(entry: MemoryJournalEntry): string {
   const value = typeof entry.value === 'string' ? entry.value.trim() : null
@@ -31,6 +33,12 @@ export function rememberPillText(entry: MemoryJournalEntry): string {
     value.length <= 24 &&
     !value.includes('\n')
   if (isShortFact) {
+    if (entry.subject === 'preferences') {
+      return "Got it — I've saved your preference."
+    }
+    if (entry.subject === 'notes') {
+      return "Got it — I've made a note of that."
+    }
     return `Got it — I'll remember your ${entry.subject} is ${value}.`
   }
   return "Got it — I'll remember that."
