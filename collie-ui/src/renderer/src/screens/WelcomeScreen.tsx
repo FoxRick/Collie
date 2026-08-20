@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ChevronDown, ChevronUp, Key, Search, Sparkles } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronUp, Key, Search, ShieldCheck, Sparkles } from 'lucide-react'
 import { collieClient, type CatalogueProvider } from '../lib/ipc'
 import {
   configureApiKeyProvider,
@@ -42,20 +42,22 @@ function linkify(text: string): React.ReactNode[] {
 }
 
 /**
- * Actionable copy for when the OS keychain (DPAPI/Keychain/keyring) refused
- * to store the API key. Verified failure mode on the QA rig: on machines
- * with no unlocked keyring, Connect used to dead-end with "Collie could not
- * store that API key securely." and nothing else.
+ * Per-platform "make saving work next time" guidance. Framed as the safety
+ * feature it is — Collie never stores secrets insecurely — not as a bug.
+ * The warm headline leads; platform jargon lives behind "How Collie
+ * protects your key". Verified failure mode on the QA rig: on machines
+ * with no unlocked keyring, Connect used to dead-end with "Collie could
+ * not store that API key securely." and nothing else.
  */
-function secureStorageGuidance(platform: string | null | undefined): string {
+function secureStorageFix(platform: string | null | undefined): string {
   switch (platform) {
     case 'darwin':
-      return "Your Mac's Keychain is locked or unavailable, so Collie can't save your API key. Open the \u201cKeychain Access\u201d app and unlock your \u201clogin\u201d keychain (or sign back in to your Mac account), then try Connect again."
+      return "Open \u201cKeychain Access\u201d (in Applications \u25b8 Utilities), unlock \u201clogin\u201d, then connect again."
     case 'linux':
-      return "This computer has no unlocked keyring, so Collie can't save your API key. Start your desktop keyring (GNOME Keyring or KWallet), or use Collie just for this session below."
+      return "On most computers the secure locker (GNOME Keyring / KWallet) starts automatically when you sign in \u2014 restarting and signing in normally usually fixes it."
     case 'win32':
     default:
-      return "Windows secure storage is locked or turned off, so Collie can't save your API key. Sign back in to your Windows account and try Connect again. (If your work computer blocks it, ask your IT about BitLocker or credential policies.)"
+      return "Saving works when you're signed in to Windows \u2014 sign back in and connect again. (On a work computer that blocks it, ask your IT for help.)"
   }
 }
 
@@ -294,8 +296,10 @@ export default function WelcomeScreen({ onDone, onCancel }: Props): React.JSX.El
     } catch (e) {
       if (!mountedRef.current) return
       if (e instanceof SecureStorageUnavailableError) {
+        // One warm card replaces the generic error box — the safety framing
+        // leads and "Continue for now" is the only action the user needs.
         setSecureStorageBlocked(true)
-        setError(secureStorageGuidance(secureStoragePlatform))
+        setError('')
         return
       }
       setError(e instanceof Error ? e.message : String(e))
@@ -780,11 +784,22 @@ export default function WelcomeScreen({ onDone, onCancel }: Props): React.JSX.El
 
         {secureStorageBlocked && (
           <div
-            className="flex flex-col items-start gap-2 rounded-lg border p-3 text-sm"
+            className="flex flex-col items-start gap-2 rounded-xl border p-4 text-sm"
             style={{ borderColor: 'var(--collie-gold)', background: 'var(--collie-surface)' }}
           >
-            <span style={{ color: 'var(--collie-text)' }}>
-              You can still use Collie right now — the key just won't be saved.
+            <span
+              className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide"
+              style={{ color: 'var(--collie-text-link)' }}
+            >
+              <ShieldCheck size={14} /> Security &amp; privacy
+            </span>
+            <span className="text-base font-semibold" style={{ color: 'var(--collie-text)' }}>
+              Your key stays safe with Collie
+            </span>
+            <span style={{ color: 'var(--collie-text-muted)' }}>
+              Collie never writes your key as plain text — it locks it with your
+              computer&apos;s built-in secure storage. This computer&apos;s secure storage
+              isn&apos;t available right now, so your key won&apos;t be saved here.
             </span>
             <button
               onClick={() => void connectSessionOnly()}
@@ -792,11 +807,24 @@ export default function WelcomeScreen({ onDone, onCancel }: Props): React.JSX.El
               className="rounded-lg px-4 py-2 font-medium text-white transition disabled:opacity-50"
               style={{ background: 'var(--collie-btn-primary-bg)' }}
             >
-              {sessionOnlyBusy ? 'Connecting…' : 'Use it for this session only'}
+              {sessionOnlyBusy ? 'Connecting…' : 'Continue for now'}
             </button>
             <span className="text-xs" style={{ color: 'var(--collie-text-muted)' }}>
-              You'll add your key again next time you open Collie.
+              Your key lives only in memory and is forgotten when you close Collie.
             </span>
+            <details className="w-full">
+              <summary
+                className="cursor-pointer text-xs font-semibold"
+                style={{ color: 'var(--collie-text)' }}
+              >
+                How Collie protects your key
+              </summary>
+              <p className="mt-2 text-xs" style={{ color: 'var(--collie-text-muted)' }}>
+                Collie locks your key with your computer&apos;s own security — Windows
+                sign-in, Mac Keychain, or Linux Keyring. To make saving work next
+                time: {secureStorageFix(secureStoragePlatform)}
+              </p>
+            </details>
           </div>
         )}
 

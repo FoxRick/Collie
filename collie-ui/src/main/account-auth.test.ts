@@ -325,7 +325,7 @@ describe('startAccountSignIn', () => {
     // Same pattern as the cancellation test — handle the rejection before
     // the callback request can trigger it.
     const rejection = expect(signInPromise).rejects.toThrow(
-      'could not store the session securely'
+      'Your sign-in is secure — Collie never stores it as plain text.'
     )
 
     const callbackResponse = await realFetch(
