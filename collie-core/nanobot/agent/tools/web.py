@@ -118,10 +118,12 @@ def _resolve_url_safe(url: str) -> tuple[bool, str, tuple[str, ...]]:
     return resolve_url_target(url)
 
 
-def _pinned_dns_transport() -> httpx.AsyncBaseTransport:
+def _pinned_dns_transport(
+    inner: httpx.AsyncBaseTransport | None = None,
+) -> httpx.AsyncBaseTransport:
     from nanobot.security.network import PinnedDNSAsyncTransport
 
-    return PinnedDNSAsyncTransport()
+    return PinnedDNSAsyncTransport(inner=inner)
 
 
 def _fetch_client_kwargs(proxy: str | None, timeout: float) -> dict[str, Any]:
@@ -129,7 +131,13 @@ def _fetch_client_kwargs(proxy: str | None, timeout: float) -> dict[str, Any]:
 
     kwargs: dict[str, Any] = {"timeout": timeout}
     if proxy:
-        kwargs["proxy"] = proxy
+        # Keep resolve-after-check / DNS-rebinding defense on proxied fetches
+        # too: wrap a proxied transport inside the pinned-DNS transport
+        # instead of handing `proxy=` to the client, which would skip
+        # validation entirely.
+        kwargs["transport"] = _pinned_dns_transport(
+            inner=httpx.AsyncHTTPTransport(proxy=httpx.Proxy(proxy))
+        )
     else:
         kwargs["transport"] = _pinned_dns_transport()
         mounts = httpx_env_proxy_mounts()
