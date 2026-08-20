@@ -36,6 +36,12 @@ __all__ = ["OpenFileTool"]
 # File types that are safe to hand to the OS default handler.  The default
 # app for these (viewer/editor/browser) reads the file locally; nothing is
 # sent to a model provider or anywhere else on the network.
+#
+# Browser-rendered types (.html/.htm/.svg) are deliberately excluded: the
+# default handler for those is a browser or image viewer that can execute
+# scripts and reach the network, so opening them is not a plain document
+# open. They stay off the allowlist unless opening them gains its own
+# approval step (approval-matrix.md).
 _OPENABLE_SUFFIXES = frozenset(
     {
         # documents & data
@@ -47,8 +53,6 @@ _OPENABLE_SUFFIXES = frozenset(
         ".pptx",
         ".csv",
         ".rtf",
-        ".html",
-        ".htm",
         ".json",
         ".xml",
         ".yaml",
@@ -63,7 +67,6 @@ _OPENABLE_SUFFIXES = frozenset(
         ".gif",
         ".webp",
         ".bmp",
-        ".svg",
         ".ico",
         ".avif",
         ".tif",
