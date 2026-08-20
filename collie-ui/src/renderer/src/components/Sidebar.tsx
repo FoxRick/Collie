@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   Bot,
+  ChevronDown,
   Folder,
   FolderPlus,
   MessageCircle,
@@ -65,6 +66,11 @@ export default function Sidebar({
   const [pinnedIds, setPinnedIds] = useState<string[]>(() =>
     typeof localStorage === 'undefined' ? [] : readPinnedConversationIds(localStorage)
   )
+  // Projects collapse to their folder row so the list never dominates the
+  // sidebar; the active project stays expanded so its chats are one tap away.
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(() =>
+    workspace ? new Set([workspace]) : new Set()
+  )
   const [contentMatches, setContentMatches] = useState<Set<string> | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const searchToggleRef = useRef<HTMLButtonElement>(null)
@@ -114,6 +120,13 @@ export default function Sidebar({
   useEffect(() => {
     if (searchOpen) searchInputRef.current?.focus()
   }, [searchOpen])
+
+  // Keep the active project expanded whenever it changes (e.g. switched from
+  // the composer dropdown), without forcing other projects open.
+  useEffect(() => {
+    if (!workspace) return
+    setExpandedProjects((prev) => (prev.has(workspace) ? prev : new Set(prev).add(workspace)))
+  }, [workspace])
 
   useEffect(() => {
     const generation = ++searchGenerationRef.current
@@ -172,6 +185,20 @@ export default function Sidebar({
     persistPinnedIds(
       pinnedIdSet.has(id) ? pinnedIds.filter((pinnedId) => pinnedId !== id) : [...pinnedIds, id]
     )
+  }
+
+  const toggleProject = (path: string): void => {
+    setExpandedProjects((prev) => {
+      const next = new Set(prev)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return next
+    })
+  }
+
+  const selectProject = (path: string): void => {
+    setExpandedProjects((prev) => (prev.has(path) ? prev : new Set(prev).add(path)))
+    onProjectChange(path)
   }
 
   const deleteConversation = (id: string): void => {
@@ -299,6 +326,20 @@ export default function Sidebar({
         ))}
       </nav>
 
+      {/* Fixed context row: General Chat anchors the chat area and must not
+          scroll away with the conversation list below it. */}
+      <div className="sidebar-context-wrap px-3">
+        <button
+          type="button"
+          className={`sidebar-context-row ${!workspace && activeView === 'chat' ? 'is-active' : ''}`}
+          onClick={() => onProjectChange('')}
+          aria-current={!workspace && activeView === 'chat' ? 'page' : undefined}
+        >
+          <MessageCircle size={15} />
+          <span>General Chat</span>
+        </button>
+      </div>
+
       <nav className="sidebar-conversation-nav flex-1 overflow-y-auto px-3" aria-label="Conversations">
         {conversations.length > 0 && visible.length === 0 && (
           <p className="px-2 py-6 text-center text-xs" style={{ color: 'var(--collie-text-sidebar-muted)' }}>
@@ -314,15 +355,6 @@ export default function Sidebar({
           </section>
         ) : null}
         <section className="sidebar-chat-group">
-          <button
-            type="button"
-            className={`sidebar-context-row ${!workspace && activeView === 'chat' ? 'is-active' : ''}`}
-            onClick={() => onProjectChange('')}
-            aria-current={!workspace && activeView === 'chat' ? 'page' : undefined}
-          >
-            <MessageCircle size={15} />
-            <span>General Chat</span>
-          </button>
           <div className="sidebar-nested-label">Recent chats</div>
           <div className="sidebar-nested-conversations">
             {conversationRows(generalConversations)}
@@ -342,21 +374,36 @@ export default function Sidebar({
           <div className="sidebar-project-list">
             {projects.map((path) => {
               const recent = projectConversations(path)
+              const expanded = expandedProjects.has(path)
               return (
                 <div className="sidebar-project-group" key={path}>
-                  <button
-                    type="button"
-                    className={`project-row ${path === workspace ? 'is-active' : ''}`}
-                    title={path}
-                    onClick={() => onProjectChange(path)}
-                  >
-                    <Folder size={13} />
-                    <span>
-                      <b>{path.split(/[\\/]/).filter(Boolean).at(-1) || path}</b>
-                      <small>{path}</small>
-                    </span>
-                  </button>
-                  {recent.length > 0 ? (
+                  <div className="sidebar-project-header">
+                    <button
+                      type="button"
+                      className={`project-row ${path === workspace ? 'is-active' : ''}`}
+                      title={path}
+                      onClick={() => selectProject(path)}
+                    >
+                      <Folder size={13} />
+                      <span>
+                        <b>{path.split(/[\\/]/).filter(Boolean).at(-1) || path}</b>
+                        <small>{path}</small>
+                      </span>
+                    </button>
+                    {recent.length > 0 ? (
+                      <button
+                        type="button"
+                        className={`project-toggle ${expanded ? 'is-expanded' : ''}`}
+                        onClick={() => toggleProject(path)}
+                        aria-expanded={expanded}
+                        aria-label={`${expanded ? 'Collapse' : 'Expand'} ${path.split(/[\\/]/).filter(Boolean).at(-1) || path}`}
+                        title={expanded ? 'Collapse project chats' : 'Show project chats'}
+                      >
+                        <ChevronDown size={14} />
+                      </button>
+                    ) : null}
+                  </div>
+                  {expanded && recent.length > 0 ? (
                     <div className="sidebar-nested-conversations">
                       {conversationRows(recent)}
                     </div>
