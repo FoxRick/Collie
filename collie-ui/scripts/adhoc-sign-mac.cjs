@@ -1,4 +1,5 @@
 const { execSync } = require('child_process')
+const path = require('path')
 
 // macOS alpha builds have no Apple Developer certificate, but shipping the
 // .app with signing fully disabled leaves Electron's stale embedded
@@ -13,9 +14,15 @@ const { execSync } = require('child_process')
 // platform), so this script must no-op on non-macOS runners.
 exports.default = async function afterPack(context) {
   if (process.platform !== 'darwin') return
-  const appPath = context.appOutDir
-  console.log(`Ad-hoc codesigning ${appPath}`)
-  execSync(`codesign --force --deep --sign - "${appPath}"`, {
+  // appOutDir is the PARENT directory (e.g. dist/mac-arm64) — codesign
+  // needs the .app bundle itself. Derive the bundle name from the product
+  // filename so the path stays correct even if productName changes.
+  const appBundle = path.join(
+    context.appOutDir,
+    `${context.packager.appInfo.productFilename}.app`,
+  )
+  console.log(`Ad-hoc codesigning ${appBundle}`)
+  execSync(`codesign --force --deep --sign - "${appBundle}"`, {
     stdio: 'inherit',
   })
 }
