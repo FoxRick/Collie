@@ -33,6 +33,7 @@ import {
 } from './updater-controller'
 import {
   guardIpcHandler,
+  isSafeExternalUrl,
   isTrustedIpcSender,
   isTrustedRendererUrl,
   shouldAllowAudioPermission
@@ -279,7 +280,8 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('https://') || url.startsWith('http://')) {
+    // Aligned with `collie:open-external`: https only, no credentials.
+    if (isSafeExternalUrl(url)) {
       shell.openExternal(url)
     }
     return { action: 'deny' }
@@ -454,7 +456,7 @@ function registerIpc(): void {
     return folders
   })
   handle('collie:open-external', (url: string) => {
-    if (url.startsWith('https://')) shell.openExternal(url)
+    if (isSafeExternalUrl(url)) shell.openExternal(url)
   })
   handle('collie:show-window', () => {
     if (!mainWindow) return

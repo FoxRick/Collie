@@ -31,6 +31,25 @@ export function isTrustedRendererUrl(candidate: string, trustedRendererUrl: stri
   }
 }
 
+/**
+ * Only https URLs without embedded credentials may leave the app.
+ *
+ * Shared by the new-window handler and the `collie:open-external` IPC so
+ * both external-open paths enforce the same policy: https only, no
+ * `http://` fallback, no credentials smuggled in the authority.
+ */
+export function isSafeExternalUrl(raw: string): boolean {
+  let parsed: URL
+  try {
+    parsed = new URL(raw)
+  } catch {
+    return false
+  }
+  if (parsed.protocol !== 'https:') return false
+  if (parsed.username || parsed.password) return false
+  return true
+}
+
 export function isTrustedIpcSender(
   senderFrame: RendererFrameLike | null,
   mainFrame: RendererFrameLike | null,

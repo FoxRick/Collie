@@ -3,6 +3,7 @@ import { pathToFileURL } from 'url'
 import { describe, expect, it, vi } from 'vitest'
 import {
   guardIpcHandler,
+  isSafeExternalUrl,
   isTrustedIpcSender,
   isTrustedRendererUrl,
   shouldAllowAudioPermission
@@ -28,6 +29,26 @@ describe('renderer URL trust', () => {
     expect(isTrustedRendererUrl(rendererUrl.replace('index.html', 'settings.html'), rendererUrl)).toBe(false)
     expect(isTrustedRendererUrl(`${rendererUrl}?preview=1`, rendererUrl)).toBe(false)
     expect(isTrustedRendererUrl('file:///C:/Windows/System32/calc.exe', rendererUrl)).toBe(false)
+  })
+})
+
+describe('external URL trust', () => {
+  it('allows only plain https URLs', () => {
+    expect(isSafeExternalUrl('https://example.com/page')).toBe(true)
+    expect(isSafeExternalUrl('https://example.com/page?q=1#frag')).toBe(true)
+    expect(isSafeExternalUrl('http://example.com/page')).toBe(false)
+    expect(isSafeExternalUrl('http://localhost:5173/')).toBe(false)
+    expect(isSafeExternalUrl('javascript:alert(1)')).toBe(false)
+    expect(isSafeExternalUrl('data:text/html,hi')).toBe(false)
+    expect(isSafeExternalUrl('file:///C:/Windows/calc.exe')).toBe(false)
+    expect(isSafeExternalUrl('not a url')).toBe(false)
+    expect(isSafeExternalUrl('')).toBe(false)
+  })
+
+  it('rejects URLs with embedded credentials', () => {
+    expect(isSafeExternalUrl('https://user:password@example.com/')).toBe(false)
+    expect(isSafeExternalUrl('https://user@example.com/')).toBe(false)
+    expect(isSafeExternalUrl('https://example.com@evil.test/')).toBe(false)
   })
 })
 
