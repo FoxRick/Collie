@@ -113,9 +113,7 @@ async def test_rejects_executables_scripts_and_shortcuts(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("name", ["page.html", "page.htm", "logo.svg"])
-async def test_rejects_browser_rendered_types(
-    scoped_tool, fake_launcher, name: str
-) -> None:
+async def test_rejects_browser_rendered_types(scoped_tool, fake_launcher, name: str) -> None:
     """html/svg can execute scripts or reach the network in the default
     handler, so they are refused like executables."""
 
