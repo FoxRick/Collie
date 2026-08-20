@@ -755,6 +755,7 @@ export class CollieClient {
   runDream(): Promise<{
     changed: boolean
     reason?: string
+    pending?: boolean
     version_id?: string | null
     diff?: string
     cursor?: string
@@ -766,6 +767,30 @@ export class CollieClient {
   /** Past Dream consolidations (memory_dream versions), newest first. */
   getDreamHistory(): Promise<{ versions: ArtifactVersion[] }> {
     return this.command('get_dream_history', {})
+  }
+
+  /** Pending Dream proposal state (Settings -> Memory self-review section). */
+  getDreamPending(): Promise<{
+    pending: boolean
+    diff_text?: string | null
+    created_at?: string | null
+  }> {
+    return this.command('get_dream_pending', {})
+  }
+
+  /** Approve the pending Dream proposal: re-validated, applied, versioned. */
+  applyDreamProposal(): Promise<{
+    applied: boolean
+    reason?: string
+    version_id?: string | null
+    diff_text?: string
+  }> {
+    return this.command('apply_dream_proposal', {})
+  }
+
+  /** Dismiss the pending Dream proposal without applying it. */
+  dismissDreamProposal(): Promise<{ dismissed: boolean }> {
+    return this.command('dismiss_dream_proposal', {})
   }
 
   /** Recent memory writes (kind/subject/action/value), newest first. */

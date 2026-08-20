@@ -82,6 +82,11 @@ export default function MemoryTab({ onNotice }: Props): React.JSX.Element {
   const [undoingId, setUndoingId] = useState<string | null>(null)
   const [reviewBusy, setReviewBusy] = useState<'dream' | 'gardener' | null>(null)
   const [reviewMsg, setReviewMsg] = useState('')
+  const [pendingReview, setPendingReview] = useState<{
+    diff_text?: string | null
+    created_at?: string | null
+  } | null>(null)
+  const [reviewActionBusy, setReviewActionBusy] = useState(false)
 
   const refreshHistory = useCallback(async (): Promise<void> => {
     try {
@@ -99,14 +104,20 @@ export default function MemoryTab({ onNotice }: Props): React.JSX.Element {
   }, [])
 
   const refresh = useCallback(async () => {
-    const [pData, ppl, dateData] = await Promise.all([
+    const [pData, ppl, dateData, pending] = await Promise.all([
       collieClient.command<{ profile: ProfileEntry }>('get_profile'),
       collieClient.command<{ people: Person[] }>('get_people'),
-      collieClient.command<{ dates: DateEntry[] }>('get_dates')
+      collieClient.command<{ dates: DateEntry[] }>('get_dates'),
+      collieClient.getDreamPending()
     ])
     setProfile(pData.profile || {})
     setPeople(ppl.people || [])
     setDates(dateData.dates || [])
+    setPendingReview(
+      pending.pending
+        ? { diff_text: pending.diff_text ?? null, created_at: pending.created_at ?? null }
+        : null
+    )
     await refreshHistory()
   }, [refreshHistory])
 
@@ -137,7 +148,13 @@ export default function MemoryTab({ onNotice }: Props): React.JSX.Element {
           ? 'Memory review done.'
           : 'Improvement suggestions are ready — check the chat for the review cards.')
       setReviewMsg(message)
-      if (kind === 'dream') await refreshHistory()
+      if (kind === 'dream') {
+        const dreamOutcome = outcome as { pending?: boolean; diff?: string }
+        if (dreamOutcome.pending) {
+          setPendingReview({ diff_text: dreamOutcome.diff ?? null, created_at: null })
+        }
+        await refreshHistory()
+      }
       onNotice(message)
     } catch (error) {
       const message =
@@ -146,6 +163,41 @@ export default function MemoryTab({ onNotice }: Props): React.JSX.Element {
       onNotice(message)
     } finally {
       setReviewBusy(null)
+    }
+  }
+
+  const applyDream = async (): Promise<void> => {
+    setReviewActionBusy(true)
+    try {
+      const result = await collieClient.applyDreamProposal()
+      if (result.applied) {
+        setPendingReview(null)
+        await refreshHistory()
+        onNotice('Memory updated — you can undo it in History below.')
+      } else {
+        onNotice(
+          result.reason === 'no_pending'
+            ? 'Nothing is waiting for review.'
+            : 'I could not apply that review.'
+        )
+      }
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : 'I could not apply that review.')
+    } finally {
+      setReviewActionBusy(false)
+    }
+  }
+
+  const dismissDream = async (): Promise<void> => {
+    setReviewActionBusy(true)
+    try {
+      await collieClient.dismissDreamProposal()
+      setPendingReview(null)
+      onNotice('Review dismissed — your memory stays as it was.')
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : 'I could not dismiss that review.')
+    } finally {
+      setReviewActionBusy(false)
     }
   }
 
@@ -648,9 +700,10 @@ export default function MemoryTab({ onNotice }: Props): React.JSX.Element {
       <section className="memory-section">
         <h3><Sparkles size={14} /> Collie's self-review</h3>
         <p className="memory-note">
-          Run a memory review (tidies long-term memory, undoable) or ask for
-          improvement suggestions from recent run records. Suggestions appear
-          as review cards in the 🔔 conversation.
+          Run a memory review — Collie proposes tidy-ups to long-term memory,
+          and you review and approve them before anything changes (everything
+          stays undoable). Or ask for improvement suggestions from recent run
+          records; those appear as review cards in the 🔔 conversation.
         </p>
         <div className="memory-toolbar">
           <button
@@ -673,6 +726,40 @@ export default function MemoryTab({ onNotice }: Props): React.JSX.Element {
           </button>
         </div>
         {reviewMsg && <p className="memory-note">{reviewMsg}</p>}
+        {pendingReview && (
+          <div className="memory-note review-pending">
+            <b>Memory review waiting for you</b>
+            <span>
+              Collie reviewed your conversations and is proposing tidied-up
+              long-term memory. Nothing is applied until you approve.
+            </span>
+            {pendingReview.diff_text && (
+              <DiffView
+                diff={pendingReview.diff_text}
+                label="Proposed memory changes"
+              />
+            )}
+            <div className="memory-toolbar">
+              <button
+                type="button"
+                className="settings-button"
+                disabled={reviewActionBusy}
+                onClick={() => void applyDream()}
+              >
+                <Check size={13} />{' '}
+                {reviewActionBusy ? 'Working…' : 'Apply changes'}
+              </button>
+              <button
+                type="button"
+                className="settings-button"
+                disabled={reviewActionBusy}
+                onClick={() => void dismissDream()}
+              >
+                <X size={13} /> Not now
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="memory-section">
