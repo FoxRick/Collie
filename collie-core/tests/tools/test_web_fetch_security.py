@@ -87,7 +87,7 @@ def _patch_web_fetch_fake_client(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
             return FakeJinaResponse()
 
     monkeypatch.setattr(web_module.httpx, "AsyncClient", FakeClient)
-    monkeypatch.setattr(web_module, "_pinned_dns_transport", lambda: object())
+    monkeypatch.setattr(web_module, "_pinned_dns_transport", lambda **kwargs: object())
     monkeypatch.setattr(
         "nanobot.security.network.httpx.AsyncHTTPTransport",
         lambda **_kwargs: object(),
@@ -211,9 +211,30 @@ async def test_web_fetch_proxy_remains_supported(monkeypatch):
 
     data = json.loads(result)
     assert data["extractor"] == "jina"
-    assert all(kwargs["proxy"] == "http://config-proxy.example:7890" for kwargs in client_kwargs)
     assert all("mounts" not in kwargs for kwargs in client_kwargs)
-    assert all("transport" not in kwargs for kwargs in client_kwargs)
+    # Proxied fetches keep the pinned-DNS transport (resolve-after-check /
+    # DNS-rebinding defense) instead of handing `proxy=` to the client.
+    fetch_kwargs = [kwargs for kwargs in client_kwargs if kwargs.get("timeout") == 15.0]
+    assert fetch_kwargs
+    assert all("transport" in kwargs for kwargs in fetch_kwargs)
+
+
+def test_web_fetch_config_proxy_keeps_pinned_dns_transport():
+    """A configured proxy keeps the pinned-DNS transport, with the proxy
+    carried by the wrapped inner transport (not skipped)."""
+
+    kwargs = web_module._fetch_client_kwargs("http://config-proxy.example:7890", 15.0)
+
+    transport = kwargs["transport"]
+    assert isinstance(transport, PinnedDNSAsyncTransport)
+    inner = transport._inner
+    assert isinstance(inner, httpx.AsyncHTTPTransport)
+    # httpx 0.28 wires the proxy into the inner transport's connection pool
+    # as an AsyncHTTPProxy — proving the proxy is applied, not dropped.
+    import httpcore
+
+    assert isinstance(inner._pool, httpcore.AsyncHTTPProxy)
+    assert "mounts" not in kwargs
 
 
 @pytest.mark.asyncio
@@ -448,7 +469,7 @@ async def test_web_fetch_blocks_private_redirect_before_readability_request(monk
             return FakeRedirectResponse()
 
     monkeypatch.setattr(web_module.httpx, "AsyncClient", FakeClient)
-    monkeypatch.setattr(web_module, "_pinned_dns_transport", lambda: object())
+    monkeypatch.setattr(web_module, "_pinned_dns_transport", lambda **kwargs: object())
 
     def resolve_public_start_only(hostname, port, family=0, type_=0):
         if hostname == "attacker.example":
