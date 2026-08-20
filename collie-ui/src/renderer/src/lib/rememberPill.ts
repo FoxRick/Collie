@@ -12,7 +12,7 @@ import type { MemoryJournalEntry } from './ipc'
 /** How many times the whisper may appear per app session (then silent). */
 export const REMEMBER_PILL_CAP = 2
 /** How long the whisper stays visible before dismissing itself. */
-export const REMEMBER_PILL_DURATION_MS = 4000
+export const REMEMBER_PILL_DURATION_MS = 6000
 
 const SHOWN_COUNT_KEY = 'collie.rememberPill.shown'
 const SEEN_KEYS_KEY = 'collie.rememberPill.seen'
