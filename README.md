@@ -41,9 +41,9 @@ underneath:
   Collie account, no forced monthly fee.
 - **It remembers — on your machine.** Collie keeps its notes, settings, and
   history locally. Nothing is silently shipped off your device.
-- **It has a dog.** A little Border Collie lives in your corner of the
-  screen, with moods and reactions of its own. (Friendly, but never in
-  charge — the permissions always are.)
+- **It has a dog.** A little Border Collie is on the way — she'll live in
+  your corner of the screen, with moods and reactions of its own. (Friendly,
+  but never in charge — the permissions always are.)
 
 Collie is built for people who want the leverage of agentic AI *without* the
 terminals, API keys, MCP servers, or prompt-engineering vocabulary. Experts
@@ -118,8 +118,8 @@ are welcome too — but the normal path never requires them.
 
 **🎨 Made for humans**
 
-- A **Border Collie companion** in the corner of your screen, with moods and
-  reactions (friendly, never in charge)
+- A **Border Collie companion** for your desktop — coming soon (moods and
+  reactions; friendly, never in charge)
 - **Collapsible sidebar** — an icon rail that gives chat more room
 - Fast, calm desktop app — Electron + React
 - **Voice input/output** on the way

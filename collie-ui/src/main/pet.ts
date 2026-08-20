@@ -5,7 +5,15 @@
  * (`python -m collie_core.pet`). The Electron main process owns it:
  * spawned at app start (unless disabled in pet_settings.json), revived by
  * "show", respawned after crashes, and put to bed when the app quits.
+ *
+ * Release gate: the desktop pet is NOT shipping yet (F070/F078 are built and
+ * tested, but not needed in the alpha release). All pet code and assets stay
+ * in the repo — flip PET_AVAILABLE to true to re-enable the whole feature
+ * (spawn, IPC, and the Settings tab render it again). pet_settings.json
+ * overrides still apply once the gate is open.
  */
+
+const PET_AVAILABLE = false
 
 import { ChildProcess, spawn } from 'child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
@@ -24,6 +32,7 @@ export function petRunning(): boolean {
 }
 
 export function petEnabled(): boolean {
+  if (!PET_AVAILABLE) return false
   // Respect an "enabled": false flag in the Collie home dir
   // (COLLIE_HOME-consistent; matches index.ts sendPetCommand).
   try {
@@ -59,6 +68,10 @@ function petSettingsDir(): string {
 }
 
 export function spawnPet(isDev: boolean): boolean {
+  if (!PET_AVAILABLE) {
+    console.log('[pet] Desktop pet is gated off for this release (coming soon).')
+    return false
+  }
   if (child) return true
   const python = findPython(isDev)
   if (!python) {
