@@ -93,7 +93,9 @@ describe('encrypted provider secret transactions', () => {
     }
   })
 
-  it('rejects the Linux basic_text backend (hardcoded-password "encryption")', () => {
+  it.skipIf(process.platform !== 'linux')(
+    'rejects the Linux basic_text backend (hardcoded-password "encryption")',
+    () => {
     // Without a keyring daemon Electron falls back to basic_text, which
     // "encrypts" with a hardcoded password shipped in the Electron source.
     // isEncryptionAvailable() still reports true — the wrapper must refuse.
