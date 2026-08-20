@@ -10,13 +10,13 @@ name: Release
 # Signing notes (alpha):
 #  - Windows: the installer is unsigned (no code-signing cert); SmartScreen
 #    may warn. Signing with an EV/OV cert is a follow-up.
-#  - macOS: codesign + notarization are SKIPPED for alpha — there is no Apple
-#    Developer certificate yet (CSC_IDENTITY_AUTO_DISCOVERY=false below).
-#    The unsigned dmg is acceptable for alpha but Gatekeeper will show
-#    "Apple cannot check it for malicious software" — users must
-#    right-click → Open. A $99/yr Apple Developer account + notarytool
-#    secrets (APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID) are the
-#    follow-up.
+#  - macOS: Developer ID codesign + notarization are SKIPPED for alpha — no
+#    Apple Developer certificate yet (CSC_IDENTITY_AUTO_DISCOVERY=false
+#    below). The app is ad-hoc signed (scripts/adhoc-sign-mac.cjs) so it
+#    launches, but Gatekeeper will show "cannot be opened because the
+#    developer cannot be verified" — users must right-click → Open. A
+#    $99/yr Apple Developer account + notarytool secrets (APPLE_ID /
+#    APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID) are the follow-up.
 #
 # Secrets: only the automatic secrets.GITHUB_TOKEN is used. No real secrets
 # are referenced or committed; APPLE_* / signing certs are placeholders for

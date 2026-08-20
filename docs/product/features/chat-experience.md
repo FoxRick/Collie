@@ -24,7 +24,11 @@ arrive, and the sidebar should prioritize starting and returning to chats.
 - Markdown is rendered continuously while a response streams. Users do not see
   raw formatting markers such as `**` or `__` before styled text appears.
 - The sidebar order is: **New Chat**, **Agents**, **Skills**, **Routines**,
-  **Connectors**, pinned chats, then recent chats.
+  **Connectors**, then **General Chat** as a fixed row that never scrolls away,
+  followed by pinned chats and recent chats in the scrolling area.
+- Project groups sit below recent chats in the scrolling area. Each project
+  collapses to its folder row; the active project stays expanded, and clicking
+  a project row opens the project and expands its recent chats.
 - The sidebar can be collapsed to a 64px icon-only rail (chevron button or
   Ctrl/Cmd+B) to free up chat space. Labels become tooltips; the choice
   survives restarts. Expanding restores the full navigation.

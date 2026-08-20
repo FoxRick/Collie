@@ -2868,6 +2868,42 @@ button {
   overflow-y: auto;
 }
 
+.sidebar-project-header {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.sidebar-project-header .project-row {
+  flex: 1;
+  min-width: 0;
+}
+
+.project-toggle {
+  display: grid;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  margin-right: 2px;
+  place-items: center;
+  border-radius: 7px;
+  color: #8f938d;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.project-toggle:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
+.project-toggle svg {
+  transition: transform 150ms ease;
+}
+
+.project-toggle.is-expanded svg {
+  transform: rotate(180deg);
+}
+
 .sidebar-project-list .project-row {
   display: grid;
   width: 100%;
@@ -2890,6 +2926,10 @@ button {
 
 .sidebar-chat-group {
   padding-top: 1px;
+}
+
+.sidebar-context-wrap {
+  margin: 10px 0 4px;
 }
 
 .sidebar-context-row {

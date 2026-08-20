@@ -12,6 +12,7 @@ const { searchMessages } = vi.hoisted(() => ({
 
 vi.mock('lucide-react', () => ({
   Bot: () => null,
+  ChevronDown: () => null,
   Folder: () => null,
   FolderPlus: () => null,
   MessageCircle: () => null,
@@ -53,12 +54,36 @@ const conversations: Conversation[] = [
     created_at: '2026-08-01T00:00:00Z',
     updated_at: '2026-08-01T00:00:00Z',
     archived: 0
+  },
+  {
+    id: 'project-chat',
+    title: 'Project chat',
+    project_path: '/home/rick/proj-a',
+    created_at: '2026-08-01T00:00:00Z',
+    updated_at: '2026-08-01T00:00:00Z',
+    archived: 0
+  },
+  {
+    id: 'project-chat-b',
+    title: 'Project chat B',
+    project_path: '/home/rick/proj-b',
+    created_at: '2026-08-01T00:00:00Z',
+    updated_at: '2026-08-01T00:00:00Z',
+    archived: 0
   }
 ]
 
 const roots: Root[] = []
 
-function renderSidebar(onDelete = vi.fn()): HTMLElement {
+interface SidebarTestOptions {
+  onDelete?: (id: string) => void
+  projects?: string[]
+  workspace?: string
+  onProjectChange?: (path: string) => void
+}
+
+function renderSidebar(options: SidebarTestOptions = {}): HTMLElement {
+  const { onDelete = vi.fn(), projects = [], workspace, onProjectChange = vi.fn() } = options
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
@@ -73,7 +98,9 @@ function renderSidebar(onDelete = vi.fn()): HTMLElement {
         onSelect={vi.fn()}
         onNewChat={vi.fn()}
         onDelete={onDelete}
-        onProjectChange={vi.fn()}
+        workspace={workspace}
+        projects={projects}
+        onProjectChange={onProjectChange}
         onAddProject={vi.fn()}
       />
     )
@@ -167,7 +194,7 @@ describe('Sidebar navigation', () => {
   it('shows persisted pins above recent chats and removes a pin when deleting', () => {
     localStorage.setItem(PINNED_CONVERSATIONS_STORAGE_KEY, JSON.stringify(['pinned']))
     const onDelete = vi.fn()
-    const container = renderSidebar(onDelete)
+    const container = renderSidebar({ onDelete })
     const labels = Array.from(container.querySelectorAll('.sidebar-nested-label'))
     expect(labels.map((label) => label.textContent)).toEqual(['Pinned', 'Recent chats'])
     expect(labels[0]?.parentElement?.textContent).toContain('Pinned chat')
@@ -239,6 +266,64 @@ describe('Sidebar navigation', () => {
     })
     expect(container.querySelector('button[title="Recent chat"]')).not.toBeNull()
     expect(container.querySelector('button[title="Pinned chat"]')).toBeNull()
+  })
+})
+
+describe('Sidebar layout', () => {
+  it('keeps General Chat outside the scrolling conversation list', () => {
+    const container = renderSidebar()
+    const conversationNav = container.querySelector<HTMLElement>(
+      'nav[aria-label="Conversations"]'
+    )!
+    const generalChat = container.querySelector<HTMLButtonElement>(
+      '.sidebar-context-wrap button'
+    )!
+    expect(generalChat.textContent).toBe('General Chat')
+    expect(conversationNav.contains(generalChat)).toBe(false)
+  })
+
+  it('shows project chats collapsed behind a toggle and expands on click', () => {
+    const container = renderSidebar({
+      projects: ['/home/rick/proj-a', '/home/rick/proj-b'],
+      workspace: '/home/rick/proj-a'
+    })
+    const projectGroups = container.querySelectorAll<HTMLElement>('.sidebar-project-group')
+    expect(projectGroups.length).toBe(2)
+
+    const activeToggle = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Collapse proj-a"]'
+    )!
+    expect(activeToggle.getAttribute('aria-expanded')).toBe('true')
+    const collapsedToggle = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Expand proj-b"]'
+    )!
+    expect(collapsedToggle.getAttribute('aria-expanded')).toBe('false')
+
+    // Only the active project's chats are visible; the other stays folded.
+    expect(container.querySelector('button[title="Project chat"]')).not.toBeNull()
+
+    act(() => collapsedToggle.click())
+    expect(collapsedToggle.getAttribute('aria-expanded')).toBe('true')
+
+    act(() => collapsedToggle.click())
+    expect(collapsedToggle.getAttribute('aria-expanded')).toBe('false')
+    expect(container.querySelector('button[title="Project chat"]')).not.toBeNull()
+  })
+
+  it('selecting a project navigates and expands its chats', () => {
+    const onProjectChange = vi.fn()
+    const container = renderSidebar({
+      projects: ['/home/rick/proj-b'],
+      workspace: '/home/rick/proj-a',
+      onProjectChange
+    })
+    const row = container.querySelector<HTMLButtonElement>('button[title="/home/rick/proj-b"]')!
+    act(() => row.click())
+    expect(onProjectChange).toHaveBeenCalledWith('/home/rick/proj-b')
+    const toggle = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Collapse proj-b"]'
+    )!
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
   })
 })
 
