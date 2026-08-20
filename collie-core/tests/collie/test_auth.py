@@ -59,31 +59,31 @@ def test_login_uses_cached_token(fake_storage, monkeypatch: pytest.MonkeyPatch) 
     def fake_get_token(provider=None, storage=None, **kwargs):
         return FakeToken(access="tok-cached", account_id="acct-1")
 
-    def fake_interactive(**kwargs):
+    def fake_interactive(_config, storage, _cancelled):
         calls["interactive"] += 1
         return FakeToken(access="tok-new", account_id="acct-1")
 
     import oauth_cli_kit
 
     monkeypatch.setattr(oauth_cli_kit, "get_token", fake_get_token)
-    monkeypatch.setattr(oauth_cli_kit, "login_oauth_interactive", fake_interactive)
+    monkeypatch.setattr(collie_auth, "_login_oauth_cancellable", fake_interactive)
 
     result = collie_auth.login_provider("chatgpt")
     assert result == {"provider": "chatgpt", "signed_in": True, "account_id": "acct-1"}
     assert calls["interactive"] == 0
 
 
-def test_login_falls_back_to_interactive(fake_storage, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_login_falls_back_to_oauth_flow(fake_storage, monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_get_token(provider=None, storage=None, **kwargs):
         raise RuntimeError("no token")
 
-    def fake_interactive(**kwargs):
+    def fake_interactive(_config, storage, _cancelled):
         return FakeToken(access="tok-new", account_id="acct-2")
 
     import oauth_cli_kit
 
     monkeypatch.setattr(oauth_cli_kit, "get_token", fake_get_token)
-    monkeypatch.setattr(oauth_cli_kit, "login_oauth_interactive", fake_interactive)
+    monkeypatch.setattr(collie_auth, "_login_oauth_cancellable", fake_interactive)
 
     result = collie_auth.login_provider("claude")
     assert result["provider"] == "claude"
@@ -99,9 +99,9 @@ def test_login_failure_is_friendly(fake_storage, monkeypatch: pytest.MonkeyPatch
         lambda **kwargs: None,
     )
     monkeypatch.setattr(
-        oauth_cli_kit,
-        "login_oauth_interactive",
-        lambda **kwargs: FakeToken(access=None),
+        collie_auth,
+        "_login_oauth_cancellable",
+        lambda _config, _storage, _cancelled: FakeToken(access=None),
     )
     with pytest.raises(ValueError, match="another go"):
         collie_auth.login_provider("chatgpt")
@@ -134,10 +134,116 @@ def test_oauth_status(fake_storage, monkeypatch: pytest.MonkeyPatch) -> None:
 def test_claude_oauth_provider_config() -> None:
     from collie_core.providers.claude_oauth import ANTHROPIC_OAUTH_PROVIDER
 
-    assert ANTHROPIC_OAUTH_PROVIDER.authorize_url.startswith("https://claude.ai/")
-    assert "user:inference" in ANTHROPIC_OAUTH_PROVIDER.scope
-    assert ANTHROPIC_OAUTH_PROVIDER.redirect_uri == ("http://localhost:1455/auth/callback")
+    assert ANTHROPIC_OAUTH_PROVIDER.authorize_url.startswith("https://console.anthropic.com/")
+    assert ANTHROPIC_OAUTH_PROVIDER.scope == "org:create_api_key user:profile"
+    assert ANTHROPIC_OAUTH_PROVIDER.redirect_uri == "http://localhost:54545/callback"
     assert ANTHROPIC_OAUTH_PROVIDER.token_filename == "claude.json"
+
+
+def test_callback_server_derives_from_redirect_uri() -> None:
+    import urllib.error
+    import urllib.request
+
+    from collie_core.providers.callback_server import start_callback_server
+
+    received: list[str] = []
+    server, err = start_callback_server(
+        "http://localhost:54545/callback", "st-1", on_code=received.append
+    )
+    assert server is not None and err is None
+    host = str(server.server_address[0])
+    port = int(server.server_address[1])
+    base = f"http://[{host}]:{port}" if ":" in host else f"http://{host}:{port}"
+    try:
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            urllib.request.urlopen(f"{base}/wrong-path", timeout=5)
+        assert exc.value.code == 404
+
+        with pytest.raises(urllib.error.HTTPError) as exc:
+            urllib.request.urlopen(f"{base}/callback?code=c1&state=bad-state", timeout=5)
+        assert exc.value.code == 400
+
+        resp = urllib.request.urlopen(f"{base}/callback?code=c1&state=st-1", timeout=5)
+        assert resp.status == 200
+        assert received == ["c1"]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_oauth_authorize_url_params_per_provider(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Claude requests carry no Codex-only params; Codex requests keep them."""
+    import webbrowser
+
+    import oauth_cli_kit.flow as oauth_flow
+
+    import collie_core.providers.callback_server as callback_server_mod
+    from collie_core.providers.claude_oauth import ANTHROPIC_OAUTH_PROVIDER
+
+    opened: list[str] = []
+    exchanged: list[str] = []
+    saved: list[FakeToken] = []
+
+    class FakeServer:
+        def __init__(self, redirect_uri, state, on_code=None):
+            self.on_code = on_code
+
+        def shutdown(self):
+            pass
+
+        def server_close(self):
+            pass
+
+    class Storage:
+        def save(self, token) -> None:
+            saved.append(token)
+
+    def fake_start(redirect_uri, state, on_code=None):
+        server = FakeServer(redirect_uri, state, on_code)
+        if on_code is not None:
+            on_code("srv-code")  # complete the flow immediately
+        return server, None
+
+    def fake_exchange(code, verifier, provider):
+        exchanged.append(code)
+
+        async def _run():
+            return FakeToken(access="tok", refresh="ref", expires=1, account_id="a")
+
+        return _run
+
+    monkeypatch.setattr(callback_server_mod, "start_callback_server", fake_start)
+    monkeypatch.setattr(oauth_flow, "_exchange_code_for_token_async", fake_exchange)
+    monkeypatch.setattr(oauth_flow, "_should_open_browser", lambda: True)
+    monkeypatch.setattr(webbrowser, "open", opened.append)
+
+    token = collie_auth._login_oauth_cancellable(
+        ANTHROPIC_OAUTH_PROVIDER, Storage(), threading.Event()
+    )
+    assert token.access == "tok"
+    assert exchanged == ["srv-code"]
+    assert len(opened) == 1
+    claude_url = opened[0]
+    assert claude_url.startswith("https://console.anthropic.com/oauth/authorize?")
+    assert "redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback" in claude_url
+    assert "scope=org%3Acreate_api_key+user%3Aprofile" in claude_url
+    assert "codex_cli_simplified_flow" not in claude_url
+    assert "originator" not in claude_url
+
+    opened.clear()
+    from oauth_cli_kit.providers import OPENAI_CODEX_PROVIDER
+
+    token = collie_auth._login_oauth_cancellable(
+        OPENAI_CODEX_PROVIDER, Storage(), threading.Event()
+    )
+    assert token.access == "tok"
+    assert len(opened) == 1
+    codex_url = opened[0]
+    assert codex_url.startswith("https://auth.openai.com/oauth/authorize?")
+    assert "originator=nanobot" in codex_url
+    assert "codex_cli_simplified_flow=true" in codex_url
 
 
 def test_oauth_attempt_stages_token_until_commit(
@@ -238,6 +344,8 @@ def test_cancelled_oauth_attempt_closes_callback_server(
     from oauth_cli_kit import flow as oauth_flow
     from oauth_cli_kit.providers import OPENAI_CODEX_PROVIDER
 
+    import collie_core.providers.callback_server as callback_server_mod
+
     started = threading.Event()
     closed: list[str] = []
 
@@ -258,7 +366,7 @@ def test_cancelled_oauth_attempt_closes_callback_server(
         def server_close(self) -> None:
             closed.append("close")
 
-    def start_server(_state, on_code=None):
+    def start_server(_redirect_uri, _state, on_code=None):
         del on_code
         started.set()
         return Server(), None
@@ -268,7 +376,7 @@ def test_cancelled_oauth_attempt_closes_callback_server(
         "_spec",
         lambda _provider: ("chatgpt", (OPENAI_CODEX_PROVIDER, Storage())),
     )
-    monkeypatch.setattr(oauth_flow, "_start_local_server", start_server)
+    monkeypatch.setattr(callback_server_mod, "start_callback_server", start_server)
     monkeypatch.setattr(oauth_flow, "_should_open_browser", lambda: False)
 
     import oauth_cli_kit

@@ -24,14 +24,18 @@ __all__ = [
 ]
 
 # Public OAuth client used by Claude Code and compatible harnesses.
+# Matches Claude Code's current flow: console.anthropic.com authorize
+# endpoint and the registered localhost:54545/callback redirect. The legacy
+# claude.ai/oauth/authorize surface rejects this request shape ("Invalid
+# request format") for signed-in users, so do not regress these values.
 ANTHROPIC_OAUTH_PROVIDER = OAuthProviderConfig(
     client_id="9d1c250a-e61b-44d9-88ed-5944d1962f5e",
-    authorize_url="https://claude.ai/oauth/authorize",
+    authorize_url="https://console.anthropic.com/oauth/authorize",
     token_url="https://console.anthropic.com/v1/oauth/token",
-    # oauth_cli_kit's callback server uses this fixed endpoint.
-    redirect_uri="http://localhost:1455/auth/callback",
-    scope="org:create_api_key user:profile user:inference",
-    default_originator="collie",
+    # oauth_cli_kit's callback server is hardcoded to the Codex endpoint, so
+    # collie_core.providers.callback_server derives port/path from this value.
+    redirect_uri="http://localhost:54545/callback",
+    scope="org:create_api_key user:profile",
     token_filename="claude.json",
 )
 
