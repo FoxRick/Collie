@@ -9,7 +9,10 @@ const { execSync } = require('child_process')
 // a fresh valid one: macOS launches the app, and users only hit the normal
 // "unidentified developer" prompt, bypassable via right-click → Open.
 // Real Developer ID signing + notarization remains the $99/yr follow-up.
+// afterPack is a TOP-LEVEL electron-builder hook (it fires for every
+// platform), so this script must no-op on non-macOS runners.
 exports.default = async function afterPack(context) {
+  if (process.platform !== 'darwin') return
   const appPath = context.appOutDir
   console.log(`Ad-hoc codesigning ${appPath}`)
   execSync(`codesign --force --deep --sign - "${appPath}"`, {
