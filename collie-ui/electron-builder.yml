@@ -4,6 +4,7 @@ directories:
   output: dist
   buildResources: build
 beforePack: ./scripts/electron-builder-before-pack.cjs
+afterPack: ./scripts/adhoc-sign-mac.cjs
 files:
   - out/**
 extraResources:
@@ -52,7 +53,6 @@ linux:
 # run on Intel Macs. x64/universal2 needs per-arch staged runtimes
 # (follow-up, tracked in docs/operations/release).
 mac:
-  afterPack: ./scripts/adhoc-sign-mac.cjs
   target:
     - target: dmg
       arch:
