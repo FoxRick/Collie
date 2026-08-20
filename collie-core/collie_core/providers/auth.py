@@ -127,12 +127,6 @@ class OAuthLoginAttempt:
         self._storage.discard()
 
 
-def _cancel_aware_prompt(cancelled: Event | None) -> str:
-    if cancelled is not None and cancelled.is_set():
-        raise OAuthLoginCancelledError("Sign-in cancelled.")
-    return ""
-
-
 def _login_oauth_cancellable(config: Any, storage: Any, cancelled: Event) -> Any:
     """Run oauth_cli_kit's browser flow with prompt listener cancellation.
 
@@ -152,6 +146,8 @@ def _login_oauth_cancellable(config: Any, storage: Any, cancelled: Event) -> Any
             raise OAuthLoginCancelledError("Sign-in cancelled.")
 
     async def run() -> Any:
+        from collie_core.providers.callback_server import start_callback_server
+
         verifier, challenge = oauth_flow._generate_pkce()
         state = oauth_flow._create_state()
         params = {
@@ -162,10 +158,13 @@ def _login_oauth_cancellable(config: Any, storage: Any, cancelled: Event) -> Any
             "code_challenge": challenge,
             "code_challenge_method": "S256",
             "state": state,
-            "id_token_add_organizations": "true",
-            "codex_cli_simplified_flow": "true",
-            "originator": config.default_originator,
         }
+        # Codex-only parameters: the Claude endpoint rejects requests that
+        # carry them, so only the OpenAI flow sends originator/codex params.
+        if config.authorize_url.startswith("https://auth.openai.com/"):
+            params["id_token_add_organizations"] = "true"
+            params["codex_cli_simplified_flow"] = "true"
+            params["originator"] = config.default_originator
         url = f"{config.authorize_url}?{urllib.parse.urlencode(params)}"
         loop = asyncio.get_running_loop()
         code_future: asyncio.Future[str] = loop.create_future()
@@ -174,7 +173,7 @@ def _login_oauth_cancellable(config: Any, storage: Any, cancelled: Event) -> Any
             if not code_future.done():
                 loop.call_soon_threadsafe(code_future.set_result, code)
 
-        server, server_error = oauth_flow._start_local_server(state, on_code=notify)
+        server, server_error = start_callback_server(config.redirect_uri, state, on_code=notify)
         try:
             await check_cancelled()
             should_open = oauth_flow._should_open_browser()
@@ -226,7 +225,7 @@ def _login_with_storage(
     cancelled: Event | None = None,
 ) -> dict[str, Any]:
     try:
-        from oauth_cli_kit import get_token, login_oauth_interactive  # noqa: F811
+        from oauth_cli_kit import get_token
     except ImportError as e:
         raise ValueError(
             "The OAuth sign-in helper library is not installed. "
@@ -243,17 +242,14 @@ def _login_with_storage(
         token = get_token(provider=config, storage=storage)
     check_cancelled()
     if not (token and token.access):
-        messages: list[str] = []
         try:
-            if cancelled is not None:
-                token = _login_oauth_cancellable(config, storage, cancelled)
-            else:
-                token = login_oauth_interactive(
-                    print_fn=lambda message: messages.append(str(message)),
-                    prompt_fn=lambda _prompt: _cancel_aware_prompt(cancelled),
-                    provider=config,
-                    storage=storage,
-                )
+            # One flow for every caller: the cancellable path owns the
+            # callback server derived from the provider's redirect_uri.
+            token = _login_oauth_cancellable(
+                config,
+                storage,
+                cancelled if cancelled is not None else Event(),
+            )
         except OAuthLoginCancelledError:
             raise
         except Exception as e:
