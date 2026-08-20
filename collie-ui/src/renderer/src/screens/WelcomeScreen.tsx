@@ -505,7 +505,7 @@ export default function WelcomeScreen({ onDone, onCancel }: Props): React.JSX.El
             <div>
               <div className="font-medium">I have an API key</div>
               <div className="text-sm" style={{ color: 'var(--collie-text-muted)' }}>
-                Paste a key and Collie figures out the rest.
+                Paste a key, pick your provider, and Collie figures out the rest.
               </div>
             </div>
           </button>
