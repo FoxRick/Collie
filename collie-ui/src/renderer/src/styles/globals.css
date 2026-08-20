@@ -1488,6 +1488,28 @@ button {
 .settings-content { overflow-y: auto; }
 .settings-content-inner { width: min(100%, 720px); margin: 0 auto; padding: 34px 30px 50px; }
 
+/* Back-to-chat affordance so non-coders can always leave Settings without
+   hunting for the sidebar row. Visible on every settings tab. */
+.settings-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 20px;
+  padding: 6px 13px 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.settings-back:hover {
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  border-color: var(--collie-border);
+}
+
 @media (max-width: 820px) {
   .settings-layout { grid-template-columns: 178px minmax(0, 1fr); }
   .settings-content-inner { padding: 26px 20px 42px; }
