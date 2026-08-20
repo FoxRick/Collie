@@ -3,6 +3,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CollieEvent, MemoryJournalEntry } from '../lib/ipc'
+import { REMEMBER_PILL_DURATION_MS } from '../lib/rememberPill'
 
 const hooks = vi.hoisted(() => {
   const listeners = new Set<(event: CollieEvent) => void>()
@@ -166,7 +167,7 @@ describe('RememberPill', () => {
     act(() => root.unmount())
   })
 
-  it('dismisses on the next user send', async () => {
+  it('stays visible while the user keeps typing (consistent duration)', async () => {
     const container = document.createElement('div')
     const root = createRoot(container)
     act(() => root.render(<RememberPill conversationId="c1" />))
@@ -182,11 +183,11 @@ describe('RememberPill', () => {
     await act(async () => {
       hooks.emit(userMessage('c1'))
     })
-    expect(container.querySelector('.remember-pill')).toBeNull()
+    expect(container.querySelector('.remember-pill')).not.toBeNull()
     act(() => root.unmount())
   })
 
-  it('auto-dismisses after four seconds', async () => {
+  it('auto-dismisses after the consistent duration', async () => {
     vi.useFakeTimers()
     const container = document.createElement('div')
     const root = createRoot(container)
@@ -201,7 +202,7 @@ describe('RememberPill', () => {
     expect(container.querySelector('.remember-pill')).not.toBeNull()
 
     act(() => {
-      vi.advanceTimersByTime(4000)
+      vi.advanceTimersByTime(REMEMBER_PILL_DURATION_MS)
     })
     expect(container.querySelector('.remember-pill')).toBeNull()
     act(() => root.unmount())
@@ -222,7 +223,7 @@ describe('RememberPill', () => {
     await flush()
     expect(container.querySelector('.remember-pill')).not.toBeNull()
     act(() => {
-      vi.advanceTimersByTime(4000)
+      vi.advanceTimersByTime(REMEMBER_PILL_DURATION_MS)
     })
 
     // Second learning -> pill again.
@@ -233,7 +234,7 @@ describe('RememberPill', () => {
     await flush()
     expect(container.querySelector('.remember-pill')).not.toBeNull()
     act(() => {
-      vi.advanceTimersByTime(4000)
+      vi.advanceTimersByTime(REMEMBER_PILL_DURATION_MS)
     })
 
     // Third learning -> silent.
@@ -261,7 +262,7 @@ describe('RememberPill', () => {
     await flush()
     expect(container.querySelector('.remember-pill')).not.toBeNull()
     act(() => {
-      vi.advanceTimersByTime(4000)
+      vi.advanceTimersByTime(REMEMBER_PILL_DURATION_MS)
     })
 
     // The same fact re-learned (new journal id, identical content) -> silent.

@@ -4,9 +4,11 @@
  * Watches the core's append-only memory journal. When an assistant turn in
  * the current conversation completes and the journal shows a brand-new memory
  * write (kind fact/person/date, action add/update), a small warm pill appears
- * near the message list for a few seconds. It never fires for context usage
- * (reads are not journaled), never replays entries that existed before this
- * session, de-duplicates identical entries, and goes silent after two shows.
+ * above the chat composer for a consistent six seconds. It never fires for
+ * context usage (reads are not journaled), never replays entries that existed
+ * before this session, de-duplicates identical entries, and goes silent after
+ * two shows. Only the auto-dismiss timer and a core restart clear it — the
+ * next user send keeps it visible so the duration never feels clipped.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -124,10 +126,7 @@ export default function RememberPill({ conversationId }: Props): React.JSX.Eleme
           void establishBaseline()
           break
         case 'message':
-          if (event.message.role === 'user') {
-            // Any user send clears the whisper, per the quiet-whisper rule.
-            dismiss()
-          } else if (
+          if (
             event.message.role === 'assistant' &&
             conversationIdRef.current !== null &&
             event.message.conversation_id === conversationIdRef.current
@@ -152,7 +151,7 @@ export default function RememberPill({ conversationId }: Props): React.JSX.Eleme
 
   if (!pill) return null
   return (
-    <div className="remember-pill" role="status" aria-live="polite" onClick={dismiss}>
+    <div className="remember-pill" role="status" aria-live="polite">
       <span aria-hidden="true">🧠</span>
       <span>{rememberPillText(pill.entry)}</span>
     </div>

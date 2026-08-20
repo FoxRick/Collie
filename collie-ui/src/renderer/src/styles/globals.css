@@ -1705,12 +1705,13 @@ button {
   box-shadow: var(--shadow-md);
 }
 
-/* Remember pill — the quiet "I'll remember that." whisper. Sits above the
-   composer, overlaying the bottom edge of the message list without moving
-   layout, and never intercepts clicks. */
+/* Remember pill — the quiet "I'll remember that." whisper. Anchored to the
+   top of the composer row so it always floats ABOVE the input box — never
+   covering what the user is typing — without moving layout, and never
+   intercepts clicks. */
 .remember-pill {
   position: absolute;
-  bottom: 104px;
+  bottom: calc(100% + 8px);
   left: 50%;
   z-index: 20;
   transform: translateX(-50%);
@@ -3004,6 +3005,7 @@ button {
 
 /* Interactive Collie portrait */
 .portrait-composer-layout {
+  position: relative;
   display: flex;
   width: min(calc(100% - 24px), 920px);
   align-items: flex-start;

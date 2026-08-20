@@ -1112,7 +1112,6 @@ export default function ChatScreen({
         <div className={`workspace-body flex min-h-0 flex-1 ${thingsOpen && things.length > 0 ? 'has-things' : ''}`}>
         <div className="conversation-panel">
           <MessageList messages={messages} streamText={streamText} streaming={streaming} cardPreview={cardPreview} />
-          <RememberPill conversationId={activeId} />
         {errorText && (
           <div className="mx-4 mb-2 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
             style={{ borderColor: 'var(--collie-snoot)' }}>
@@ -1152,6 +1151,7 @@ export default function ChatScreen({
             </div>
           ) : null}
           <div className="portrait-composer-layout">
+            <RememberPill conversationId={activeId} />
             <InteractiveColliePortrait
               thinking={portraitThinking}
               phrase={portraitThinking?.phrase || 'Ready when you are.'}
