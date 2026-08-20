@@ -27,6 +27,7 @@ vi.mock('lucide-react', () => ({
   ChevronUp: () => null,
   Key: () => null,
   Search: () => null,
+  ShieldCheck: () => null,
   Sparkles: () => null
 }))
 vi.mock('../lib/ipc', () => ({ collieClient: hooks.client }))
@@ -290,9 +291,9 @@ describe('WelcomeScreen API-key form', () => {
       await Promise.resolve()
       await Promise.resolve()
     })
-    // Platform guidance instead of a dead-end "could not store" one-liner.
-    expect(container.textContent).toContain('no unlocked keyring')
-    expect(container.textContent).toContain('Use it for this session only')
+    // Safety-framed guidance instead of a dead-end "could not store" one-liner.
+    expect(container.textContent).toContain('Your key stays safe with Collie')
+    expect(container.textContent).toContain('Continue for now')
   })
 
   it('session-only connect keeps working and says the key is not saved', async () => {
@@ -326,10 +327,10 @@ describe('WelcomeScreen API-key form', () => {
       await Promise.resolve()
       await Promise.resolve()
     })
-    expect(container.textContent).toContain('Use it for this session only')
+    expect(container.textContent).toContain('Continue for now')
 
     const sessionButton = Array.from(container.querySelectorAll<HTMLButtonElement>('button')).find(
-      (button) => button.textContent === 'Use it for this session only'
+      (button) => button.textContent === 'Continue for now'
     )!
     act(() => sessionButton.click())
     await act(async () => {

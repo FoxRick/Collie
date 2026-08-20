@@ -426,10 +426,11 @@ export async function startAccountSignIn(
   })
   if (!saved) {
     throw new Error(
-      'You signed in, but this computer could not store the session ' +
-        'securely. Unlock your system keychain (Keychain Access on macOS, ' +
-        'your Windows sign-in on Windows, or your keyring daemon — e.g. ' +
-        'gnome-keyring / KWallet — on Linux) and try again.'
+      "Your sign-in is secure — Collie never stores it as plain text. This " +
+        "computer couldn't save it, so you'll sign in again next time you open " +
+        "Collie. To make saving work next time: unlock your Mac's Keychain, " +
+        "sign back in to Windows, or restart your computer and sign in " +
+        "normally on Linux."
     )
   }
   return await getAccountState()

@@ -352,6 +352,7 @@ button {
 
 .sidebar.is-collapsed .new-chat-button span,
 .sidebar.is-collapsed .sidebar-nav-item span,
+.sidebar.is-collapsed .sidebar-context-row span,
 .sidebar.is-collapsed .sidebar-footer-row span {
   display: none;
 }
