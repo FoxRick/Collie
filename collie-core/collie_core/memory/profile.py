@@ -52,6 +52,7 @@ PROFILE_KEYS: dict[str, str] = {
     "goals": "Current goals",
     "work": "Work",
     "family": "Family",
+    "preferences": "Preferences",
     "notes": "Other notes",
 }
 
