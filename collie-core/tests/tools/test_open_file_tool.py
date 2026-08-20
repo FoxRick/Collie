@@ -112,6 +112,22 @@ async def test_rejects_executables_scripts_and_shortcuts(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("name", ["page.html", "page.htm", "logo.svg"])
+async def test_rejects_browser_rendered_types(scoped_tool, fake_launcher, name: str) -> None:
+    """html/svg can execute scripts or reach the network in the default
+    handler, so they are refused like executables."""
+
+    tool, root = scoped_tool
+    (root / name).write_bytes(b"payload")
+
+    result = await tool.execute(path=name)
+
+    assert result.is_error
+    assert "harmless file types" in result
+    assert fake_launcher == []
+
+
+@pytest.mark.asyncio
 async def test_rejects_out_of_scope_path(scoped_tool, tmp_path: Path, fake_launcher) -> None:
     tool, _root = scoped_tool
     outside = tmp_path / "outside.md"

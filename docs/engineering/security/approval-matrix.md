@@ -93,10 +93,14 @@ without shell access or arbitrary app launching.
   UNC/device refusal) is reused, so the two tools can never disagree about what
   a safe local target is.
 - Only an allowlisted set of harmless types can be opened — documents and data
-  (`.md .txt .pdf .docx .xlsx .pptx .csv .rtf .html .json .xml .yaml .log …`),
-  images, audio, and video. A separate denylist (`.exe .bat .cmd .ps1 .vbs
-  .msi .lnk .url .reg .scr .jar …`) is defense in depth so a future allowlist
-  edit can never hand an executable or shortcut to a default handler.
+  (`.md .txt .pdf .docx .xlsx .pptx .csv .rtf .json .xml .yaml .log …`),
+  images, audio, and video. Browser-rendered types (`.html .htm .svg`) are
+  intentionally excluded: their default handler can execute scripts and reach
+  the network, so opening them is not a plain document open and they would
+  need their own approval step to return. A separate denylist (`.exe .bat
+  .cmd .ps1 .vbs .msi .lnk .url .reg .scr .jar …`) is defense in depth so a
+  future allowlist edit can never hand an executable or shortcut to a default
+  handler.
 - It is classified `Risk.READ` with no `data_leaving_device`: the file opens in
   a local app and nothing is sent to any provider. It is reversible (close the
   window), never writes, and can only target files that already exist. Within
