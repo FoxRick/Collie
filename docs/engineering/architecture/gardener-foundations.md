@@ -100,11 +100,17 @@ was vendored but dead; Collie had zero references. `run_dream()` wires it:
    read-only by construction), `execution_posture="read_only"`. Collie has
    no file-editing tools, so the output contract asks the model to return
    the full proposed `memory/MEMORY.md` content (fence-tolerant parser).
-3. If the proposed content differs, write it atomically and snapshot via
-   `VersionStore` (`memory_dream` / `MEMORY.md`, `source="collie"`).
+3. If the proposed content differs, store it as a **pending proposal**
+   (`memory/.dream-proposal.json`) — `MEMORY.md` is **not** written.
+   The user reviews the diff in Settings → Memory and explicitly applies
+   or dismisses it. On apply, the proposal is re-validated against the
+   current file, written atomically, and snapshotted via `VersionStore`
+   (`memory_dream` / `MEMORY.md`, `source="collie"`), so the change stays
+   undoable. On dismiss, the proposal is discarded.
 4. Advance the dream cursor **only on success** (a completed turn — even a
    no-change one — so history is never re-processed); failed/incomplete
-   turns leave the cursor put.
+   turns leave the cursor put. The cursor advances when the proposal is
+   created; applying or dismissing never re-runs the model.
 5. `prune_dream_sessions(keep=10)` after each run.
 
 Dream never touches `ProfileStore` — it consolidates nanobot's long-term

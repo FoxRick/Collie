@@ -1066,7 +1066,7 @@ class CollieRuntime:
         return await self._run_gardener(auto) or {}
 
     async def _run_memory_maintenance(self, auto: dict[str, Any]) -> None:
-        """Weekly Dream pass: consolidate long-term memory, versioned + undoable."""
+        """Weekly Dream pass: propose a consolidation, pending for review."""
         if self.loop is None:
             result = await self._configure()
             if not result.get("configured"):
@@ -1084,8 +1084,8 @@ class CollieRuntime:
         content = str(outcome.get("message") or "Memory maintenance ran.")
         if outcome.get("changed"):
             content += (
-                "\n\nChanged my long-term memory file. You can review the diff "
-                "and undo it in Settings → Memory → History."
+                "\n\nOpen Settings → Memory to review and apply the changes, "
+                "or dismiss them — nothing is written until you approve."
             )
         await self._announce_automation_result(auto, conv_id, content)
 

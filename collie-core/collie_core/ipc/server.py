@@ -1338,6 +1338,35 @@ class CollieIPCServer:
         )
         return {"versions": versions}
 
+    async def _cmd_get_dream_pending(self, connection: ServerConnection, frame: dict) -> dict:
+        """Pending Dream proposal state (Settings → Memory self-review)."""
+        from collie_core.memory.dream import get_dream_pending
+
+        return await asyncio.to_thread(
+            get_dream_pending,
+            workspace=collie_home() / "workspace",
+        )
+
+    async def _cmd_apply_dream_proposal(self, connection: ServerConnection, frame: dict) -> dict:
+        """Approve the pending Dream proposal: re-validate, write, version."""
+        from collie_core.memory.dream import apply_dream_proposal
+        from collie_core.versions import VersionStore
+
+        return await asyncio.to_thread(
+            apply_dream_proposal,
+            workspace=collie_home() / "workspace",
+            version_store=VersionStore(self.db),
+        )
+
+    async def _cmd_dismiss_dream_proposal(self, connection: ServerConnection, frame: dict) -> dict:
+        """Dismiss the pending Dream proposal without applying it."""
+        from collie_core.memory.dream import dismiss_dream_proposal
+
+        return await asyncio.to_thread(
+            dismiss_dream_proposal,
+            workspace=collie_home() / "workspace",
+        )
+
     async def _cmd_run_gardener(self, connection: ServerConnection, frame: dict) -> dict:
         """Manual trigger: run one Gardener pass (evidence → suggestions)."""
         if self._gardener_runner is None:
