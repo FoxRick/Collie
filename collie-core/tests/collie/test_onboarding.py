@@ -121,6 +121,28 @@ def test_capture_starter_name_requires_only_greeting_before_reply(
     assert profile.get("name") is None
 
 
+def test_capture_starter_name_rejects_sentence(
+    db: CollieDB, profile: ProfileStore
+) -> None:
+    starter = ensure_starter_conversation(db)
+    conv_id = str(starter["conversation"]["id"])
+    # QA repro: a preference phrased as an instruction is NOT a name.
+    assert (
+        capture_starter_name(db, profile, conv_id, "Remember that I prefer short answers.")
+        is False
+    )
+    assert profile.get("name") is None
+
+
+def test_capture_starter_name_strips_name_prefix(
+    db: CollieDB, profile: ProfileStore
+) -> None:
+    starter = ensure_starter_conversation(db)
+    conv_id = str(starter["conversation"]["id"])
+    assert capture_starter_name(db, profile, conv_id, "My name is Rick") is True
+    assert profile.get("name") == "Rick"
+
+
 def test_parse_command_recognizes_get_started() -> None:
     assert parse_command("/get-started") == ("get-started", "")
     assert parse_command("/start") == ("start", "")

@@ -61,6 +61,37 @@ async def test_remember_tool_fact(store: ProfileStore) -> None:
 
 
 @pytest.mark.asyncio
+async def test_remember_tool_never_stores_sentence_as_name(store: ProfileStore) -> None:
+    bind_profile_store(store)
+    tool = RememberTool()
+    result = await tool.execute(
+        kind="fact", key="name", value="Remember that I prefer short answers."
+    )
+    # QA repro: the sentence must not become the user's Name.
+    assert store.get("name") is None
+    # The data survives under a more honest key.
+    assert store.get("preferences") == "Remember that I prefer short answers."
+    assert "preferences" in str(result)
+
+
+@pytest.mark.asyncio
+async def test_remember_tool_strips_name_prefix(store: ProfileStore) -> None:
+    bind_profile_store(store)
+    tool = RememberTool()
+    await tool.execute(kind="fact", key="name", value="My name is Rick")
+    assert store.get("name") == "Rick"
+    assert store.get("preferences") is None
+
+
+@pytest.mark.asyncio
+async def test_remember_tool_plain_name_stored(store: ProfileStore) -> None:
+    bind_profile_store(store)
+    tool = RememberTool()
+    await tool.execute(kind="fact", key="name", value="Rick")
+    assert store.get("name") == "Rick"
+
+
+@pytest.mark.asyncio
 async def test_remember_tool_person_creates_birthday_date(store: ProfileStore) -> None:
     bind_profile_store(store)
     tool = RememberTool()

@@ -8,14 +8,23 @@ injection on future turns.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
+from collie_core.memory.names import name_candidate
 from collie_core.memory.profile import PROFILE_KEYS, ProfileStore
 from collie_core.permissions.models import PermissionRequest, Risk
 from nanobot.agent.tools.base import Tool, tool_parameters
 
 _PERSON_FIELDS = frozenset(
     {"relationship", "birthday", "allergies", "preferences", "gift_ideas", "notes"}
+)
+
+# When a sentence slips into the name slot, route it to a more honest key.
+_PREFERENCE_MARKERS = re.compile(
+    r"\b(prefer|prefers|preferred|like|likes|dislike|dislikes|"
+    r"enjoy|enjoys|hate|hates|wants?|needs?)\b",
+    re.IGNORECASE,
 )
 
 _profile_store: ProfileStore | None = None
@@ -46,7 +55,9 @@ def _store() -> ProfileStore | None:
             "key": {
                 "type": "string",
                 "description": (
-                    "For kind=fact/forget_fact: which fact. Known keys: "
+                    "For kind=fact/forget_fact: which fact. Use 'name' ONLY for the "
+                    "user's actual name (a short label, e.g. 'Rick'). Likes, dislikes, "
+                    "and communication style belong under 'preferences'. Known keys: "
                     + ", ".join(PROFILE_KEYS)
                     + ". Free-form keys are allowed."
                 ),
@@ -172,6 +183,20 @@ class RememberTool(Tool):
             value = (kwargs.get("value") or "").strip()
             if not key or not value:
                 return self.error("kind=fact needs both 'key' and 'value'.")
+            if key == "name":
+                # A sentence in the name slot must never become the user's
+                # Name. Keep the data under a more honest key instead.
+                candidate = name_candidate(value)
+                if candidate is None:
+                    target = (
+                        "preferences" if _PREFERENCE_MARKERS.search(value) else "notes"
+                    )
+                    store.set(target, value)
+                    return (
+                        f"That looked like a preference, not a name — I saved it under "
+                        f"{target} instead. (Say 'my name is …' to set your name.)"
+                    )
+                value = candidate
             store.set(key, value)
             return f"Remembered: {key} = {value}"
 

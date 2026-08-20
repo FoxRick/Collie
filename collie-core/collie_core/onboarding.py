@@ -15,25 +15,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from collie_core.memory.names import name_candidate
+
 STARTER_CONVERSATION_SETTING = "onboarding.starter_conversation_id"
 
 STARTER_GREETING = (
     "Hey, welcome! I'm Collie — your personal AI. What's your name?\n\n"
     "(P.S. That's me — the little dog on your desktop. Click me to say hi anytime.)"
 )
-
-# A name worth remembering: a single short line. Longer answers, questions,
-# or empty replies are not names — we never force it.
-_MAX_NAME_LENGTH = 64
-
-
-def _is_reasonable_name(reply: str) -> bool:
-    text = (reply or "").strip()
-    if not text:
-        return False
-    if len(text) > _MAX_NAME_LENGTH:
-        return False
-    return not ("\n" in text or "\r" in text)
 
 
 def ensure_starter_conversation(
@@ -86,8 +75,9 @@ def capture_starter_name(
     """Save the first reply in the starter thread as the user's name.
 
     Only fires once (the profile has no name yet and the conversation holds
-    only the greeting). Whatever they said is stored verbatim — or nothing;
-    the name is never forced.
+    only the greeting). The reply is kept only when it plausibly names a
+    person ("Rick", "My name is Rick"); sentences and instructions are
+    refused and the name is never forced.
     """
     if profile_store is None:
         return False
@@ -99,7 +89,8 @@ def capture_starter_name(
     if len(messages) != 1:
         # The greeting is the only message before the first real reply.
         return False
-    if not _is_reasonable_name(reply):
+    candidate = name_candidate(reply)
+    if candidate is None:
         return False
-    profile_store.set("name", reply.strip())
+    profile_store.set("name", candidate)
     return True
