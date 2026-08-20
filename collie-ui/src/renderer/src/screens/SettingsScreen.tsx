@@ -134,7 +134,7 @@ const TAB_COPY: Record<Tab, { title: string; description: string }> = {
   memory: { title: 'Memory', description: 'Review and control the facts Collie remembers.' },
   services: { title: 'Services', description: 'Connect the tools and accounts Collie can work with.' },
   phone: { title: 'Telegram', description: 'Keep Collie within reach when you are away from this app.' },
-  pet: { title: 'Desktop pet', description: 'Control how your Collie companion behaves on the desktop.' },
+  pet: { title: 'Desktop pet', description: 'Your desktop companion is on the way — coming soon.' },
   safety: { title: 'Safety & approvals', description: 'Decide when Collie needs permission before acting.' },
   onboarding: {
     title: 'Onboarding',
