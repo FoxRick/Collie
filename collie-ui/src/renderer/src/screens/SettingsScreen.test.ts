@@ -1,5 +1,46 @@
-import { describe, expect, it } from 'vitest'
-import { clearAllDataNotice } from './SettingsScreen'
+// @vitest-environment jsdom
+import { act, createElement } from 'react'
+import { createRoot } from 'react-dom/client'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import SettingsScreen, { clearAllDataNotice } from './SettingsScreen'
+
+const hooks = vi.hoisted(() => {
+  const client = {
+    on: vi.fn(() => () => undefined),
+    getStatus: vi.fn(async () => ({})),
+    getSettings: vi.fn(async () => ({ settings: {} })),
+    authStatus: vi.fn(async () => ({ signed_in: false }))
+  }
+  return { client }
+})
+
+vi.mock('lucide-react', () => ({
+  ArrowLeft: () => null,
+  Brain: () => null,
+  CircleUserRound: () => null,
+  Cloud: () => null,
+  Dog: () => null,
+  KeyRound: () => null,
+  Mic2: () => null,
+  Palette: () => null,
+  RefreshCw: () => null,
+  RotateCcw: () => null,
+  Send: () => null,
+  ShieldCheck: () => null,
+  UserRound: () => null
+}))
+vi.mock('../components/settings/ProviderManager', () => ({ default: () => null }))
+vi.mock('../lib/ipc', () => ({ collieClient: hooks.client }))
+vi.mock('../components/CollieFace', () => ({ default: () => null }))
+
+beforeAll(() => {
+  ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
+    .IS_REACT_ACT_ENVIRONMENT = true
+})
+
+afterEach(() => {
+  vi.clearAllMocks()
+})
 
 describe('clear-all result reporting', () => {
   it('reports a complete clear only when every phase succeeded', () => {
@@ -50,5 +91,24 @@ describe('clear-all result reporting', () => {
     expect(notice).toContain("couldn't clear Collie's database")
     expect(notice).toContain('left local files in place')
     expect(notice).not.toContain('All clear')
+  })
+})
+
+describe('SettingsScreen back navigation', () => {
+  it('renders a Back to chat button that navigates to chat', async () => {
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    const onNavigate = vi.fn()
+    await act(async () => {
+      root.render(createElement(SettingsScreen, { initialTab: 'onboarding', onNavigate }))
+    })
+    const button = container.querySelector<HTMLButtonElement>('.settings-back')
+    expect(button).not.toBeNull()
+    expect(button?.textContent).toContain('Back to chat')
+    await act(async () => {
+      button?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(onNavigate).toHaveBeenCalledWith('chat')
+    act(() => root.unmount())
   })
 })

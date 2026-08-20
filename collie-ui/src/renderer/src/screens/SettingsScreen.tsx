@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
+  ArrowLeft,
   Brain,
   CircleUserRound,
   Cloud,
@@ -357,6 +358,14 @@ export default function SettingsScreen({
 
       <div className="settings-content">
         <div className="settings-content-inner">
+          <button
+            type="button"
+            className="settings-back"
+            onClick={() => onNavigate?.('chat')}
+          >
+            <ArrowLeft size={15} />
+            {t('settings.back')}
+          </button>
           {notice && (
             <p className="inline-notice flex items-center gap-2" role="status">
               <CollieFace size={16} />
