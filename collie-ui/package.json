@@ -21,7 +21,8 @@
     "artifact-provenance:write": "node scripts/artifact-provenance.cjs write",
     "dist": "node scripts/package.cjs",
     "test": "vitest run",
-    "test:ui:running": "node scripts/verify-ui-ux.cjs"
+    "test:ui:running": "node scripts/verify-ui-ux.cjs",
+    "check:assets": "python3 scripts/check-portrait-assets.py .."
   },
   "dependencies": {
     "electron-updater": "^6.8.9",
