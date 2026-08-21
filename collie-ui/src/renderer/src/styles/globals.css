@@ -3104,8 +3104,6 @@ button {
   height: 100%;
   object-fit: contain;
   user-select: none;
-  animation: portrait-crossfade 160ms ease-out both;
-  will-change: opacity;
 }
 
 .collie-ring-foreground {
@@ -3126,26 +3124,6 @@ button {
     inset 0 0 0 2px rgba(255, 244, 205, 0.82),
     0 0 0 4px rgba(224, 151, 36, 0.14),
     0 1px 0 rgba(255, 255, 255, 0.7);
-}
-
-.collie-portrait-paw {
-  position: absolute;
-  z-index: 4;
-  right: -10%;
-  bottom: -5%;
-  width: 38%;
-  height: auto;
-  opacity: 0;
-  pointer-events: none;
-  filter: drop-shadow(-2px 3px 2px rgba(42, 31, 18, 0.3));
-  transform: translateY(7px) rotate(5deg);
-  transform-origin: 55% 20%;
-  transition: opacity 150ms ease, transform 210ms ease;
-}
-
-.collie-portrait-paw.is-visible {
-  opacity: 1;
-  transform: translateY(0) rotate(5deg);
 }
 
 .collie-portrait-status {
@@ -3276,11 +3254,6 @@ button {
 .collie-portrait-stage.is-paused *::before,
 .collie-portrait-stage.is-paused *::after { animation-play-state: paused !important; }
 
-@keyframes portrait-crossfade {
-  from { opacity: 0.35; }
-  to { opacity: 1; }
-}
-
 .dark .collie-ring-background {
   background:
     radial-gradient(circle at 38% 28%, rgba(255, 231, 174, 0.24), transparent 34%),
@@ -3340,12 +3313,10 @@ button {
   .collie-ring-foreground { border-width: 2px; }
   .collie-portrait-status,
   .portrait-agent-list { display: none; }
-  .collie-portrait-paw { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .collie-portrait-base,
-  .collie-portrait-paw,
   .collie-portrait-status > span {
     animation: none !important;
     transition: none !important;

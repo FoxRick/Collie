@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ActiveAgent, ThinkingState } from '../lib/ipc'
-import { LOOK_DIRECTION_STEP_MS, stepPortraitDirection } from './colliePortraitMotion'
 import {
-  gazeEnabledForState,
   portraitStateForEngine,
   supportsFaceOnlyDeepWork,
   type PortraitState
@@ -15,10 +13,8 @@ const CLICK_COOLDOWN_MS = 1_000
 
 interface PortraitModel {
   state: PortraitState
-  pawVisible: boolean
   paused: boolean
   reducedMotion: boolean
-  gazeDirection: number | null
   triggerReaction: () => void
 }
 
@@ -35,7 +31,6 @@ export function useColliePortraitState(
     window.matchMedia('(prefers-reduced-motion: reduce)').matches
   )
   const [deepWorkReady, setDeepWorkReady] = useState(false)
-  const [gazeDirection, setGazeDirection] = useState<number | null>(null)
   const clickCooldownUntil = useRef(0)
   const transientTimer = useRef<number | null>(null)
 
@@ -115,24 +110,6 @@ export function useColliePortraitState(
     return sleepy ? 'sleepy' : 'idle'
   }, [deepWorkReady, engineState, isAssistantWorking, pointerTarget, reducedMotion, sleepy, thinking?.state, transient])
 
-  useEffect(() => {
-    if (!gazeEnabledForState(state) || pointerTarget === null) {
-      setGazeDirection(null)
-      return
-    }
-    if (reducedMotion) {
-      setGazeDirection(null)
-      return
-    }
-    setGazeDirection((current) => current ?? pointerTarget)
-    const timer = window.setInterval(() => {
-      setGazeDirection((current) =>
-        current === null || current === pointerTarget ? pointerTarget : stepPortraitDirection(current, pointerTarget)
-      )
-    }, LOOK_DIRECTION_STEP_MS)
-    return () => window.clearInterval(timer)
-  }, [pointerTarget, reducedMotion, state])
-
   const triggerReaction = useCallback(() => {
     if (state === 'error' || state === 'waiting' || state === 'completion') return
     const now = Date.now()
@@ -143,10 +120,8 @@ export function useColliePortraitState(
 
   return {
     state,
-    pawVisible: state === 'click_reaction' || state === 'completion',
     paused,
     reducedMotion,
-    gazeDirection,
     triggerReaction
   }
 }

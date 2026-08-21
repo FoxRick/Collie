@@ -18,6 +18,8 @@ const boneCompletionSheet = new URL(
 
 export const PORTRAIT_STATIC_FALLBACK = idle
 
+export const PORTRAIT_STILLS = { idle, sleepy, thinking, concerned, happy } as const
+
 /**
  * This manifest is intentionally limited to the composer portrait artwork.
  * Desktop-pet atlases and their supplemental strips must never be added here:
@@ -40,22 +42,6 @@ export interface FaceOnlyStrip {
   frameCount: number
 }
 
-export interface PortraitFrame {
-  src: string
-  sourceIndex?: number
-  columns?: number
-  rows?: number
-}
-
-const still = (src: string): PortraitFrame => ({ src })
-const stripFrames = (strip: FaceOnlyStrip): PortraitFrame[] =>
-  Array.from({ length: strip.frameCount }, (_, sourceIndex) => ({
-    src: strip.src,
-    sourceIndex,
-    columns: strip.columns,
-    rows: strip.rows
-  }))
-
 export type PortraitState =
   | 'sleepy'
   | 'idle'
@@ -67,66 +53,6 @@ export type PortraitState =
   | 'completion'
   | 'click_reaction'
   | 'deep_work_glasses'
-
-export const PORTRAIT_FRAME_SEQUENCE: Record<PortraitState, readonly PortraitFrame[]> = {
-  // The closed-eye face is an existing genuine portrait pose, rather than a
-  // CSS-scaled copy of idle. It gives the currently available face set a calm
-  // blink until the dedicated six-frame idle strip is delivered.
-  idle: [still(idle), still(idle), still(idle), still(sleepy), still(idle), still(idle)],
-  sleepy: [still(sleepy)],
-  pointer_look: [still(thinking), still(idle)],
-  working: [still(thinking), still(idle), still(thinking)],
-  review: [still(thinking), still(concerned), still(thinking)],
-  waiting: [still(concerned), still(idle)],
-  error: [still(concerned)],
-  completion: [still(happy), still(happy), still(idle)],
-  click_reaction: [still(happy), still(thinking), still(happy)],
-  // This state is unreachable until a dedicated face-only glasses strip is
-  // added to the manifest. Keeping a non-glasses fallback here preserves the
-  // glasses-only invariant even if a caller selects it prematurely.
-  deep_work_glasses: [still(thinking)]
-}
-
-export function portraitFramesFor(
-  state: PortraitState,
-  gazeDirection: number | null = null
-): readonly PortraitFrame[] {
-  if (state === 'idle' && FACE_ONLY_ASSET_MANIFEST.idle) {
-    return stripFrames(FACE_ONLY_ASSET_MANIFEST.idle)
-  }
-  if (state === 'pointer_look' && FACE_ONLY_ASSET_MANIFEST.pointerLook) {
-    const frames = stripFrames(FACE_ONLY_ASSET_MANIFEST.pointerLook)
-    // A supplied 16-frame strip is indexed by the controller's clockwise
-    // direction (0=up, 4=screen-right), rather than CSS-moving one face.
-    return gazeDirection === null ? [frames[0]] : [frames[gazeDirection % frames.length]]
-  }
-  if (state === 'deep_work_glasses' && FACE_ONLY_ASSET_MANIFEST.deepWorkGlasses) {
-    return stripFrames(FACE_ONLY_ASSET_MANIFEST.deepWorkGlasses)
-  }
-  if (state === 'waiting' && FACE_ONLY_ASSET_MANIFEST.waiting) {
-    return stripFrames(FACE_ONLY_ASSET_MANIFEST.waiting)
-  }
-  if (state === 'click_reaction' && FACE_ONLY_ASSET_MANIFEST.clickReaction) {
-    return stripFrames(FACE_ONLY_ASSET_MANIFEST.clickReaction)
-  }
-  if (state === 'completion' && FACE_ONLY_ASSET_MANIFEST.boneCompletion) {
-    return stripFrames(FACE_ONLY_ASSET_MANIFEST.boneCompletion)
-  }
-  return PORTRAIT_FRAME_SEQUENCE[state]
-}
-
-export const PORTRAIT_FRAME_DURATION: Record<PortraitState, number> = {
-  idle: 820,
-  sleepy: 1600,
-  pointer_look: 340,
-  working: 520,
-  review: 660,
-  waiting: 760,
-  error: 1200,
-  completion: 430,
-  click_reaction: 230,
-  deep_work_glasses: 700
-}
 
 export const STATUS_COPY: Partial<Record<PortraitState, string[]>> = {
   working: [
