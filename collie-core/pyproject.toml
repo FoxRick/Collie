@@ -80,6 +80,8 @@ dev = [
     "pytest-asyncio>=1.3.0,<2.0.0",
     "aiohttp>=3.9.0,<4.0.0",
     "pytest-cov>=6.0.0,<7.0.0",
+    # Per-test timeout so a wedged async test fails CI instead of hanging it.
+    "pytest-timeout>=2.3.0,<3.0.0",
     # Pinned: the ruff format gate (ci.yml) must be reproducible across
     # machines and CI images — a floating formatter rewrites history.
     "ruff>=0.16,<0.17",
@@ -174,6 +176,11 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Fail a wedged test (default 120s) instead of hanging CI forever. The
+# thread method works with the asyncio suite; override per-test with
+# @pytest.mark.timeout when a test legitimately needs longer.
+timeout = 120
+timeout_method = "thread"
 
 [tool.coverage.run]
 source = ["nanobot", "collie_core"]
