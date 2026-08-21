@@ -12,16 +12,12 @@ import {
 } from '../lib/agentActivity'
 import { quantizePortraitPointer } from './colliePortraitMotion'
 import {
-  PORTRAIT_FRAME_DURATION,
   PORTRAIT_STATIC_FALLBACK,
-  portraitFramesFor,
   STATUS_COPY
 } from './portraitStates'
 import { useColliePortraitState } from './useColliePortraitState'
 import AgentAvatar from './AgentAvatar'
 import ColliePortraitFrame from './ColliePortraitFrame'
-
-const pawFront = new URL('../assets/portrait/paw-front-brand.webp', import.meta.url).href
 
 const MAX_WORKING_ROWS = 3
 const MAX_SETTLED_ROWS = 2
@@ -91,16 +87,13 @@ export default function InteractiveColliePortrait({
 }: Props): React.JSX.Element {
   const [pointerTarget, setPointerTarget] = useState<number | null>(null)
   const [copyIndex, setCopyIndex] = useState(0)
-  const [frameIndex, setFrameIndex] = useState(0)
   const [now, setNow] = useState(Date.now)
-  const { state, pawVisible, paused, reducedMotion, gazeDirection, triggerReaction } = useColliePortraitState(
+  const { state, paused, reducedMotion, triggerReaction } = useColliePortraitState(
     thinking,
     isTyping,
     activeAgents,
     pointerTarget
   )
-  const frames = portraitFramesFor(state, gazeDirection)
-  const frame = frames[frameIndex % frames.length]
   const settledAfterTerminal =
     ['idle', 'sleepy'].includes(state) &&
     ['done', 'error'].includes(thinking?.state || '')
@@ -129,16 +122,6 @@ export default function InteractiveColliePortrait({
     )
     return () => window.clearInterval(timer)
   }, [copyPool])
-
-  useEffect(() => {
-    setFrameIndex(0)
-    if (paused || reducedMotion || frames.length < 2) return
-    const timer = window.setInterval(
-      () => setFrameIndex((current) => (current + 1) % frames.length),
-      PORTRAIT_FRAME_DURATION[state]
-    )
-    return () => window.clearInterval(timer)
-  }, [frames.length, paused, reducedMotion, state])
 
   // One 1 s tick so agent rows' elapsed labels stay live without re-rendering
   // the whole chat screen; freezes as soon as nothing visible remains. The
@@ -183,7 +166,7 @@ export default function InteractiveColliePortrait({
         role="button"
         tabIndex={0}
         aria-label="Pet Collie"
-        data-gaze-direction={gazeDirection ?? 'idle'}
+        data-gaze-direction={pointerTarget ?? 'idle'}
         onPointerMove={handlePointerMove}
         onPointerLeave={() => setPointerTarget(null)}
         onClick={triggerReaction}
@@ -193,17 +176,12 @@ export default function InteractiveColliePortrait({
         <div className="collie-portrait-clip">
           <ColliePortraitFrame
             className="collie-portrait-base"
-            frame={frame}
+            state={state}
+            reducedMotion={reducedMotion}
             fallbackSrc={PORTRAIT_STATIC_FALLBACK}
           />
         </div>
         <span className="collie-ring-foreground" aria-hidden="true" />
-        <img
-          className={`collie-portrait-paw${pawVisible ? ' is-visible' : ''}`}
-          src={pawFront}
-          alt=""
-          draggable={false}
-        />
       </div>
       <div className="collie-portrait-status" role="status" aria-live="polite">
         <span key={status}>{status}</span>
