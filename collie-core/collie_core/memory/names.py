@@ -26,9 +26,7 @@ _SENTENCE_MARKERS = re.compile(
 
 # Leading phrasings people use when answering "What's your name?" — strip
 # them, then judge the remainder. ("My name is Rick" → "Rick".)
-_NAME_PREFIX = re.compile(
-    r"^(my name is|i am|i'm|call me|it's|its)\s+", re.IGNORECASE
-)
+_NAME_PREFIX = re.compile(r"^(my name is|i am|i'm|call me|it's|its)\s+", re.IGNORECASE)
 
 
 def strip_name_prefix(text: str) -> str:

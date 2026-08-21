@@ -188,9 +188,7 @@ class RememberTool(Tool):
                 # Name. Keep the data under a more honest key instead.
                 candidate = name_candidate(value)
                 if candidate is None:
-                    target = (
-                        "preferences" if _PREFERENCE_MARKERS.search(value) else "notes"
-                    )
+                    target = "preferences" if _PREFERENCE_MARKERS.search(value) else "notes"
                     store.set(target, value)
                     return (
                         f"That looked like a preference, not a name — I saved it under "
