@@ -1,7 +1,7 @@
 # Release information
 
-The current public release is **`v0.1.0-alpha.7`** — a published GitHub
-Release (2026-08-20) with Windows NSIS x64, macOS arm64 dmg/zip, and Linux
+The current public release is **`v0.1.0-alpha.7.2`** — a published GitHub
+Release (2026-08-21) with Windows NSIS x64, macOS arm64 dmg/zip, and Linux
 AppImage installers, built and attached by the tag-triggered CI pipeline
 (see Release pipeline below), plus `SHA256SUMS.txt` and provenance records.
 The website (`heycollie.com/download`, account dashboard) serves these
