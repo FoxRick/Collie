@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { PortraitState } from './portraitStates'
 import { FACE_ONLY_ASSET_MANIFEST, PORTRAIT_STILLS } from './portraitStates'
-import { chaseDirection, smoothFactor } from './colliePortraitMotion'
+import { chaseDirection, horizontalFramingOffset, smoothFactor } from './colliePortraitMotion'
 
 interface Props {
   state: PortraitState
@@ -292,11 +292,15 @@ export default function ColliePortraitFrame({
     const dh = sh * fit
     const scaleFactor = framing ? framing.s : 1
     const dyOffset = framing ? framing.dy : 0
+    const dxOffset = framing ? framing.dx : 0
     const width = dw * scaleFactor * scale
     const height = dh * scaleFactor * scale
     context.save()
     context.globalAlpha = Math.max(0, Math.min(1, alpha))
-    context.translate(FRAME_SIZE / 2 + dx, FRAME_SIZE / 2 + dy + dyOffset)
+    context.translate(
+      FRAME_SIZE / 2 + dx + dxOffset,
+      FRAME_SIZE / 2 + dy + dyOffset
+    )
     context.rotate(rotation)
     context.drawImage(img, sx, sy, sw, sh, -width / 2, -height / 2, width, height)
     context.restore()
@@ -339,6 +343,7 @@ const SHEET_DEFS: Record<SheetKey, { src: string; cols: number; rows: number; n:
 interface Framing {
   s: number
   dy: number
+  dx: number
 }
 
 interface SheetAsset {
@@ -387,6 +392,8 @@ function computeFraming(img: HTMLImageElement, cols: number, rows: number): Fram
   const sh = img.naturalHeight / rows
   let top = cellSize
   let bottom = -1
+  let left = cellSize
+  let right = -1
   for (let i = 0; i < cols * rows; i++) {
     g.clearRect(0, 0, cellSize, cellSize)
     g.drawImage(img, (i % cols) * sw, Math.floor(i / cols) * sh, sw, sh, 0, 0, cellSize, cellSize)
@@ -401,20 +408,26 @@ function computeFraming(img: HTMLImageElement, cols: number, rows: number): Fram
         if (data[(y * cellSize + x) * 4 + 3] > 16) {
           if (y < top) top = y
           if (y > bottom) bottom = y
+          if (x < left) left = x
+          if (x > right) right = x
         }
       }
     }
   }
-  if (bottom < top) return null
+  if (bottom < top || right < left) return null
   const topFraction = top / cellSize
   const bottomFraction = (bottom + 1) / cellSize
+  const leftFraction = left / cellSize
+  const rightFraction = (right + 1) / cellSize
   const fit = FRAME_SIZE / Math.max(sw, sh)
   const drawHeight = sh * fit
+  const drawWidth = sw * fit
   // Fur must span from (top edge + margin) to (bottom edge + overshoot).
   const spanNeeded = FRAME_SIZE - FRAMING_TOP_MARGIN + FRAMING_OVERSHOOT
   const scale = Math.max(1, spanNeeded / ((bottomFraction - topFraction) * drawHeight))
   const dy = FRAME_SIZE / 2 + FRAMING_OVERSHOOT - (bottomFraction - 0.5) * drawHeight * scale
-  return { s: scale, dy }
+  const dx = horizontalFramingOffset(leftFraction, rightFraction, drawWidth, scale, FRAME_SIZE)
+  return { s: scale, dy, dx }
 }
 
 // Deterministic per-cycle hold variation — organic blink cadence.

@@ -41,3 +41,29 @@ export function chaseDirection(current: number, target: number, lerp = 0.16): nu
 export function smoothFactor(rate: number, dt: number): number {
   return 1 - Math.exp(-rate * dt)
 }
+
+/**
+ * Horizontal framing offset that centers a sheet's alpha content bbox on the
+ * canvas, clamped so the content never clips at either side edge.
+ *
+ * bboxLeftFrac/bboxRightFrac are the measured content span (0..1 of the
+ * cell), drawWidth the scaled drawn cell width, scale the framing scale,
+ * frameSize the logical canvas side. Returns a dx to add to the X translate.
+ */
+export function horizontalFramingOffset(
+  bboxLeftFrac: number,
+  bboxRightFrac: number,
+  drawWidth: number,
+  scale: number,
+  frameSize: number
+): number {
+  const centerFrac = (bboxLeftFrac + bboxRightFrac) / 2
+  let dx = (0.5 - centerFrac) * drawWidth * scale
+  const contentHalf = ((bboxRightFrac - bboxLeftFrac) * drawWidth * scale) / 2
+  if (contentHalf < frameSize / 2) {
+    const minCenter = contentHalf
+    const maxCenter = frameSize - contentHalf
+    dx = Math.max(minCenter - frameSize / 2, Math.min(maxCenter - frameSize / 2, dx))
+  }
+  return dx
+}
