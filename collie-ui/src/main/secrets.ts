@@ -12,7 +12,7 @@
  */
 import { app, safeStorage } from 'electron'
 import { randomUUID } from 'crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 
 type SecretFile = Record<string, string> // provider -> base64(encrypted)
@@ -77,7 +77,16 @@ function readFile(): SecretFile {
 function writeFile(data: SecretFile): void {
   const path = secretsPath()
   mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, JSON.stringify(data, null, 2), 'utf-8')
+  // Defense-in-depth: the blobs are safeStorage-encrypted, but keep the file
+  // owner-only anyway (0600). chmod also tightens files written by older
+  // builds with default permissions. Windows ignores POSIX modes; DPAPI
+  // already scopes decryption to the user account there.
+  writeFileSync(path, JSON.stringify(data, null, 2), { encoding: 'utf-8', mode: 0o600 })
+  try {
+    chmodSync(path, 0o600)
+  } catch {
+    // best effort: mode enforcement is defense-in-depth, not correctness
+  }
 }
 
 export function saveSecret(provider: string, key: string): boolean {

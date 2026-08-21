@@ -18,7 +18,7 @@
 import { app, safeStorage, shell } from 'electron'
 import { createHash, randomBytes } from 'crypto'
 import { createServer, type Server } from 'http'
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '../shared/account-config'
 import { secureStorageAvailable } from './secrets'
@@ -137,8 +137,16 @@ function writeAuthFile(file: AuthFile): void {
   const path = authFilePath()
   mkdirSync(dirname(path), { recursive: true })
   const tmpPath = `${path}.tmp`
-  writeFileSync(tmpPath, JSON.stringify(file, null, 2), 'utf-8')
+  // Defense-in-depth: fields are safeStorage-encrypted, but keep the session
+  // file owner-only anyway (0600). Windows ignores POSIX modes; DPAPI already
+  // scopes decryption to the user account there.
+  writeFileSync(tmpPath, JSON.stringify(file, null, 2), { encoding: 'utf-8', mode: 0o600 })
   renameSync(tmpPath, path)
+  try {
+    chmodSync(path, 0o600)
+  } catch {
+    // best effort: mode enforcement is defense-in-depth, not correctness
+  }
 }
 
 /** Persist a session, encrypting every field with safeStorage. */
