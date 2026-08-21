@@ -171,3 +171,55 @@ async def test_refresh_persists_overlay_and_rollback_restores_bundled(tmp_path: 
     rollback = store.rollback()
     assert rollback["rolled_back"] is True
     assert store.providers() == []
+
+
+@pytest.mark.asyncio
+async def test_refresh_rejects_non_models_dev_urls(tmp_path: Path) -> None:
+    """The IPC-exposed refresh only fetches the official https models.dev feed."""
+    settings = _FakeSettings()
+    store = CatalogueStore(settings=settings, snapshot_path=tmp_path / "missing.json")
+
+    fetches: list[str] = []
+
+    async def _spy_fetch(url: str) -> bytes:  # pragma: no cover - must not run
+        fetches.append(url)
+        return b"{}"
+
+    from collie_core.catalog import refresh as refresh_module
+
+    original = refresh_module._fetch_async
+    refresh_module._fetch_async = _spy_fetch  # type: ignore[assignment]
+    try:
+        for bad in (
+            "http://models.dev/api.json",  # right host, wrong scheme
+            "https://evil.example.com/api.json",  # arbitrary https host
+            "https://models.dev.evil.example.com/api.json",  # suffix spoof
+            "file:///etc/passwd",  # local file
+        ):
+            result = await store.refresh(url=bad)
+            assert result["refreshed"] is False, bad
+            assert "models.dev feed" in result["error"], bad
+        assert fetches == []  # the fetch layer was never reached
+
+        allowed = await store.refresh(url="https://models.dev/api.json")
+        assert fetches == ["https://models.dev/api.json"]  # allowed URL reached the fetch layer
+        assert (
+            "models.dev feed" not in allowed["error"]
+        )  # rejected for other reasons (empty payload), not the URL gate
+    finally:
+        refresh_module._fetch_async = original  # type: ignore[assignment]
+
+
+def test_validate_refresh_url_defaults_and_normalizes() -> None:
+    from collie_core.catalog.refresh import MODELS_DEV_URL, _validate_refresh_url
+
+    assert _validate_refresh_url(None) == MODELS_DEV_URL
+    assert _validate_refresh_url("https://www.models.dev/api.json") == (
+        "https://www.models.dev/api.json"
+    )
+    for bad in ("http://models.dev/api.json", "https://evil.example.com/x", "not a url"):
+        try:
+            _validate_refresh_url(bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"expected rejection: {bad!r}")
