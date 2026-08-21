@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import UTC, datetime
 from typing import Any
@@ -25,12 +26,28 @@ CATALOGUE_REFRESHED_AT_SETTING = "catalogue.refresh.updated_at"
 CATALOGUE_SNAPSHOT_SETTING = "catalogue.snapshot"
 
 MODELS_DEV_URL = "https://models.dev/api.json"
+_ALLOWED_REFRESH_HOSTS = frozenset({"models.dev", "www.models.dev"})
 _FETCH_TIMEOUT_SECONDS = 20
 _MAX_PAYLOAD_BYTES = 8 * 1024 * 1024
 
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _validate_refresh_url(url: str | None) -> str:
+    """Pin catalogue refresh to the official https models.dev feed.
+
+    The refresh command is reachable over the local IPC surface; constraining
+    the host keeps a buggy or compromised shell from pointing it at an
+    arbitrary URL. Callers may omit the URL (default feed) or pass the
+    canonical one.
+    """
+    effective = url or MODELS_DEV_URL
+    parsed = urllib.parse.urlparse(effective)
+    if parsed.scheme != "https" or parsed.hostname not in _ALLOWED_REFRESH_HOSTS:
+        raise ValueError(f"catalogue refresh only accepts the models.dev feed, got {effective!r}")
+    return effective
 
 
 def _fetch(url: str) -> bytes:
@@ -55,7 +72,16 @@ async def fetch_and_trim_catalogue(
     untouched and a human error is returned.
     """
     try:
-        data = await _fetch_async(url or MODELS_DEV_URL)
+        effective_url = _validate_refresh_url(url)
+    except ValueError as error:
+        return {
+            "refreshed": False,
+            "error": "I can only refresh the catalogue from the official "
+            "models.dev feed, so I kept the bundled one.",
+            "detail": str(error),
+        }
+    try:
+        data = await _fetch_async(effective_url)
         raw = json.loads(data.decode("utf-8"))
     except (urllib.error.URLError, TimeoutError, OSError, ValueError) as error:
         return {
