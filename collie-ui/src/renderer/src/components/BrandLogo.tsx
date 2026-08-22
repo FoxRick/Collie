@@ -37,6 +37,23 @@ import telegramLogo from '../assets/providers/telegram.svg'
 import todoistLogo from '../assets/providers/todoist.svg'
 import trelloLogo from '../assets/providers/trello.svg'
 import whatsappLogo from '../assets/providers/whatsapp.svg'
+import asanaLogo from '../assets/providers/asana.svg'
+import circleciLogo from '../assets/providers/circleci.svg'
+import clickupLogo from '../assets/providers/clickup.svg'
+import cloudflareLogo from '../assets/providers/cloudflare.svg'
+import gitlabLogo from '../assets/providers/gitlab.svg'
+import klaviyoLogo from '../assets/providers/klaviyo.svg'
+import mondayLogo from '../assets/providers/monday.svg'
+import netlifyLogo from '../assets/providers/netlify.svg'
+import neonLogo from '../assets/providers/neon.svg'
+import paypalLogo from '../assets/providers/paypal.svg'
+import rampLogo from '../assets/providers/ramp.svg'
+import sentryLogo from '../assets/providers/sentry.svg'
+import squareLogo from '../assets/providers/square.svg'
+import supabaseLogo from '../assets/providers/supabase.svg'
+import vimeoLogo from '../assets/providers/vimeo.svg'
+import webflowLogo from '../assets/providers/webflow.svg'
+import calLogo from '../assets/providers/cal.svg'
 import zoomLogo from '../assets/providers/zoom.svg'
 
 const LOGOS: Record<string, string> = {
@@ -89,7 +106,29 @@ const LOGOS: Record<string, string> = {
   trello: trelloLogo,
   onedrive: microsoftOneDriveLogo,
   whatsapp: whatsappLogo,
-  zoom: zoomLogo
+  zoom: zoomLogo,
+  asana: asanaLogo,
+  cal: calLogo,
+  'cal-com': calLogo,
+  calcom: calLogo,
+  circleci: circleciLogo,
+  'circle-ci': circleciLogo,
+  clickup: clickupLogo,
+  'click-up': clickupLogo,
+  cloudflare: cloudflareLogo,
+  gitlab: gitlabLogo,
+  klaviyo: klaviyoLogo,
+  monday: mondayLogo,
+  'monday.com': mondayLogo,
+  netlify: netlifyLogo,
+  neon: neonLogo,
+  paypal: paypalLogo,
+  ramp: rampLogo,
+  sentry: sentryLogo,
+  square: squareLogo,
+  supabase: supabaseLogo,
+  vimeo: vimeoLogo,
+  webflow: webflowLogo
 }
 
 function logoKey(value: string): string {

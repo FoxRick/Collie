@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   chaseDirection,
+  horizontalFramingOffset,
   quantizePortraitPointer,
   smoothFactor,
   wrapDirectionDelta
@@ -43,5 +44,25 @@ describe('Collie portrait pointer motion', () => {
     expect(smoothFactor(9, 1)).toBeCloseTo(0.9999, 4)
     expect(smoothFactor(9, 0.016)).toBeGreaterThan(0)
     expect(smoothFactor(9, 0.016)).toBeLessThan(1)
+  })
+
+  it('centers content horizontally and clamps it inside the canvas', () => {
+    const SIZE = 384
+    // Symmetric content: no offset needed.
+    expect(horizontalFramingOffset(0.3, 0.7, 200, 1, SIZE)).toBeCloseTo(0, 5)
+    // Content shifted right within the cell: dx pulls it back to center.
+    const rightShifted = horizontalFramingOffset(0.5, 0.8, 200, 1, SIZE)
+    expect(rightShifted).toBeLessThan(0)
+    expect(rightShifted).toBeCloseTo((0.5 - 0.65) * 200, 5)
+    // Content shifted left: dx pushes it right.
+    const leftShifted = horizontalFramingOffset(0.15, 0.45, 200, 1, SIZE)
+    expect(leftShifted).toBeGreaterThan(0)
+    // Clamp: a heavily off-center but narrow face stays fully visible.
+    const clamped = horizontalFramingOffset(0.02, 0.12, 300, 1.4, SIZE)
+    const contentHalf = ((0.12 - 0.02) * 300 * 1.4) / 2
+    expect(clamped).toBeGreaterThanOrEqual(contentHalf - SIZE / 2)
+    // No clamp when content is wider than the canvas — stays centered.
+    const wide = horizontalFramingOffset(0.05, 0.99, 300, 1.4, SIZE)
+    expect(wide).toBeCloseTo((0.5 - 0.52) * 300 * 1.4, 5)
   })
 })

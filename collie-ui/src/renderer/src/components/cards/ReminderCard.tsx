@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { countdownLabel } from '../../lib/countdown'
 
 interface Props {
   data: Record<string, unknown>
@@ -32,39 +33,55 @@ export default function ReminderCard({ data }: Props): React.JSX.Element {
         </span>
       </div>
       <div className="space-y-2">
-        {items.map((item, i) => (
-          <div key={i} className="flex items-center gap-3 rounded-xl p-3"
-            style={{
-              background: done.has(i) ? 'var(--collie-fur)' : 'var(--collie-bone)',
-              opacity: done.has(i) ? 0.6 : 1
-            }}>
-            <button
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 text-xs"
+        {items.map((item, i) => {
+          const dueLabel = countdownLabel(item.due_at as string)
+          const isToday = dueLabel === 'today!' || dueLabel === 'overdue'
+          return (
+            <div key={i} className="flex items-center gap-3 rounded-xl p-3"
               style={{
-                borderColor: done.has(i) ? 'var(--collie-grass)' : 'var(--collie-paw)',
-                background: done.has(i) ? 'var(--collie-grass)' : 'transparent',
-                color: done.has(i) ? 'white' : 'transparent'
-              }}
-              onClick={() => setDone((prev) => {
-                const next = new Set(prev)
-                if (next.has(i)) next.delete(i)
-                else next.add(i)
-                return next
-              })}
-            >
-              ✓
-            </button>
-            <div className="flex-1">
-              <div className={`text-sm ${done.has(i) ? 'line-through' : ''}`}
-                style={{ color: 'var(--collie-nose)' }}>
-                {item.text as string}
+                background: done.has(i) ? 'var(--collie-fur)' : 'var(--collie-bone)',
+                opacity: done.has(i) ? 0.6 : 1
+              }}>
+              <button
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 text-xs"
+                style={{
+                  borderColor: done.has(i) ? 'var(--collie-grass)' : 'var(--collie-paw)',
+                  background: done.has(i) ? 'var(--collie-grass)' : 'transparent',
+                  color: done.has(i) ? 'white' : 'transparent'
+                }}
+                onClick={() => setDone((prev) => {
+                  const next = new Set(prev)
+                  if (next.has(i)) next.delete(i)
+                  else next.add(i)
+                  return next
+                })}
+              >
+                ✓
+              </button>
+              <div className="min-w-0 flex-1">
+                <div className={`text-sm ${done.has(i) ? 'line-through' : ''}`}
+                  style={{ color: 'var(--collie-nose)' }}>
+                  {item.text as string}
+                </div>
+                <div className="text-xs" style={{ color: 'var(--collie-paw)' }}>
+                  {item.due_at as string}
+                </div>
               </div>
-              <div className="text-xs" style={{ color: 'var(--collie-paw)' }}>
-                {item.due_at as string}
-              </div>
+              {!done.has(i) && dueLabel && (
+                <span
+                  className="shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold"
+                  aria-label={isToday ? 'Due now' : undefined}
+                  style={{
+                    color: isToday ? 'white' : 'var(--collie-nose)',
+                    background: isToday ? 'var(--collie-amber)' : 'var(--collie-fur)'
+                  }}
+                >
+                  {dueLabel}
+                </span>
+              )}
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
