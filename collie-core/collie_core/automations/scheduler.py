@@ -326,7 +326,11 @@ class AutomationScheduler:
                     str(run["id"]),
                     "skipped",
                     error_code="missed_window",
-                    error_message="The scheduled time was outside the recent missed-run window.",
+                    error_message=(
+                        "This one came due while your computer was off, so it was "
+                        "skipped — nothing was lost. It will run again at the next "
+                        "scheduled time."
+                    ),
                 )
                 continue
             task = asyncio.create_task(self._execute_claimed(auto, run))
