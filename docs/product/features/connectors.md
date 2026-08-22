@@ -1,8 +1,11 @@
 # Collie Connectors Update
 
-**Status:** active product direction — alpha enablement: Notion, Linear,
-Todoist, Atlassian, and Airtable (official hosted MCP) are live in the
-Connections directory; Google/Microsoft bundles await Collie-owned OAuth app
+**Status:** active product direction — 24 connections are live in the
+Connections directory as alpha (official hosted MCP with sign-in-your-account
+authorization): Notion, Linear, Todoist, Atlassian, Airtable, Asana, ClickUp,
+monday.com, Cal.com, Figma, Canva, Vimeo, Webflow, GitLab, CircleCI,
+Netlify, Supabase, Neon, Sentry, Cloudflare, PayPal, Square, Ramp, and
+Klaviyo. Google/Microsoft/Slack bundles await Collie-owned OAuth app
 registrations (see "Required from the owner").
 **Date:** 2026-08-01
 

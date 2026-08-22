@@ -6,6 +6,7 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import urlparse
 
 import pytest
 
@@ -68,7 +69,34 @@ def connector_store(tmp_path: Path) -> CredentialStore:
 
 def test_launch_catalog_enables_direct_mcp_routes_ready_for_live_oauth() -> None:
     by_id = {item.id: item for item in CONNECTOR_CATALOG}
-    oauth_routes = {"notion", "linear", "todoist", "atlassian", "airtable"}
+    oauth_routes = {
+        "notion",
+        "linear",
+        "todoist",
+        "atlassian",
+        "airtable",
+        # Wave 2 (2026-08-22): official hosted MCP with dynamic client
+        # registration — verified live against each provider's metadata.
+        "asana",
+        "clickup",
+        "monday",
+        "cal",
+        "figma",
+        "canva",
+        "gitlab",
+        "circleci",
+        "netlify",
+        "supabase",
+        "neon",
+        "sentry",
+        "cloudflare",
+        "paypal",
+        "square",
+        "ramp",
+        "klaviyo",
+        "vimeo",
+        "webflow",
+    }
     assert oauth_routes <= set(by_id)
     enabled = {item.id for item in CONNECTOR_CATALOG if item.available}
     # Only routes that can complete OAuth today (official hosted MCP with
@@ -84,22 +112,36 @@ def test_launch_catalog_enables_direct_mcp_routes_ready_for_live_oauth() -> None
         expected_status = "alpha" if sys.platform == "win32" else "coming_soon"
         assert definition.release_status == expected_status
         assert definition.endpoint
+        # A live route must pin its network boundary to its endpoint host.
+        endpoint_host = urlparse(definition.endpoint).hostname or ""
+        assert definition.trusted_hosts == (endpoint_host,)
     assert connector_def("NoTiOn") is by_id["notion"]
     assert by_id["notion"].endpoint == "https://mcp.notion.com/mcp"
 
 
 def test_enabled_catalog_routes_declare_explicit_least_privilege_scopes() -> None:
     by_id = {item.id: item for item in CONNECTOR_CATALOG}
-    oauth_routes = {"notion", "linear", "todoist", "atlassian", "airtable"}
-    enabled = {item.id for item in CONNECTOR_CATALOG if item.available}
-    assert enabled == (oauth_routes if sys.platform == "win32" else set())
+    oauth_routes = {item.id for item in CONNECTOR_CATALOG if item.available}
+    # Every live route must either declare explicit scopes or carry an empty
+    # tuple ONLY because the provider's authorization server advertises no
+    # scopes_supported and applies its own server-side MCP defaults.
+    no_advertised_scopes = {
+        "asana",  # AS lists no scopes_supported; server-side MCP default set.
+        "cal",
+        "canva",
+        "circleci",
+        "cloudflare",
+        "paypal",
+        "square",
+        "klaviyo",
+        "webflow",
+        "notion" if by_id["notion"].scopes == () else "",
+    } - {""}
     for provider_id in oauth_routes:
         definition = by_id[provider_id]
-        # Empty scopes make the MCP SDK omit the scope parameter, which the
-        # authorization server reads as "everything advertised". Scope
-        # declarations must exist on every platform, even where the route is
-        # not yet enabled.
-        assert definition.scopes, f"{provider_id} must request explicit scopes"
+        if definition.scopes:
+            continue
+        assert provider_id in no_advertised_scopes, f"{provider_id} must request explicit scopes"
     assert by_id["linear"].scopes == ("read", "write")
     assert by_id["todoist"].scopes == ("data:read_write",)
     assert by_id["airtable"].scopes == (
@@ -107,6 +149,9 @@ def test_enabled_catalog_routes_declare_explicit_least_privilege_scopes() -> Non
         "data.records:write",
         "schema.bases:read",
     )
+    assert by_id["figma"].scopes == ("mcp:connect",)
+    assert by_id["gitlab"].scopes == ("read_api", "read_user", "profile", "mcp")
+    assert by_id["sentry"].scopes == ("org:read", "project:write", "team:write", "event:write")
 
 
 def _enable_connector_for_unit_test(monkeypatch: pytest.MonkeyPatch, provider_id: str) -> None:

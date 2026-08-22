@@ -1,10 +1,39 @@
 # Connectors: research and implementation plan
 
-Status: in progress — five official MCP routes live as alpha; packaged-provider acceptance pending
+Status: in progress — nineteen official MCP routes live as alpha (wave 2 added 2026-08-22); packaged-provider acceptance pending
 
 Date: 2026-07-29
 
 Audience: product, design, frontend, backend, security, QA
+
+Implementation checkpoint (2026-08-22) — wave 2 catalog expansion:
+
+- 19 additional official hosted-MCP providers flipped to alpha alongside the
+  original five, all using dynamic client registration (the user signs in
+  with their existing account; no Collie-owned OAuth application needed):
+  Asana, ClickUp, monday.com, Cal.com (Mail & Calendar), Figma, Canva,
+  Vimeo, Webflow (Design & Media), GitLab, CircleCI, Netlify, Supabase,
+  Neon, Sentry, Cloudflare (Developer Tools), PayPal, Square, Ramp (Money),
+  Klaviyo (Marketing);
+- every wave-2 scope vocabulary was verified against the provider's live
+  RFC 8414 authorization-server metadata on 2026-08-22. Providers whose AS
+  advertises no scopes_supported (Asana, Cal.com, Canva, CircleCI,
+  Cloudflare, PayPal, Square, Klaviyo, Webflow) intentionally request none:
+  their servers apply a fixed MCP default set, so there is nothing narrower
+  to ask for;
+- GitLab requests read-only API scopes (`read_api`, `read_user`, `profile`,
+  `mcp`); Ramp requests a read-only slice of its fine-grained spend
+  vocabulary — writes remain blocked by Collie's approval layer regardless;
+- airtable's definition gained its missing `trusted_hosts` pin (parity with
+  the `_mcp()` helper);
+- official logos for all 17 new providers bundled from each brand's own
+  asset source or the simple-icons registry (official-source records);
+  SHA-256 hashes recorded in asset-provenance.sha256;
+- connector tests extended to pin the full 24-route enabled set on win32,
+  per-route trusted_hosts == endpoint host, and the no-advertised-scopes
+  exception list;
+- packaged-app acceptance on the Windows build remains the release gate and
+  now covers these routes too.
 
 Implementation checkpoint (2026-08-02) — alpha enablement:
 
