@@ -25,6 +25,13 @@ import {
 } from './secrets'
 import { pushStoredSecretsToCore } from './core-client'
 import { getAccountState, signOut, startAccountSignIn } from './account-auth'
+import {
+ enableSync,
+ getSyncStatus,
+ listSnapshots,
+ restoreFromDevice,
+ uploadSnapshot
+} from './cloud-sync'
 import { autoUpdater } from 'electron-updater'
 import {
   ActiveWorkTracker,
@@ -369,6 +376,13 @@ function registerIpc(): void {
   handle('account:start-sign-in', () => startAccountSignIn())
   handle('account:get-state', () => getAccountState())
   handle('account:sign-out', () => signOut())
+  // Account cloud sync (account-cloud-sync.md): per-device snapshots,
+  // opt-in. Payloads never include secrets; RLS scopes every REST call.
+  handle('account:sync-status', () => getSyncStatus())
+  handle('account:sync-enable', (enabled: boolean) => enableSync(Boolean(enabled)))
+  handle('account:sync-upload', () => uploadSnapshot())
+  handle('account:sync-list', () => listSnapshots())
+  handle('account:sync-restore', (deviceId: string) => restoreFromDevice(String(deviceId)))
   handle('collie:pick-attachments', async (): Promise<SelectedAttachment[]> => {
     const options = {
       title: 'Attach files to your message',

@@ -1,14 +1,32 @@
-import { LogIn, LogOut } from 'lucide-react'
+import { CloudUpload, History, LogIn, LogOut, RotateCcw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 /** Display-only account state, typed from the preload bridge (`window.account`). */
 type AccountState = Awaited<ReturnType<typeof window.account.getState>>
+type SyncStatus = Awaited<ReturnType<typeof window.account.syncStatus>>
+type SnapshotSummary = Awaited<ReturnType<typeof window.account.syncList>>[number]
+
+function formatWhen(iso: string | null): string {
+  if (!iso) return ''
+  try {
+    return new Date(iso).toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    })
+  } catch {
+    return ''
+  }
+}
 
 /**
  * Collie account card (account-system-spec.md §6): sign in via the system
  * browser (PKCE + localhost callback handled in the main process), show the
- * signed-in email, and sign out. The session itself never reaches the
- * renderer — only the display state does.
+ * signed-in email, and sign out. Below it, the opt-in cloud backup
+ * (account-cloud-sync.md): each computer keeps one snapshot online, and
+ * restoring from another computer is always an explicit choice. The session
+ * and snapshot contents never reach the renderer — display state only.
  */
 export default function AccountTab(): React.JSX.Element {
   const [state, setState] = useState<AccountState>({
@@ -16,13 +34,30 @@ export default function AccountTab(): React.JSX.Element {
     email: null,
     expiresAt: null
   })
+  const [sync, setSync] = useState<SyncStatus | null>(null)
+  const [snapshots, setSnapshots] = useState<SnapshotSummary[]>([])
   const [busy, setBusy] = useState(false)
+  const [syncBusy, setSyncBusy] = useState(false)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
 
   useEffect(() => {
     if (typeof window.account?.getState !== 'function') return
     void window.account.getState().then(setState).catch(() => undefined)
+    void window.account.syncStatus().then(setSync).catch(() => undefined)
   }, [])
+
+  const refreshSnapshots = (): void => {
+    if (typeof window.account?.syncList !== 'function') return
+    void window.account
+      .syncList()
+      .then(setSnapshots)
+      .catch(() => setSnapshots([]))
+  }
+
+  useEffect(() => {
+    if (state.signedIn && sync?.enabled) refreshSnapshots()
+  }, [state.signedIn, sync?.enabled])
 
   const handleSignIn = (): void => {
     if (typeof window.account?.startSignIn !== 'function') return
@@ -30,7 +65,10 @@ export default function AccountTab(): React.JSX.Element {
     setError('')
     void window.account
       .startSignIn()
-      .then(setState)
+      .then((next) => {
+        setState(next)
+        return window.account.syncStatus().then(setSync)
+      })
       .catch((signInError) =>
         setError(
           signInError instanceof Error
@@ -47,7 +85,10 @@ export default function AccountTab(): React.JSX.Element {
     setError('')
     void window.account
       .signOut()
-      .then(setState)
+      .then((next) => {
+        setState(next)
+        return window.account.syncStatus().then(setSync)
+      })
       .catch((signOutError) =>
         setError(
           signOutError instanceof Error
@@ -56,6 +97,83 @@ export default function AccountTab(): React.JSX.Element {
         )
       )
       .finally(() => setBusy(false))
+  }
+
+  const handleToggleSync = (): void => {
+    if (!sync) return
+    const turningOn = !sync.enabled
+    if (
+      turningOn &&
+      !window.confirm(
+        'Back up your memories online?\n\n' +
+          'Collie saves a copy of what she remembers — facts, people, ' +
+          'important dates, About Me, and her personality — to your account, ' +
+          'so another computer with Collie can pick them up.\n\n' +
+          'Chats, files, and API keys are never uploaded.'
+      )
+    ) {
+      return
+    }
+    setSyncBusy(true)
+    setError('')
+    setNotice('')
+    void window.account
+      .syncEnable(turningOn)
+      .then((next) => {
+        setSync(next)
+        setNotice(
+          turningOn
+            ? 'Backup is on — this computer’s copy is saved to your account.'
+            : 'Backup is off. Nothing else will be uploaded.'
+        )
+        if (turningOn) refreshSnapshots()
+      })
+      .catch((syncError) =>
+        setError(syncError instanceof Error ? syncError.message : 'Could not change that.')
+      )
+      .finally(() => setSyncBusy(false))
+  }
+
+  const handleBackupNow = (): void => {
+    if (typeof window.account?.syncUpload !== 'function') return
+    setSyncBusy(true)
+    setError('')
+    setNotice('')
+    void window.account
+      .syncUpload()
+      .then(() => {
+        setNotice('Saved. This computer’s copy is up to date.')
+        refreshSnapshots()
+      })
+      .catch((uploadError) =>
+        setError(uploadError instanceof Error ? uploadError.message : 'Backup didn’t go through.')
+      )
+      .finally(() => setSyncBusy(false))
+  }
+
+  const handleRestore = (snapshot: SnapshotSummary): void => {
+    if (
+      !window.confirm(
+        `Bring ${snapshot.deviceName}'s copy to this computer?\n\n` +
+          'This replaces what Collie remembers here — facts, people, dates, ' +
+          'About Me, and personality. You can undo file changes afterwards, ' +
+          'and nothing on your other computer is touched.'
+      )
+    ) {
+      return
+    }
+    setSyncBusy(true)
+    setError('')
+    setNotice('')
+    void window.account
+      .syncRestore(snapshot.deviceId)
+      .then(() => setNotice(`Done — this Collie now matches ${snapshot.deviceName}.`))
+      .catch((restoreError) =>
+        setError(
+          restoreError instanceof Error ? restoreError.message : 'Restore didn’t finish.'
+        )
+      )
+      .finally(() => setSyncBusy(false))
   }
 
   return (
@@ -69,9 +187,79 @@ export default function AccountTab(): React.JSX.Element {
             Signed in as <strong>{state.email}</strong>. Your chats and files
             stay on this computer — the account is just your identity.
           </p>
+
+          <div style={{ marginTop: 12 }}>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={Boolean(sync?.enabled)}
+                disabled={syncBusy || !sync?.configured}
+                onChange={handleToggleSync}
+              />
+              Back up my memories online
+            </label>
+            <p className="settings-lead" style={{ fontSize: '0.85em' }}>
+              Saves what Collie remembers — facts, people, important dates,
+              About Me, and personality — to your account. Chats, files, and
+              keys are never uploaded, and you can turn this off anytime.
+            </p>
+          </div>
+
+          {sync?.enabled && (
+            <div style={{ marginTop: 10 }}>
+              <button
+                type="button"
+                className="settings-button"
+                onClick={handleBackupNow}
+                disabled={syncBusy}
+              >
+                <CloudUpload size={14} /> {syncBusy ? 'Working…' : 'Back up now'}
+              </button>
+
+              {snapshots.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <div
+                    className="mb-2 text-xs font-medium uppercase tracking-wide"
+                    style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                  >
+                    <History size={12} /> Copies saved by your computers
+                  </div>
+                  {snapshots.map((snapshot) => (
+                    <div
+                      key={snapshot.deviceId}
+                      className="flex items-center justify-between gap-2 py-1"
+                    >
+                      <span style={{ fontSize: '0.9em' }}>
+                        <strong>{snapshot.isThisDevice ? 'This computer' : snapshot.deviceName}</strong>
+                        {snapshot.createdAt && (
+                          <span style={{ opacity: 0.7 }}> · {formatWhen(snapshot.createdAt)}</span>
+                        )}
+                      </span>
+                      {!snapshot.isThisDevice && (
+                        <button
+                          type="button"
+                          className="rounded-lg border px-3 py-1.5 text-xs font-medium"
+                          style={{ borderColor: 'var(--collie-border)' }}
+                          disabled={syncBusy}
+                          onClick={() => handleRestore(snapshot)}
+                        >
+                          <RotateCcw size={11} /> Bring here
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <p className="settings-lead" style={{ fontSize: '0.8em', opacity: 0.7 }}>
+                    Restoring never changes your other computers.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           <button
             type="button"
             className="settings-button"
+            style={{ marginTop: 12 }}
             onClick={handleSignOut}
             disabled={busy}
           >
@@ -94,9 +282,9 @@ export default function AccountTab(): React.JSX.Element {
           </button>
         </>
       )}
-      {error && (
+      {(error || notice) && (
         <p className="inline-notice" role="status">
-          {error}
+          {error || notice}
         </p>
       )}
     </section>
