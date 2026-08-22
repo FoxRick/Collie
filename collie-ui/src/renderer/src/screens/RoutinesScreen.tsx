@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Clock3,
   History,
@@ -7,6 +7,7 @@ import {
   Plus,
   RotateCcw,
   Rocket,
+  Settings2,
   Trash2,
   X
 } from 'lucide-react'
@@ -21,6 +22,31 @@ const LOOP_STARTERS = [
   'Every Friday at 5pm, help me review the week and plan something enjoyable.',
   'On the first day of every month at 9am, remind me to review my budget.'
 ]
+
+/** Built-in system-maintenance routines shown in their own quiet group. */
+const SYSTEM_IDS = new Set(['collie-memory-maintenance', 'collie-gardener-suggestions'])
+
+function friendlySchedule(schedule: string | undefined): string {
+  const raw = (schedule || '').trim()
+  if (!raw) return ''
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+  const parts = raw.split(/\s+/)
+  const clock = (t: string): string => {
+    const [h, m] = t.split(':').map((n) => parseInt(n, 10))
+    if (Number.isNaN(h)) return t
+    const suffix = h < 12 ? 'am' : 'pm'
+    const hour = h % 12 === 0 ? 12 : h % 12
+    return m ? `${hour}:${String(m).padStart(2, '0')} ${suffix}` : `${hour} ${suffix}`
+  }
+  if (parts.length === 1) return `Every day at ${clock(parts[0])}`
+  if (parts.length === 2 && /^\d+$/.test(parts[0])) return `Day ${parseInt(parts[0], 10)} of the month at ${clock(parts[1])}`
+  if (parts.length === 2 && days.includes(parts[0])) return `${dayName(parts[0])}s at ${clock(parts[1])}`
+  return raw
+}
+
+function dayName(code: string): string {
+  return ({ Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday', Sun: 'Sunday' } as Record<string, string>)[code] || code
+}
 
 export default function RoutinesScreen(): React.JSX.Element {
   const [loops, setLoops] = useState<LoopItem[]>([])
@@ -85,7 +111,7 @@ export default function RoutinesScreen(): React.JSX.Element {
       }
       setNotice(enabled ? `${loop.name} is enabled.` : `${loop.name} is paused.`)
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'I could not update that loop.')
+      setNotice(error instanceof Error ? error.message : 'I could not update that routine.')
     } finally {
       setBusy(false)
     }
@@ -105,7 +131,7 @@ export default function RoutinesScreen(): React.JSX.Element {
       await refresh()
       setNotice('Your new routine is scheduled.')
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'I could not create that loop.')
+      setNotice(error instanceof Error ? error.message : 'I could not create that routine.')
     } finally {
       setBusy(false)
     }
@@ -119,7 +145,7 @@ export default function RoutinesScreen(): React.JSX.Element {
       await refresh()
       setNotice(`${loop.name} was deleted.`)
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'I could not delete that loop.')
+      setNotice(error instanceof Error ? error.message : 'I could not delete that routine.')
     } finally {
       setBusy(false)
     }
@@ -150,12 +176,123 @@ export default function RoutinesScreen(): React.JSX.Element {
     setHistory((current) => ({ ...current, [loop.id]: data.runs }))
   }
 
+  /** A paused card has no honest "Next" until it runs again. */
+  const nextRunLabel = (loop: LoopItem): string => {
+    if (loop.enabled !== 1) return 'Paused'
+    if (!loop.next_run_at) return 'Not scheduled'
+    return new Date(loop.next_run_at).toLocaleString()
+  }
+
+  /** Missed-window skips are normal life (computer off), not errors. */
+  const runLine = (loop: LoopItem, run: CollieRun): React.JSX.Element => (
+    <div key={run.id}>
+      {run.status === 'skipped' && (run as { error_code?: string }).error_code === 'missed_window' ? (
+        <>
+          <strong>Missed</strong>
+          <span>{run.scheduled_for ? new Date(run.scheduled_for).toLocaleString() : run.trigger_type}</span>
+          <small>Your computer was likely off — nothing was lost.</small>
+        </>
+      ) : (
+        <>
+          <strong>{run.status}</strong>
+          <span>{run.started_at ? new Date(run.started_at).toLocaleString() : run.trigger_type}</span>
+          {run.error_message ? <small>{run.error_message}</small> : null}
+        </>
+      )}
+      {run.status === 'failed' ? (
+        <button
+          className="routine-retry"
+          onClick={() => void (async () => {
+            await collieClient.retryRoutineRun(run.id)
+            setNotice('Retry started.')
+            const data = await collieClient.listRoutineRuns(loop.id)
+            setHistory((current) => ({ ...current, [loop.id]: data.runs }))
+          })()}
+        >
+          <RotateCcw size={11} /> Retry
+        </button>
+      ) : null}
+    </div>
+  )
+
+  const userLoops = useMemo(() => loops.filter((loop) => !SYSTEM_IDS.has(loop.id)), [loops])
+  const systemLoops = useMemo(() => loops.filter((loop) => SYSTEM_IDS.has(loop.id)), [loops])
+
+  const renderCard = (loop: LoopItem): React.JSX.Element => (
+    <article key={loop.id} className={`loop-card ${loop.enabled === 1 ? '' : 'is-paused'}`}>
+      <div className="loop-icon"><Clock3 size={20} /></div>
+      <div className="loop-copy">
+        <div className="loop-title-row">
+          <h2>{loop.name}</h2>
+          <span className={`loop-state ${loop.enabled === 1 ? 'is-running' : ''}`}>
+            {loop.routine_status === 'needs_attention'
+              ? 'Needs attention'
+              : loop.enabled === 1 ? 'Enabled' : 'Paused'}
+          </span>
+        </div>
+        {loop.description && <p>{loop.description}</p>}
+        <div className="loop-schedule"><Clock3 size={13} /> {friendlySchedule(loop.schedule) || 'Schedule set by Collie'}</div>
+        <div className="routine-facts">
+          <span>Next: {nextRunLabel(loop)}</span>
+          <span>Last success: {loop.last_success_at ? new Date(loop.last_success_at).toLocaleString() : 'Never'}</span>
+          {loop.last_failure_at ? <span>Last failure: {new Date(loop.last_failure_at).toLocaleString()}</span> : null}
+          {loop.plan_version ? <span>Plan: v{loop.plan_version}</span> : null}
+        </div>
+        {history[loop.id] ? (
+          <div className="routine-history">
+            {history[loop.id].length ? history[loop.id].slice(0, 5).map((run) => runLine(loop, run)) : <span>No runs yet.</span>}
+          </div>
+        ) : null}
+      </div>
+      <div className="loop-actions">
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={() => void runNow(loop)}
+          disabled={busy || (loop.action_type === 'approved_plan' && !loop.plan_version)}
+        >
+          <Rocket size={14} /> Run now
+        </button>
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={() => void toggleHistory(loop)}
+          disabled={busy}
+        >
+          <History size={14} /> History
+        </button>
+        <button
+          type="button"
+          className="secondary-button"
+          role="switch"
+          aria-checked={loop.enabled === 1}
+          onClick={() => void toggle(loop)}
+          disabled={busy}
+        >
+          {loop.enabled === 1 ? <Pause size={14} /> : <Play size={14} />}
+          {loop.enabled === 1 ? 'Pause' : 'Resume'}
+        </button>
+        {!loop.id.startsWith('collie-') && (
+          <button
+            type="button"
+            className="icon-button loop-delete"
+            aria-label={`Delete ${loop.name}`}
+            onClick={() => void remove(loop)}
+            disabled={busy}
+          >
+            <Trash2 size={15} />
+          </button>
+        )}
+      </div>
+    </article>
+  )
+
   return (
     <main className="section-workspace flex min-w-0 flex-1 flex-col overflow-hidden">
       <header className="section-header">
         <div>
           <h1>Routines</h1>
-          <p>Schedule approved plans with visible history and recovery.</p>
+          <p>Put tasks on repeat — see what ran and fix misses.</p>
         </div>
         <button type="button" className="primary-button" onClick={() => setCreating(true)}>
           <Plus size={16} /> Create routine
@@ -167,95 +304,17 @@ export default function RoutinesScreen(): React.JSX.Element {
         {loading ? (
           <div className="section-loading">Checking your routines...</div>
         ) : loops.length > 0 ? (
-          <div className="loop-list">
-            {loops.map((loop) => (
-              <article key={loop.id} className={`loop-card ${loop.enabled === 1 ? '' : 'is-paused'}`}>
-                <div className="loop-icon"><Clock3 size={20} /></div>
-                <div className="loop-copy">
-                  <div className="loop-title-row">
-                    <h2>{loop.name}</h2>
-                    <span className={`loop-state ${loop.enabled === 1 ? 'is-running' : ''}`}>
-                      {loop.routine_status === 'needs_attention'
-                        ? 'Needs attention'
-                        : loop.enabled === 1 ? 'Enabled' : 'Paused'}
-                    </span>
-                  </div>
-                  {loop.description && <p>{loop.description}</p>}
-                  <div className="loop-schedule"><Clock3 size={13} /> {loop.schedule || 'Schedule set by Collie'}</div>
-                  <div className="routine-facts">
-                    <span>Next: {loop.next_run_at ? new Date(loop.next_run_at).toLocaleString() : 'Not scheduled'}</span>
-                    <span>Last success: {loop.last_success_at ? new Date(loop.last_success_at).toLocaleString() : 'Never'}</span>
-                    {loop.last_failure_at ? <span>Last failure: {new Date(loop.last_failure_at).toLocaleString()}</span> : null}
-                    <span>Plan: {loop.plan_version ? `v${loop.plan_version}` : 'Needs review'}</span>
-                  </div>
-                  {history[loop.id] ? (
-                    <div className="routine-history">
-                      {history[loop.id].length ? history[loop.id].slice(0, 5).map((run) => (
-                        <div key={run.id}>
-                          <strong>{run.status}</strong>
-                          <span>{run.started_at ? new Date(run.started_at).toLocaleString() : run.trigger_type}</span>
-                          {run.error_message ? <small>{run.error_message}</small> : null}
-                          {run.status === 'failed' ? (
-                            <button
-                              className="routine-retry"
-                              onClick={() => void (async () => {
-                                await collieClient.retryRoutineRun(run.id)
-                                setNotice('Retry started.')
-                                const data = await collieClient.listRoutineRuns(loop.id)
-                                setHistory((current) => ({ ...current, [loop.id]: data.runs }))
-                              })()}
-                            >
-                              <RotateCcw size={11} /> Retry
-                            </button>
-                          ) : null}
-                        </div>
-                      )) : <span>No runs yet.</span>}
-                    </div>
-                  ) : null}
-                </div>
-                <div className="loop-actions">
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => void runNow(loop)}
-                    disabled={busy || (loop.action_type === 'approved_plan' && !loop.plan_version)}
-                  >
-                    <Rocket size={14} /> Run now
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => void toggleHistory(loop)}
-                    disabled={busy}
-                  >
-                    <History size={14} /> History
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    role="switch"
-                    aria-checked={loop.enabled === 1}
-                    onClick={() => void toggle(loop)}
-                    disabled={busy}
-                  >
-                    {loop.enabled === 1 ? <Pause size={14} /> : <Play size={14} />}
-                    {loop.enabled === 1 ? 'Pause' : 'Resume'}
-                  </button>
-                  {!loop.id.startsWith('collie-') && (
-                    <button
-                      type="button"
-                      className="icon-button loop-delete"
-                      aria-label={`Delete ${loop.name}`}
-                      onClick={() => void remove(loop)}
-                      disabled={busy}
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  )}
-                </div>
-              </article>
-            ))}
-          </div>
+          <>
+            {userLoops.length > 0 ? (
+              <div className="loop-list">{userLoops.map(renderCard)}</div>
+            ) : null}
+            {systemLoops.length > 0 ? (
+              <>
+                <h3 className="routine-group-label"><Settings2 size={13} /> System maintenance</h3>
+                <div className="loop-list">{systemLoops.map(renderCard)}</div>
+              </>
+            ) : null}
+          </>
         ) : (
           <div className="loops-empty">
             <span className="section-placeholder-icon"><Clock3 size={25} /></span>
