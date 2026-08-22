@@ -2,6 +2,8 @@ interface Props {
   data: Record<string, unknown>
 }
 
+import HealthStreaks from './HealthStreaks'
+
 export default function HealthCard({ data }: Props): React.JSX.Element {
   const streak = (data.streak_days as number) || 0
   const steps = (data.steps as number) || 0
@@ -44,20 +46,7 @@ export default function HealthCard({ data }: Props): React.JSX.Element {
           <div className="text-xs" style={{ color: 'var(--collie-paw)' }}>cups</div>
         </div>
       </div>
-      {grid && grid.length > 0 && (
-        <div className="flex gap-1">
-          {grid.map((val, i) => (
-            <div key={i}
-              className="h-3 flex-1 rounded-sm"
-              style={{
-                background: val > 0
-                  ? `color-mix(in srgb, var(--collie-grass) ${val * 25}%, var(--collie-fur))`
-                  : 'var(--collie-fur)'
-              }}
-            />
-          ))}
-        </div>
-      )}
+      <HealthStreaks habits={data.habits} grid={grid} />
     </div>
   )
 }

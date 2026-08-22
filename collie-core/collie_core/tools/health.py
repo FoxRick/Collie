@@ -52,6 +52,22 @@ def _card(db: Any) -> str:
         else:
             break
 
+    # Per-habit dot grids for the streak view (HealthStreaks): one entry per
+    # metric per day, oldest → newest; None = nothing logged that day.
+    habit_specs = [
+        ("steps", "Steps", "👟", "#e8913a"),
+        ("water_cups", "Water", "💧", "#6baed6"),
+        ("sleep_hours", "Sleep", "😴", "#8b7ec8"),
+    ]
+    habits: list[dict[str, Any]] = []
+    for key, label, icon, color in habit_specs:
+        days: list[float | None] = []
+        for i in range(6, -1, -1):
+            day = (today - timedelta(days=i)).isoformat()
+            value = by_day.get(day, {}).get(key)
+            days.append(value if value else None)
+        habits.append({"key": key, "label": label, "icon": icon, "color": color, "days": days})
+
     weight_row = db.health_latest("weight")
     payload: dict[str, Any] = {
         "card_type": "health",
@@ -60,6 +76,7 @@ def _card(db: Any) -> str:
         "sleep_hours": _safe_float(latest.get("sleep_hours", 0)),
         "water_cups": int(_safe_float(latest.get("water_cups", 0))),
         "grid": grid,
+        "habits": habits,
     }
     if weight_row is not None:
         payload["weight"] = _safe_float(weight_row["value"])

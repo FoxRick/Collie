@@ -961,6 +961,17 @@ class CollieRuntime:
                 "message": assistant,
             }
         )
+        # Morning briefings get a seeable "Today at a glance" card (weather +
+        # next 24h reminders) under the text. Best-effort: never blocks the
+        # briefing itself.
+        if isinstance(action_config, dict) and action_config.get("kind") == "morning":
+            try:
+                from collie_core.tools.today_glance import attach_today_glance
+
+                await attach_today_glance(self.db, conv_id, self.ipc)
+            except Exception:
+                logger.exception("Today-at-a-glance card failed for {}", auto_id)
+
         await self.ipc.broadcast(
             {
                 "type": "automation",
