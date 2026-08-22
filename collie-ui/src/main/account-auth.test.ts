@@ -169,7 +169,12 @@ describe('encrypted session store', () => {
 
     expect(clearAccountSession()).toBe(true)
     expect(getStoredSession()).toBeNull()
-    expect(await getAccountState()).toEqual({ signedIn: false, email: null, expiresAt: null })
+    expect(await getAccountState()).toEqual({
+      signedIn: false,
+      email: null,
+      expiresAt: null,
+      access: 'unknown'
+    })
   })
 
   it('rejects a session when safeStorage encryption is unavailable', async () => {

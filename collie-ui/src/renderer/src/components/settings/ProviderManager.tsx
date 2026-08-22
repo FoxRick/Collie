@@ -19,7 +19,18 @@ interface Props {
   onNotice: (message: string) => void
 }
 
-const API_PROVIDERS = ['openai', 'anthropic', 'openrouter', 'deepseek', 'groq', 'ollama', 'custom']
+const API_PROVIDERS = ['openai', 'anthropic', 'openrouter', 'deepseek', 'groq', 'ollama', 'custom'] as const
+
+/** Friendly names — non-coders should never see raw provider ids. */
+const PROVIDER_LABELS: Record<(typeof API_PROVIDERS)[number], string> = {
+  openai: 'OpenAI',
+  anthropic: 'Anthropic (Claude)',
+  openrouter: 'OpenRouter',
+  deepseek: 'DeepSeek',
+  groq: 'Groq',
+  ollama: 'Ollama (local)',
+  custom: 'Custom API'
+}
 
 export const configureSettingsApiKey = configureApiKeyProvider
 
@@ -284,22 +295,9 @@ export default function ProviderManager({
           <p>Keep more than one connection and switch from the chat box.</p>
         </div>
         <button type="button" className="secondary-button" onClick={() => setShowForm(!showForm)}>
-          <Plus size={14} /> Add provider
+          <Plus size={14} /> Add AI connection
         </button>
       </div>
-      <p className="provider-catalogue-line">
-        {catalogueAge()
-          ? `Provider catalogue updated ${catalogueAge()} ago.`
-          : 'Using the bundled provider catalogue.'}{' '}
-        <button
-          type="button"
-          className="catalogue-check"
-          disabled={catalogueBusy}
-          onClick={() => void checkCatalogue()}
-        >
-          {catalogueBusy ? 'Checking…' : 'Check for updates'}
-        </button>
-      </p>
 
       <div className="provider-list">
         {providers.map((item) => (
@@ -342,8 +340,25 @@ export default function ProviderManager({
             </button>
           </div>
         ))}
-        {providers.length === 0 && <p className="provider-empty">No model provider connected yet.</p>}
+        {providers.length === 0 && <p className="provider-empty">No AI connection yet — add one above to start chatting.</p>}
       </div>
+
+      <details className="provider-advanced">
+        <summary>Advanced — provider list updates</summary>
+        <p className="provider-catalogue-line">
+          {catalogueAge()
+            ? `Provider list updated ${catalogueAge()} ago.`
+            : 'Using the built-in provider list.'}{' '}
+          <button
+            type="button"
+            className="catalogue-check"
+            disabled={catalogueBusy}
+            onClick={() => void checkCatalogue()}
+          >
+            {catalogueBusy ? 'Checking…' : 'Check for updates'}
+          </button>
+        </p>
+      </details>
 
       {showForm && (
         <div className="provider-add">
@@ -357,32 +372,8 @@ export default function ProviderManager({
               if (value !== 'custom') setDisplayName('')
             }}
           >
-            {API_PROVIDERS.map((item) => <option key={item} value={item}>{item}</option>)}
+            {API_PROVIDERS.map((item) => <option key={item} value={item}>{PROVIDER_LABELS[item]}</option>)}
           </select>
-          <input
-            type="text"
-            value={displayName}
-            aria-label="Connection name"
-            onChange={(event) => setDisplayName(event.target.value)}
-            placeholder={provider === 'custom' ? 'Connection name' : 'Connection name (optional)'}
-          />
-          {provider === 'custom' && (
-            <select
-              value={protocol}
-              aria-label="API protocol"
-              onChange={(event) => setProtocol(event.target.value as 'openai' | 'anthropic')}
-            >
-              <option value="openai">OpenAI-compatible</option>
-              <option value="anthropic">Anthropic-compatible</option>
-            </select>
-          )}
-          <input
-            type="url"
-            value={baseUrl}
-            aria-label="API base URL"
-            onChange={(event) => setBaseUrl(event.target.value)}
-            placeholder={provider === 'custom' ? 'Base URL' : 'Custom base URL (optional)'}
-          />
           <input
             type="password"
             value={apiKey}
@@ -390,20 +381,60 @@ export default function ProviderManager({
             onChange={(event) => setApiKey(event.target.value)}
             placeholder={secretProviders.includes(displayName.trim() || provider) ? 'Enter a replacement API key' : 'Paste API key'}
           />
-          <input
-            type="text"
-            value={model}
-            aria-label="Model ID"
-            onChange={(event) => setModel(event.target.value)}
-            placeholder="Model ID (optional)"
-          />
+          {/* Base URL / protocol / model ID are expert knobs — most people
+              only need provider + key. They stay available, tucked away. */}
+          {provider === 'custom' && (
+            <>
+              <input
+                type="url"
+                value={baseUrl}
+                aria-label="API base URL"
+                onChange={(event) => setBaseUrl(event.target.value)}
+                placeholder="Base URL"
+              />
+              <select
+                value={protocol}
+                aria-label="API protocol"
+                onChange={(event) => setProtocol(event.target.value as 'openai' | 'anthropic')}
+              >
+                <option value="openai">OpenAI-compatible</option>
+                <option value="anthropic">Anthropic-compatible</option>
+              </select>
+            </>
+          )}
+          <details className="provider-advanced">
+            <summary>Advanced — connection name and model</summary>
+            <input
+              type="text"
+              value={displayName}
+              aria-label="Connection name"
+              onChange={(event) => setDisplayName(event.target.value)}
+              placeholder={provider === 'custom' ? 'Connection name' : 'Connection name (optional)'}
+            />
+            <input
+              type="text"
+              value={model}
+              aria-label="Model ID"
+              onChange={(event) => setModel(event.target.value)}
+              placeholder="Model ID (optional)"
+            />
+            {!['custom', 'ollama'].includes(provider) && (
+              <input
+                type="url"
+                value={baseUrl}
+                aria-label="API base URL"
+                onChange={(event) => setBaseUrl(event.target.value)}
+                placeholder="Custom base URL (optional)"
+              />
+            )}
+          </details>
           <button
             type="button"
             className="primary-button"
             disabled={!apiKey.trim() || busyAction === 'add-api'}
             onClick={() => void saveApiKey()}
           >
-            Connect API key
+            Connect
           </button>
           <span className="provider-or">or sign in</span>
           <div className="provider-signin-row">

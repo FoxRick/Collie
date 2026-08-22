@@ -16,6 +16,7 @@ import { ja } from './locales/ja'
 import { useEffect, useState } from 'react'
 
 export type Locale = 'en' | 'de' | 'es' | 'fr' | 'ja'
+export const LOCALES: readonly Locale[] = ['en', 'de', 'es', 'fr', 'ja']
 export type LocalePreference = Locale | 'system'
 export type TranslationKey = keyof typeof en
 

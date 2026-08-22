@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { TriangleAlert } from 'lucide-react'
 import { collieClient } from '../../lib/ipc'
 
 interface Props {
@@ -9,23 +10,32 @@ export default function ContextTab({ onNotice }: Props): React.JSX.Element {
   const [agents, setAgents] = useState('')
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
+  // A failed read must NEVER look like an empty file: pre-filling an empty box
+  // and letting Save run would silently overwrite AGENTS.md.
+  const [loadError, setLoadError] = useState(false)
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        const resp = await collieClient.command<{ content: string }>('read_file', {
-          path: 'AGENTS.md'
-        })
-        setAgents(resp.content || '')
-      } catch {
-        setAgents('')
-      } finally {
-        setLoading(false)
-      }
-    })()
+  const load = useCallback(async (): Promise<void> => {
+    setLoading(true)
+    setLoadError(false)
+    try {
+      const resp = await collieClient.command<{ content: string }>('read_file', {
+        path: 'AGENTS.md'
+      })
+      setAgents(resp.content || '')
+    } catch {
+      setLoadError(true)
+      setAgents('')
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
+  useEffect(() => {
+    void load()
+  }, [load])
+
   const save = async (): Promise<void> => {
+    if (loadError) return
     try {
       await collieClient.command('write_file', { path: 'AGENTS.md', content: agents })
       setSaved(true)
@@ -46,6 +56,20 @@ export default function ContextTab({ onNotice }: Props): React.JSX.Element {
         <div className="py-8 text-center text-sm" style={{ color: 'var(--collie-paw)' }}>
           Looking through your settings...
         </div>
+      ) : loadError ? (
+        <section className="settings-card">
+          <h3>
+            <TriangleAlert size={16} /> Couldn't read your instructions
+          </h3>
+          <p className="settings-lead">
+            Collie can't open AGENTS.md right now, so editing is paused — saving
+            over an unread file could erase what you've written before. Check
+            that Collie is running, then try again.
+          </p>
+          <button type="button" className="settings-button" onClick={() => void load()}>
+            Try again
+          </button>
+        </section>
       ) : (
         <>
           <textarea

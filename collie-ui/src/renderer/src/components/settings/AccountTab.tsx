@@ -20,19 +20,34 @@ function formatWhen(iso: string | null): string {
   }
 }
 
+const ACCESS_COPY: Record<AccountState['access'], { title: string; detail: string } | null> = {
+  granted: {
+    title: 'Early access: active',
+    detail: 'Your account has full access to this alpha.'
+  },
+  waiting: {
+    title: "You're on the list",
+    detail:
+      'Your spot is reserved. Collie works while you wait — access features unlock automatically.'
+  },
+  unknown: null
+}
+
 /**
  * Collie account card (account-system-spec.md §6): sign in via the system
  * browser (PKCE + localhost callback handled in the main process), show the
- * signed-in email, and sign out. Below it, the opt-in cloud backup
- * (account-cloud-sync.md): each computer keeps one snapshot online, and
- * restoring from another computer is always an explicit choice. The session
- * and snapshot contents never reach the renderer — display state only.
+ * signed-in email, early-access status, and sign out. Below that, the
+ * opt-in cloud backup (account-cloud-sync.md): each computer keeps one
+ * snapshot online, and restoring from another computer is always an
+ * explicit choice. Sessions and snapshot contents never reach the
+ * renderer — display state only.
  */
 export default function AccountTab(): React.JSX.Element {
   const [state, setState] = useState<AccountState>({
     signedIn: false,
     email: null,
-    expiresAt: null
+    expiresAt: null,
+    access: 'unknown'
   })
   const [sync, setSync] = useState<SyncStatus | null>(null)
   const [snapshots, setSnapshots] = useState<SnapshotSummary[]>([])
@@ -98,6 +113,8 @@ export default function AccountTab(): React.JSX.Element {
       )
       .finally(() => setBusy(false))
   }
+
+  const accessCopy = ACCESS_COPY[state.access]
 
   const handleToggleSync = (): void => {
     if (!sync) return
@@ -187,6 +204,12 @@ export default function AccountTab(): React.JSX.Element {
             Signed in as <strong>{state.email}</strong>. Your chats and files
             stay on this computer — the account is just your identity.
           </p>
+          {accessCopy && (
+            <p className="account-access-line">
+              <strong>{accessCopy.title}.</strong> {accessCopy.detail}
+            </p>
+          )}
+
 
           <div style={{ marginTop: 12 }}>
             <label className="flex items-center gap-2">
@@ -269,8 +292,10 @@ export default function AccountTab(): React.JSX.Element {
       ) : (
         <>
           <p className="settings-lead">
-            Sign in with your Collie account — a browser window opens and brings
-            you right back. No data leaves this computer.
+            One click with your email — a browser window opens, you tap the
+            link, and you're back. No password to remember, and no data leaves
+            this computer. Don't have an account yet? This creates one and
+            holds your spot on the early-access list.
           </p>
           <button
             type="button"
@@ -278,7 +303,7 @@ export default function AccountTab(): React.JSX.Element {
             onClick={handleSignIn}
             disabled={busy}
           >
-            <LogIn size={14} /> {busy ? 'Opening your browser…' : 'Sign in'}
+            <LogIn size={14} /> {busy ? 'Opening your browser…' : 'Continue with email'}
           </button>
         </>
       )}

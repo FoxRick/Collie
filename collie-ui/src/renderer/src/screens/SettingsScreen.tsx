@@ -3,8 +3,6 @@ import {
   ArrowLeft,
   Brain,
   CircleUserRound,
-  Cloud,
-  Dog,
   KeyRound,
   Mic2,
   Palette,
@@ -28,6 +26,14 @@ import {
   type FontScale,
   type ThemePreference
 } from '../lib/theme'
+import {
+  LOCALES,
+  getLocalePreference,
+  LOCALE_LABELS,
+  resolveLocale,
+  setLocalePreference,
+  type LocalePreference
+} from '../lib/i18n'
 import CollieFace from '../components/CollieFace'
 import ProfileTab from '../components/settings/ProfileTab'
 import ContextTab from '../components/settings/ContextTab'
@@ -40,6 +46,7 @@ import AccountTab from '../components/settings/AccountTab'
 import ProviderManager from '../components/settings/ProviderManager'
 import AudioInputTab from '../components/settings/AudioInputTab'
 import UpdateTab from '../components/settings/UpdateTab'
+import TabErrorBoundary from '../components/settings/TabErrorBoundary'
 import type { AppView } from '../lib/navigation'
 
 type Tab =
@@ -57,6 +64,11 @@ type Tab =
   | 'onboarding'
   | 'updates'
 
+// The Services and Desktop pet entries are reachable but not advertised in
+// the sidebar: Services is a pointer to the main Connections directory (one
+// click away in the sidebar already), and the pet is gated off this release.
+// They stay renderable so deep links keep working — they just stop costing
+// every user a dead nav slot.
 const SETTINGS_GROUPS = [
   {
     label: 'Models',
@@ -72,17 +84,13 @@ const SETTINGS_GROUPS = [
   },
   {
     label: 'Connections',
-    items: [
-      { key: 'services' as const, label: 'Services', icon: Cloud },
-      { key: 'phone' as const, label: 'Telegram', icon: Send }
-    ]
+    items: [{ key: 'phone' as const, label: 'Telegram', icon: Send }]
   },
   {
     label: 'Experience',
     items: [
       { key: 'audio' as const, label: 'Audio & input', icon: Mic2 },
-      { key: 'appearance' as const, label: 'Appearance', icon: Palette },
-      { key: 'pet' as const, label: 'Desktop pet', icon: Dog }
+      { key: 'appearance' as const, label: 'Appearance', icon: Palette }
     ]
   },
   {
@@ -105,7 +113,7 @@ interface Props {
 }
 
 export function clearAllDataNotice(result: ClearAllDataResult): string {
-  if (result.cleared) return 'All clear. Fresh start! 🐕'
+  if (result.cleared) return 'All clear. Fresh start!'
 
   const warningCount = result.warnings.length
   if (result.database_cleared) {
@@ -158,8 +166,14 @@ export default function SettingsScreen({
     claude: false
   })
   const [notice, setNotice] = useState('')
+  // Danger-zone confirm state: the panel starts EMPTY — the user types
+  // DELETE themselves. Prefilling would make it a lazy extra click.
+  const [dangerOpen, setDangerOpen] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState('')
+  const [deleteBusy, setDeleteBusy] = useState(false)
   const [theme, setTheme] = useState<ThemePreference>(getThemePreference())
   const [fontScale, setFontScaleState] = useState<FontScale>(getFontScale())
+  const [locale, setLocaleState] = useState<LocalePreference>(getLocalePreference())
   const t = useT()
 
   const refresh = async (): Promise<void> => {
@@ -231,6 +245,32 @@ export default function SettingsScreen({
                   </button>
                 ))}
               </div>
+              <h4 className="mb-2 mt-4 text-sm font-medium">Language</h4>
+              <p className="mb-2 text-sm" style={{ color: 'var(--collie-text-muted)' }}>
+                Pick the language Collie speaks. “Automatic” follows your computer.
+              </p>
+              <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Language">
+                {(['system', ...LOCALES] as const).map((pref) => {
+                  const label =
+                    pref === 'system'
+                      ? `Automatic (${LOCALE_LABELS[resolveLocale()]})`
+                      : LOCALE_LABELS[pref]
+                  return (
+                    <button
+                      key={pref}
+                      role="radio"
+                      aria-checked={locale === pref}
+                      onClick={() => {
+                        setLocalePreference(pref as LocalePreference)
+                        setLocaleState(pref as LocalePreference)
+                      }}
+                      className={`settings-button ${locale === pref ? 'is-selected' : ''}`}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
             </section>
         )
       case 'audio':
@@ -241,7 +281,10 @@ export default function SettingsScreen({
             <AccountTab />
             <section className="settings-card">
               <h3 className="mb-2 font-medium">Your data</h3>
-              <div className="flex gap-2">
+              <p className="settings-lead">
+                Take everything Collie knows with you, any time.
+              </p>
+              <div>
                 <button
                   onClick={() =>
                     void collieClient
@@ -255,27 +298,69 @@ export default function SettingsScreen({
                 >
                   Export my data
                 </button>
-                <button
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        'Delete everything Collie remembers? Chats, memories, ' +
-                          'people, automations — all of it. This cannot be undone.'
-                      )
-                    ) {
-                      void collieClient
-                        .clearAllData()
-                        .then((result) => setNotice(clearAllDataNotice(result)))
-                        .catch((e) =>
-                          setNotice(e instanceof Error ? e.message : 'Could not clear.')
-                        )
-                    }
-                  }}
-                  className="settings-button is-danger"
-                >
-                  Delete all data
-                </button>
               </div>
+            </section>
+            <section className="settings-card settings-danger-zone">
+              <h3 className="mb-2 font-medium">Danger zone</h3>
+              <p className="settings-lead">
+                Deletes everything Collie remembers — chats, memories, people,
+                automations. This cannot be undone.
+              </p>
+              {dangerOpen ? (
+                <div className="settings-danger-confirm">
+                  <label className="form-field">
+                    <span>Type DELETE to confirm</span>
+                    <input
+                      autoFocus
+                      value={confirmDelete}
+                      onChange={(event) => setConfirmDelete(event.target.value)}
+                      placeholder="DELETE"
+                      aria-label="Type DELETE to confirm deleting all data"
+                    />
+                  </label>
+                  <div className="flex gap-2">
+                    <button
+                      className="settings-button is-danger"
+                      disabled={confirmDelete !== 'DELETE' || deleteBusy}
+                      onClick={() => {
+                        setDeleteBusy(true)
+                        void collieClient
+                          .clearAllData()
+                          .then((result) => {
+                            setNotice(clearAllDataNotice(result))
+                            setDangerOpen(false)
+                            setConfirmDelete('')
+                          })
+                          .catch((e) =>
+                            setNotice(e instanceof Error ? e.message : 'Could not clear.')
+                          )
+                          .finally(() => setDeleteBusy(false))
+                      }}
+                    >
+                      {deleteBusy ? 'Deleting…' : 'Delete everything'}
+                    </button>
+                    <button
+                      className="settings-button"
+                      onClick={() => {
+                        setDangerOpen(false)
+                        setConfirmDelete('')
+                      }}
+                      disabled={deleteBusy}
+                    >
+                      Keep my data
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <button
+                    className="settings-button is-danger"
+                    onClick={() => setDangerOpen(true)}
+                  >
+                    Delete all data…
+                  </button>
+                </div>
+              )}
             </section>
           </>
         )
@@ -377,7 +462,9 @@ export default function SettingsScreen({
               <h2>{TAB_COPY[tab].title}</h2>
               <p>{TAB_COPY[tab].description}</p>
             </header>
-            <div className="settings-page-body">{renderTab()}</div>
+            <div className="settings-page-body">
+              <TabErrorBoundary tab={tab}>{renderTab()}</TabErrorBoundary>
+            </div>
           </div>
         </div>
       </div>

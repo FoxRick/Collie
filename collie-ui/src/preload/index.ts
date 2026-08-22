@@ -36,6 +36,12 @@ export interface AccountState {
   email: string | null
   /** Epoch milliseconds, or null when unknown. */
   expiresAt: number | null
+  /**
+   * Early-access status from the `early_access` table (spec §4): 'granted'
+   * when the row says so, 'waiting' while on the list, 'unknown' when the
+   * lookup can't run (offline, unconfigured build, not signed in).
+   */
+  access: 'granted' | 'waiting' | 'unknown'
 }
 
 /** Account cloud sync (account-cloud-sync.md) — display shapes only. */

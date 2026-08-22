@@ -16,24 +16,25 @@ export default function PetTab({ onNotice }: Props): React.JSX.Element {
   void onNotice
   return (
     <div>
-      <div className="mb-4 flex items-center gap-2">
-        <h3 className="font-semibold">Desktop Pet</h3>
-        <span className="rounded-full px-2 py-0.5 text-xs font-medium" style={{ background: 'var(--collie-amber)', color: '#fff' }}>
-          Coming soon
-        </span>
-      </div>
-
-      <p className="mb-4 text-sm" style={{ color: 'var(--collie-paw)' }}>
-        Your Border Collie is getting ready to move onto your desktop — with moods and
-        reactions of her own. She&apos;s not here yet, but she&apos;s on the way.
-      </p>
-
-      <div className="rounded-lg border p-4" style={{ borderColor: 'var(--collie-paw)', background: 'var(--collie-card)' }}>
+      <section className="settings-card">
+        <h3>
+          Desktop pet
+          <span
+            className="rounded-full px-2 py-0.5 text-xs font-medium"
+            style={{ background: 'var(--collie-amber)', color: '#fff' }}
+          >
+            Coming soon
+          </span>
+        </h3>
+        <p className="settings-lead">
+          Your Border Collie is getting ready to move onto your desktop — with moods and
+          reactions of her own. She&apos;s not here yet, but she&apos;s on the way.
+        </p>
         <p className="text-sm">
-          🐾 When she arrives, you&apos;ll be able to switch her on here, choose how she
+          When she arrives, you&apos;ll be able to switch her on here, choose how she
           behaves, and keep her company while Collie works.
         </p>
-      </div>
+      </section>
     </div>
   )
 }

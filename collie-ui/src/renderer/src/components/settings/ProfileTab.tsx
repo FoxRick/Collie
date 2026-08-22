@@ -1,33 +1,49 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { TriangleAlert } from 'lucide-react'
 import { collieClient } from '../../lib/ipc'
 
 interface Props {
   onNotice: (msg: string) => void
 }
 
+export const DEFAULT_VISION = `You are Collie, a helpful personal assistant. You are direct, warm, and a bit playful. You remember what matters to your user and proactively help.
+
+You never use jargon or technical terms unless the user does first. You explain things simply.
+
+When the user asks you to do something, ask for confirmation before taking action.`
+
 export default function ProfileTab({ onNotice }: Props): React.JSX.Element {
   const [vision, setVision] = useState('')
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
+  // A failed read must NEVER look like an empty file: pre-filling the box with
+  // defaults and letting Save run would silently overwrite VISION.md.
+  const [loadError, setLoadError] = useState(false)
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        const resp = await collieClient.command<{ content: string }>('read_file', {
-          path: 'VISION.md'
-        })
-        // read_file returns "" for a missing file — fall back to the default
-        // in both cases (missing file OR read error).
-        setVision(resp.content || DEFAULT_VISION)
-      } catch {
-        setVision(DEFAULT_VISION)
-      } finally {
-        setLoading(false)
-      }
-    })()
+  const load = useCallback(async (): Promise<void> => {
+    setLoading(true)
+    setLoadError(false)
+    try {
+      const resp = await collieClient.command<{ content: string }>('read_file', {
+        path: 'VISION.md'
+      })
+      // read_file returns "" for a missing file — that's the one case where
+      // seeding the default text is safe (there is nothing to lose).
+      setVision(resp.content || DEFAULT_VISION)
+    } catch {
+      setLoadError(true)
+      setVision('')
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
+  useEffect(() => {
+    void load()
+  }, [load])
+
   const save = async (): Promise<void> => {
+    if (loadError) return
     try {
       await collieClient.command('write_file', { path: 'VISION.md', content: vision })
       setSaved(true)
@@ -48,6 +64,20 @@ export default function ProfileTab({ onNotice }: Props): React.JSX.Element {
         <div className="py-8 text-center text-sm" style={{ color: 'var(--collie-paw)' }}>
           Looking through your settings...
         </div>
+      ) : loadError ? (
+        <section className="settings-card">
+          <h3>
+            <TriangleAlert size={16} /> Couldn't read your personality
+          </h3>
+          <p className="settings-lead">
+            Collie can't open VISION.md right now, so editing is paused — saving
+            over an unread file could erase what you've written before. Check
+            that Collie is running, then try again.
+          </p>
+          <button type="button" className="settings-button" onClick={() => void load()}>
+            Try again
+          </button>
+        </section>
       ) : (
         <>
           <textarea
@@ -79,9 +109,3 @@ export default function ProfileTab({ onNotice }: Props): React.JSX.Element {
     </div>
   )
 }
-
-const DEFAULT_VISION = `You are Collie, a helpful personal assistant. You are direct, warm, and a bit playful. You remember what matters to your user and proactively help.
-
-You never use jargon or technical terms unless the user does first. You explain things simply.
-
-When the user asks you to do something, ask for confirmation before taking action.`

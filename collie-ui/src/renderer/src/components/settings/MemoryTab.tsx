@@ -65,6 +65,9 @@ export default function MemoryTab({ onNotice }: Props): React.JSX.Element {
   const [people, setPeople] = useState<Person[]>([])
   const [dates, setDates] = useState<DateEntry[]>([])
   const [loading, setLoading] = useState(true)
+  // Distinguish "still working" from "couldn't load": a silent failure used
+  // to look identical to a slow core, with no way to retry.
+  const [loadFailed, setLoadFailed] = useState(false)
   const [editing, setEditing] = useState<EditTarget>(null)
   const [saving, setSaving] = useState(false)
   const [adding, setAdding] = useState(false)
@@ -207,9 +210,20 @@ export default function MemoryTab({ onNotice }: Props): React.JSX.Element {
     return 'Your memory edit'
   }
 
-  useEffect(() => {
-    void refresh().catch(() => undefined).finally(() => setLoading(false))
+  const loadAll = useCallback(async (): Promise<void> => {
+    setLoadFailed(false)
+    try {
+      await refresh()
+    } catch {
+      setLoadFailed(true)
+    } finally {
+      setLoading(false)
+    }
   }, [refresh])
+
+  useEffect(() => {
+    void loadAll()
+  }, [loadAll])
 
   const runChange = async (change: () => Promise<unknown>, message: string): Promise<boolean> => {
     setSaving(true)
@@ -234,6 +248,28 @@ export default function MemoryTab({ onNotice }: Props): React.JSX.Element {
 
   if (loading) {
     return <div className="settings-loading">Looking through your memories...</div>
+  }
+
+  if (loadFailed) {
+    return (
+      <section className="settings-card">
+        <h3>Couldn't load your memories</h3>
+        <p className="settings-lead">
+          Collie can't reach its memory right now. Nothing is lost — check that
+          Collie is running, then try again.
+        </p>
+        <button
+          type="button"
+          className="settings-button"
+          onClick={() => {
+            setLoading(true)
+            void loadAll()
+          }}
+        >
+          Try again
+        </button>
+      </section>
+    )
   }
 
   const profileEntries = Object.entries(profile).filter(([, value]) => value && value !== '')
