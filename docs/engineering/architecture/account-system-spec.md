@@ -2,6 +2,9 @@
 
 > Status: **spec** (2026-08-17) · Owner: Rick · Scope: website + Supabase backend + Electron app + email
 > Decision history: supersedes the 08-11 "no-account v1" decision (waitlist = email-only). Accounts now exist, but **local-first stays the product story** — the account never becomes a data hostage.
+> Amendment (2026-08-22): opt-in per-device backup of memory/personality is
+> now specified in `account-cloud-sync.md` — narrowing the "no sync" non-goal
+> below to conversations/plans/approvals only.
 
 ## 1. Goals / Non-goals
 

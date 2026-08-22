@@ -111,7 +111,16 @@ _TITLE_PREFIX = re.compile(
 # Keys the shell may set over IPC. Everything else is written only by the
 # core itself (defense-in-depth: an attacker who reaches the socket must not
 # be able to flip permission or messenger settings).
-_IPC_SETTABLE_SETTINGS = {"provider.auth", "provider.name", "provider.model", "provider.api_base"}
+_IPC_SETTABLE_SETTINGS = {
+    "provider.auth",
+    "provider.name",
+    "provider.model",
+    "provider.api_base",
+    # Shell-owned account sync opt-in (docs/engineering/architecture/
+    # account-cloud-sync.md). A plain boolean preference — deliberately NOT
+    # guarded like permission/messenger settings, which stay core-only.
+    "account.sync_enabled",
+}
 
 _ALLOWED_ORIGIN_HOSTS = {"localhost", "127.0.0.1", "::1"}
 

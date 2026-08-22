@@ -38,6 +38,21 @@ export interface AccountState {
   expiresAt: number | null
 }
 
+/** Account cloud sync (account-cloud-sync.md) — display shapes only. */
+export interface SyncStatus {
+  configured: boolean
+  enabled: boolean
+  signedIn: boolean
+  email: string | null
+}
+
+export interface SyncSnapshotSummary {
+  deviceId: string
+  deviceName: string
+  createdAt: string | null
+  isThisDevice: boolean
+}
+
 export interface InstallResult {
   installed: boolean
   blockedBy: string[]
@@ -114,7 +129,17 @@ const api = {
 const accountApi = {
   startSignIn: (): Promise<AccountState> => ipcRenderer.invoke('account:start-sign-in'),
   getState: (): Promise<AccountState> => ipcRenderer.invoke('account:get-state'),
-  signOut: (): Promise<AccountState> => ipcRenderer.invoke('account:sign-out')
+  signOut: (): Promise<AccountState> => ipcRenderer.invoke('account:sign-out'),
+  // Cloud sync — display-only payloads cross this bridge; the snapshot
+  // content itself stays in the main process (same rule as account state).
+  syncStatus: (): Promise<SyncStatus> => ipcRenderer.invoke('account:sync-status'),
+  syncEnable: (enabled: boolean): Promise<SyncStatus> =>
+    ipcRenderer.invoke('account:sync-enable', enabled),
+  syncUpload: (): Promise<{ uploadedAt: string }> =>
+    ipcRenderer.invoke('account:sync-upload'),
+  syncList: (): Promise<SyncSnapshotSummary[]> => ipcRenderer.invoke('account:sync-list'),
+  syncRestore: (deviceId: string): Promise<void> =>
+    ipcRenderer.invoke('account:sync-restore', deviceId)
 }
 
 contextBridge.exposeInMainWorld('collie', api)

@@ -121,3 +121,25 @@ export async function pushStoredSecretsToCore(): Promise<void> {
     pushInFlight = false
   }
 }
+
+/**
+ * One-off main-process command to the core over a fresh socket. Used by the
+ * account cloud-sync module (gather/restore/toggle) — the same authenticated
+ * WebSocket the shell already uses for secret pushes; the renderer is never
+ * involved and never sees these payloads.
+ */
+export async function commandWithCore(
+  type: string,
+  payload: Record<string, unknown>
+): Promise<unknown> {
+  const ws = await openCoreSocket()
+  try {
+    return await command(ws, type, payload)
+  } finally {
+    try {
+      ws.close()
+    } catch {
+      // already closed
+    }
+  }
+}
