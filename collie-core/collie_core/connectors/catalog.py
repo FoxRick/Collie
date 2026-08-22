@@ -115,14 +115,16 @@ _SCOPES: dict[str, tuple[str, ...]] = {
     "canva": (),
     "gitlab": ("read_api", "read_user", "profile", "mcp"),
     "circleci": (),
-    "netlify": ("offline_access", "read", "write"),
+    # Netlify's `write` vocabulary stays unrequested — this route is
+    # read-only (deploys/sites inspection).
+    "netlify": ("offline_access", "read"),
     "supabase": (
         "organizations:read",
         "projects:read",
         "database:read",
         "edge_functions:read",
     ),
-    "neon": ("read", "write"),
+    "neon": ("read",),
     "sentry": ("org:read", "project:write", "team:write", "event:write"),
     "cloudflare": (),
     "paypal": (),
@@ -144,7 +146,9 @@ _SCOPES: dict[str, tuple[str, ...]] = {
         "bank_accounts:read",
     ),
     "klaviyo": (),
-    "vimeo": ("public", "private", "stats", "edit"),
+    # Vimeo's `edit`/`upload`/`create` vocabularies stay unrequested — this
+    # route is browse-and-read only.
+    "vimeo": ("public", "private", "stats"),
     "webflow": (),
 }
 
@@ -432,8 +436,11 @@ CONNECTOR_CATALOG: tuple[ConnectorDefinition, ...] = (
         "https://mcp.circleci.com/mcp",
         capabilities=("Read",),
         permissions=("read builds and pipelines",),
-        available=_OAUTH_AVAILABLE,
-        note=_ALPHA_VERIFICATION,
+        available=False,
+        note=(
+            "CircleCI's MCP endpoint isn't answering yet — parked until the "
+            "official route is verified."
+        ),
         scopes=_SCOPES["circleci"],
     ),
     _mcp(
@@ -478,8 +485,10 @@ CONNECTOR_CATALOG: tuple[ConnectorDefinition, ...] = (
         "Developer Tools",
         "Check errors and release health.",
         "https://mcp.sentry.dev/mcp",
-        capabilities=("Read",),
-        permissions=("read issues and events",),
+        # Sentry's server has no read-only scope variant — say what the
+        # connection can really do instead of claiming a narrower card.
+        capabilities=("Read", "Update"),
+        permissions=("read issues and events", "update issues with approval"),
         available=_OAUTH_AVAILABLE,
         note=_ALPHA_VERIFICATION,
         scopes=_SCOPES["sentry"],

@@ -84,7 +84,9 @@ def test_launch_catalog_enables_direct_mcp_routes_ready_for_live_oauth() -> None
         "figma",
         "canva",
         "gitlab",
-        "circleci",
+        # circleci parked 2026-08-22: mcp.circleci.com answers 404 to a proper
+        # MCP initialize (working routes answer 401/405) — not enabled until
+        # the official endpoint is verified.
         "netlify",
         "supabase",
         "neon",
@@ -117,6 +119,12 @@ def test_launch_catalog_enables_direct_mcp_routes_ready_for_live_oauth() -> None
         assert definition.trusted_hosts == (endpoint_host,)
     assert connector_def("NoTiOn") is by_id["notion"]
     assert by_id["notion"].endpoint == "https://mcp.notion.com/mcp"
+    # Parked 2026-08-22: mcp.circleci.com answers 404 to a proper MCP
+    # initialize (working routes answer 401/405) — it stays coming_soon
+    # until the official endpoint is verified.
+    circleci = by_id["circleci"]
+    assert circleci.available is False
+    assert circleci.release_status == "coming_soon"
 
 
 def test_enabled_catalog_routes_declare_explicit_least_privilege_scopes() -> None:
@@ -129,7 +137,6 @@ def test_enabled_catalog_routes_declare_explicit_least_privilege_scopes() -> Non
         "asana",  # AS lists no scopes_supported; server-side MCP default set.
         "cal",
         "canva",
-        "circleci",
         "cloudflare",
         "paypal",
         "square",
@@ -151,7 +158,23 @@ def test_enabled_catalog_routes_declare_explicit_least_privilege_scopes() -> Non
     )
     assert by_id["figma"].scopes == ("mcp:connect",)
     assert by_id["gitlab"].scopes == ("read_api", "read_user", "profile", "mcp")
-    assert by_id["sentry"].scopes == ("org:read", "project:write", "team:write", "event:write")
+    # Wave-2 review (2026-08-22): scope vocabularies verified live against
+    # each provider's RFC 8414 metadata; read-only cards must request
+    # read-only scopes.
+    assert by_id["netlify"].scopes == ("offline_access", "read")
+    assert by_id["neon"].scopes == ("read",)
+    assert by_id["vimeo"].scopes == ("public", "private", "stats")
+    # Sentry's server has no read-only variant — the card honestly declares
+    # Read + Update instead of pretending write scopes don't exist.
+    assert by_id["sentry"].scopes == (
+        "org:read",
+        "project:write",
+        "team:write",
+        "event:write",
+    )
+    sentry = by_id["sentry"]
+    assert sentry.capabilities == ("Read", "Update")
+    assert any("update issues" in p for p in sentry.permissions)
 
 
 def _enable_connector_for_unit_test(monkeypatch: pytest.MonkeyPatch, provider_id: str) -> None:

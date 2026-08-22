@@ -1,11 +1,12 @@
 # Collie Connectors Update
 
-**Status:** active product direction — 24 connections are live in the
+**Status:** active product direction — 23 connections are live in the
 Connections directory as alpha (official hosted MCP with sign-in-your-account
 authorization): Notion, Linear, Todoist, Atlassian, Airtable, Asana, ClickUp,
-monday.com, Cal.com, Figma, Canva, Vimeo, Webflow, GitLab, CircleCI,
+monday.com, Cal.com, Figma, Canva, Vimeo, Webflow, GitLab,
 Netlify, Supabase, Neon, Sentry, Cloudflare, PayPal, Square, Ramp, and
-Klaviyo. Google/Microsoft/Slack bundles await Collie-owned OAuth app
+Klaviyo. CircleCI is parked (coming soon) until its official MCP endpoint is
+verified. Google/Microsoft/Slack bundles await Collie-owned OAuth app
 registrations (see "Required from the owner").
 **Date:** 2026-08-01
 

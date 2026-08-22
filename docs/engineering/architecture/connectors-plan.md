@@ -6,6 +6,22 @@ Date: 2026-07-29
 
 Audience: product, design, frontend, backend, security, QA
 
+Implementation checkpoint (2026-08-22, later) — wave 2 review fixes
+(external connectors review + guard verification):
+
+- CircleCI parked (`available=False`, coming_soon): `mcp.circleci.com/mcp`
+  answers 404 to a proper MCP initialize while working routes answer
+  401/405 — the endpoint is not live yet, so the route must not be enabled;
+- Netlify (`offline_access`, `read`), Neon (`read`), and Vimeo
+  (`public`, `private`, `stats`) narrowed to read-only scopes — their cards
+  claim Read and each provider's authorization server publishes a granular
+  vocabulary that admits a true read-only request (verified live against
+  RFC 8414 metadata on 2026-08-22);
+- Sentry keeps its write scopes because its server has no read-only variant
+  (`org:read` is the only read scope) — instead of narrowing, the card now
+  honestly declares Read + Update ("update issues with approval");
+- REPOSITORY_SNAPSHOT regenerated to include the wave-2 provider assets.
+
 Implementation checkpoint (2026-08-22) — wave 2 catalog expansion:
 
 - 19 additional official hosted-MCP providers flipped to alpha alongside the
