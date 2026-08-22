@@ -1392,6 +1392,7 @@ class CollieDB:
             "plan_version",
             "routine_status",
             "enabled",
+            "action_config",
         }
         updates = {key: value for key, value in fields.items() if key in allowed}
         if not updates:
@@ -1399,7 +1400,7 @@ class CollieDB:
             if row is None:
                 raise ValueError("routine not found")
             return row
-        for key in ("schedule_json",):
+        for key in ("schedule_json", "action_config"):
             if key in updates and not isinstance(updates[key], str):
                 updates[key] = json.dumps(updates[key])
         updates["updated_at"] = utc_now()

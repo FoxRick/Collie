@@ -1828,6 +1828,18 @@ class CollieIPCServer:
         self.db.delete_automation(auto_id)
         return {"deleted": True}
 
+    async def _cmd_update_automation(self, connection: ServerConnection, frame: dict) -> dict:
+        from collie_core.automations.custom import update_custom_automation
+
+        row = update_custom_automation(
+            self.db,
+            str(frame.get("automation_id") or ""),
+            str(frame.get("description") or ""),
+            name=(str(frame["name"]) if frame.get("name") else None),
+            timezone_name=str(frame.get("timezone") or "UTC"),
+        )
+        return {"automation": row}
+
     # -- routines, plans, runs, and approvals ----------------------------------------
 
     async def _cmd_list_routines(self, connection: ServerConnection, frame: dict) -> dict:

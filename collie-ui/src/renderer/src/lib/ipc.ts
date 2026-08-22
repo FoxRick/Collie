@@ -1026,6 +1026,15 @@ export class CollieClient {
     return this.command('create_automation', { description, name, timezone })
   }
 
+  updateAutomation(
+    automationId: string,
+    description: string,
+    name?: string,
+    timezone?: string
+  ): Promise<{ automation: CollieAutomation }> {
+    return this.command('update_automation', { automation_id: automationId, description, name, timezone })
+  }
+
   deleteAutomation(automationId: string): Promise<{ deleted: boolean }> {
     return this.command('delete_automation', { automation_id: automationId })
   }
