@@ -154,6 +154,7 @@ async def test_health_tool_flow(db: CollieDB) -> None:
     await tool.execute(action="log", metric="steps", value=7500, date=today)
     await tool.execute(action="log", metric="sleep_hours", value=7.5, date=today)
     await tool.execute(action="log", metric="steps", value=4000, date=yesterday)
+    await tool.execute(action="log", metric="water_cups", value=6, date=yesterday)
     result = await tool.execute(action="summary")
     card = json.loads(result)
     assert card["card_type"] == "health"
@@ -161,6 +162,15 @@ async def test_health_tool_flow(db: CollieDB) -> None:
     assert card["sleep_hours"] == 7.5
     assert card["streak_days"] == 2
     assert len(card["grid"]) == 7
+
+    habits = {h["key"]: h for h in card["habits"]}
+    assert set(habits) == {"steps", "water_cups", "sleep_hours"}
+    steps_days = habits["steps"]["days"]
+    assert len(steps_days) == 7
+    assert steps_days[-1] == 7500  # today, newest last
+    assert steps_days[-2] == 4000  # yesterday
+    assert steps_days[0] is None  # nothing logged 6 days ago
+    assert habits["water_cups"]["days"][-2] == 6
 
 
 async def test_health_tool_rejects_unknown_metric(db: CollieDB) -> None:

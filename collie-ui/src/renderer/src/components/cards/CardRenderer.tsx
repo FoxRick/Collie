@@ -1,4 +1,6 @@
 import WeatherCard from './WeatherCard'
+import TodayGlanceCard from './TodayGlanceCard'
+import CompareCard from './CompareCard'
 import CalendarCard from './CalendarCard'
 import ReminderCard from './ReminderCard'
 import EmailCard from './EmailCard'
@@ -24,6 +26,10 @@ export default function CardRenderer({ cardType, cardData }: Props): React.JSX.E
   switch (cardType) {
     case 'weather':
       return <WeatherCard data={cardData} />
+    case 'compare':
+      return <CompareCard data={cardData} />
+    case 'today_glance':
+      return <TodayGlanceCard data={cardData} />
     case 'calendar':
       return <CalendarCard data={cardData} />
     case 'reminder':
