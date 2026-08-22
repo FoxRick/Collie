@@ -7,6 +7,7 @@ needed) so it works before a provider is even configured.
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import UTC, datetime
 from typing import Any
@@ -15,7 +16,7 @@ from collie_core.db import CollieDB
 from collie_core.routines.schedule import next_occurrence
 from collie_core.routines.schedule import parse_schedule as parse_structured_schedule
 
-__all__ = ["create_custom_automation", "parse_schedule"]
+__all__ = ["create_custom_automation", "parse_schedule", "update_custom_automation"]
 
 _WEEKDAYS = {
     "monday": "Mon",
@@ -166,3 +167,77 @@ def create_custom_automation(
         schedule_json=structured.to_dict(),
         next_run_at=next_run.isoformat(timespec="seconds") if next_run else None,
     )
+
+
+def update_custom_automation(
+    db: CollieDB,
+    automation_id: str,
+    description: str,
+    *,
+    name: str | None = None,
+    timezone_name: str = "UTC",
+) -> dict[str, Any]:
+    """Edit an existing custom routine: re-parse the description, keep its identity.
+
+    Runs history, id, and enabled state are preserved; schedule, prompt, and
+    description follow the new wording. The next run is recomputed from now.
+    """
+    description = (description or "").strip()
+    if not description:
+        raise ValueError("Tell me what you'd like me to do, and when!")
+
+    current = db.get_automation(automation_id)
+    if current is None:
+        raise ValueError("That routine no longer exists.")
+    if str(current.get("action_type") or "") != "custom":
+        raise ValueError("Built-in routines can't be reworded — pause them or make your own.")
+
+    try:
+        structured = parse_structured_schedule(description, timezone_name)
+    except ValueError as exc:
+        raise ValueError(
+            "I couldn't work out a clear schedule. Try 'weekdays at 8am', "
+            "'every Friday at 5pm', or 'the first day of every month at 9am'. "
+            f"{exc}"
+        ) from exc
+    schedule = parse_schedule(description) or structured.time.strftime("%H:%M")
+    next_run = next_occurrence(structured, datetime.now(UTC))
+
+    label = (name or "").strip()
+    if not label:
+        label = re.sub(r"\s+", " ", description)
+        label = (label[:47] + "…") if len(label) > 48 else label
+
+    prompt = (
+        f"Scheduled task from the user: {description}\n\n"
+        "Carry this out now. Use whatever tools help (weather, calendar, "
+        "reminders, news, web search). Speak in Collie's voice: warm, "
+        "playful, first person, never corporate."
+    )
+
+    current_config = current.get("action_config")
+    if isinstance(current_config, str):
+        try:
+            current_config = json.loads(current_config)
+        except (TypeError, json.JSONDecodeError):
+            current_config = {}
+    if not isinstance(current_config, dict):
+        current_config = {}
+    new_config = {
+        **current_config,
+        "kind": "custom",
+        "prompt": prompt,
+    }
+
+    row = db.update_automation(
+        automation_id,
+        name=label,
+        description=description,
+        schedule=schedule,
+        timezone=timezone_name,
+        schedule_json=structured.to_dict(),
+        next_run_at=next_run.isoformat(timespec="seconds") if next_run else None,
+        action_config=new_config,
+    )
+    row["action_config"] = new_config
+    return row

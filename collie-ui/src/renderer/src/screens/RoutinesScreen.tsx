@@ -3,12 +3,14 @@ import {
   Clock3,
   History,
   Pause,
+  Pencil,
   Play,
   Plus,
   RotateCcw,
   Rocket,
   Settings2,
   Trash2,
+  Undo2,
   X
 } from 'lucide-react'
 import {
@@ -56,6 +58,11 @@ export default function RoutinesScreen(): React.JSX.Element {
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const [history, setHistory] = useState<Record<string, CollieRun[]>>({})
+  // Edit flow: which routine is open, plus the text being edited.
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editText, setEditText] = useState('')
+  // Post-create confirmation: the freshly created routine, kept for one-tap Undo.
+  const [justCreated, setJustCreated] = useState<{ id: string; name: string } | null>(null)
 
   const refresh = async (): Promise<void> => {
     if (new URLSearchParams(window.location.search).has('preview')) {
@@ -121,7 +128,7 @@ export default function RoutinesScreen(): React.JSX.Element {
     if (!description.trim()) return
     setBusy(true)
     try {
-      await collieClient.createAutomation(
+      const result = await collieClient.createAutomation(
         description.trim(),
         undefined,
         Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -129,9 +136,54 @@ export default function RoutinesScreen(): React.JSX.Element {
       setDescription('')
       setCreating(false)
       await refresh()
-      setNotice('Your new routine is scheduled.')
+      // Show what Collie understood, with a one-tap Undo — free-text schedule
+      // parsing is magic until the user sees the interpretation.
+      setJustCreated({ id: result.automation.id, name: result.automation.name })
+      setNotice('')
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'I could not create that routine.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const undoCreate = async (): Promise<void> => {
+    if (!justCreated) return
+    const target = justCreated
+    setJustCreated(null)
+    setBusy(true)
+    try {
+      await collieClient.deleteAutomation(target.id)
+      await refresh()
+      setNotice('Undone — that routine was removed.')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'I could not remove that routine.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const startEdit = (loop: LoopItem): void => {
+    setEditingId(loop.id)
+    setEditText(loop.description || '')
+  }
+
+  const saveEdit = async (): Promise<void> => {
+    if (!editingId || !editText.trim()) return
+    setBusy(true)
+    try {
+      await collieClient.updateAutomation(
+        editingId,
+        editText.trim(),
+        undefined,
+        Intl.DateTimeFormat().resolvedOptions().timeZone
+      )
+      setEditingId(null)
+      setEditText('')
+      await refresh()
+      setNotice('Routine updated.')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'I could not update that routine.')
     } finally {
       setBusy(false)
     }
@@ -273,15 +325,27 @@ export default function RoutinesScreen(): React.JSX.Element {
           {loop.enabled === 1 ? 'Pause' : 'Resume'}
         </button>
         {!loop.id.startsWith('collie-') && (
-          <button
-            type="button"
-            className="icon-button loop-delete"
-            aria-label={`Delete ${loop.name}`}
-            onClick={() => void remove(loop)}
-            disabled={busy}
-          >
-            <Trash2 size={15} />
-          </button>
+          <>
+            <button
+              type="button"
+              className="icon-button loop-edit"
+              aria-label={`Edit ${loop.name}`}
+              title="Edit this routine"
+              onClick={() => startEdit(loop)}
+              disabled={busy}
+            >
+              <Pencil size={15} />
+            </button>
+            <button
+              type="button"
+              className="icon-button loop-delete"
+              aria-label={`Delete ${loop.name}`}
+              onClick={() => void remove(loop)}
+              disabled={busy}
+            >
+              <Trash2 size={15} />
+            </button>
+          </>
         )}
       </div>
     </article>
@@ -301,6 +365,16 @@ export default function RoutinesScreen(): React.JSX.Element {
 
       <div className="section-scroll">
         {notice && <p className="inline-notice" role="status">{notice}</p>}
+        {justCreated && (
+          <div className="routine-created-banner" role="status">
+            <span>
+              Collie will repeat: <strong>{justCreated.name}</strong>
+            </span>
+            <button type="button" className="secondary-button routine-undo" onClick={() => void undoCreate()} disabled={busy}>
+              <Undo2 size={13} /> Undo
+            </button>
+          </div>
+        )}
         {loading ? (
           <div className="section-loading">Checking your routines...</div>
         ) : loops.length > 0 ? (
@@ -375,6 +449,68 @@ export default function RoutinesScreen(): React.JSX.Element {
                 onClick={() => void createLoop()}
               >
                 {busy ? 'Setting the schedule...' : 'Create routine'}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {editingId && (
+        <div className="dialog-backdrop" role="presentation">
+          <section
+            className="dialog-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-loop-title"
+          >
+            <div className="dialog-heading">
+              <div>
+                <span className="detail-label">EDIT ROUTINE</span>
+                <h2 id="edit-loop-title">Change what Collie repeats</h2>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => {
+                  setEditingId(null)
+                  setEditText('')
+                }}
+                aria-label="Close"
+              >
+                <X size={17} />
+              </button>
+            </div>
+            <label className="form-field">
+              <span>Describe the task and schedule</span>
+              <textarea
+                value={editText}
+                onChange={(event) => setEditText(event.target.value)}
+                rows={5}
+                placeholder="Every weekday at 8am, brief me on today's weather, calendar, and priorities."
+                autoFocus
+              />
+            </label>
+            <p className="dialog-hint">
+              Reword it freely — its history and pause state stay put.
+            </p>
+            <div className="dialog-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  setEditingId(null)
+                  setEditText('')
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                disabled={busy || !editText.trim()}
+                onClick={() => void saveEdit()}
+              >
+                {busy ? 'Saving...' : 'Save changes'}
               </button>
             </div>
           </section>

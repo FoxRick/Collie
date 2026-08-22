@@ -14,7 +14,10 @@ const hooks = vi.hoisted(() => {
     listRoutines: vi.fn(async () => ({ routines: [] as CollieAutomation[] })),
     listRoutineRuns: vi.fn(async () => ({ runs: [] as CollieRun[] })),
     pauseRoutine: vi.fn(),
-    resumeRoutine: vi.fn()
+    resumeRoutine: vi.fn(),
+    createAutomation: vi.fn(),
+    updateAutomation: vi.fn(),
+    deleteAutomation: vi.fn()
   }
   return { client }
 })
@@ -23,15 +26,27 @@ vi.mock('lucide-react', () => ({
   Clock3: () => null,
   History: () => null,
   Pause: () => null,
+  Pencil: () => null,
   Play: () => null,
   Plus: () => null,
   RotateCcw: () => null,
   Rocket: () => null,
   Settings2: () => null,
   Trash2: () => null,
+  Undo2: () => null,
   X: () => null
 }))
 vi.mock('../lib/ipc', () => ({ collieClient: hooks.client }))
+
+/** Set a controlled textarea value the way React's onChange actually hears. */
+const typeInto = (textarea: HTMLTextAreaElement, value: string): void => {
+  const setter = Object.getOwnPropertyDescriptor(
+    HTMLTextAreaElement.prototype,
+    'value'
+  )!.set!
+  setter.call(textarea, value)
+  textarea.dispatchEvent(new Event('input', { bubbles: true }))
+}
 
 const routine = (over: Partial<CollieAutomation>): CollieAutomation => ({
   id: 'r1',
@@ -155,5 +170,98 @@ describe('RoutinesScreen UX polish', () => {
     expect(document.querySelector('.section-header p')!.textContent).toBe(
       'Put tasks on repeat — see what ran and fix misses.'
     )
+  })
+
+  it('shows a confirmation banner with Undo after creating a routine', async () => {
+    hooks.client.listRoutines
+      .mockResolvedValueOnce({ routines: [] })
+      .mockResolvedValue({
+        routines: [
+          routine({
+            id: 'custom-new',
+            name: 'Every weekday at 8am, brief me',
+            action_type: 'custom'
+          })
+        ]
+      })
+    hooks.client.createAutomation.mockResolvedValue({
+      automation: { id: 'custom-new', name: 'Every weekday at 8am, brief me' }
+    })
+    await renderScreen()
+    // Create one via the dialog.
+    await act(async () => {
+      ;(
+        Array.from(document.querySelectorAll('button')).find((b) =>
+          b.textContent!.includes('Create routine')
+        ) as HTMLButtonElement
+      ).click()
+    })
+    const textarea = document.querySelector('.dialog-card textarea') as HTMLTextAreaElement
+    await act(async () => {
+      typeInto(textarea, 'Every weekday at 8am, brief me on the day')
+    })
+    await act(async () => {
+      ;(
+        Array.from(document.querySelectorAll('.dialog-card button')).find(
+          (b) => b.textContent!.trim() === 'Create routine'
+        ) as HTMLButtonElement
+      ).click()
+    })
+    const banner = document.querySelector('.routine-created-banner')
+    expect(banner).toBeTruthy()
+    expect(banner!.textContent).toContain('Collie will repeat')
+    // One-tap Undo removes it.
+    hooks.client.deleteAutomation.mockResolvedValue({ deleted: true })
+    await act(async () => {
+      ;(banner!.querySelector('button') as HTMLButtonElement).click()
+    })
+    expect(hooks.client.deleteAutomation).toHaveBeenCalledWith('custom-new')
+    expect(document.querySelector('.routine-created-banner')).toBeNull()
+  })
+
+  it('edits a custom routine through the pencil button and dialog', async () => {
+    hooks.client.listRoutines.mockResolvedValue({
+      routines: [routine({ id: 'custom-1', description: 'jog every Tuesday at 7am', action_type: 'custom' })]
+    })
+    hooks.client.updateAutomation.mockResolvedValue({
+      automation: { id: 'custom-1', description: 'jog every Friday at 7am' }
+    })
+    await renderScreen()
+    await act(async () => {
+      ;(
+        document.querySelector('.loop-edit[aria-label="Edit Morning Briefing"]') as HTMLButtonElement
+      ).click()
+    })
+    const dialog = document.querySelector('.dialog-card')
+    expect(dialog).toBeTruthy()
+    expect(dialog!.textContent).toContain('Change what Collie repeats')
+    const textarea = dialog!.querySelector('textarea') as HTMLTextAreaElement
+    expect(textarea.value).toBe('jog every Tuesday at 7am')
+    await act(async () => {
+      typeInto(textarea, 'jog every Friday at 7am')
+    })
+    await act(async () => {
+      ;(
+        Array.from(dialog!.querySelectorAll('button')).find(
+          (b) => b.textContent!.trim() === 'Save changes'
+        ) as HTMLButtonElement
+      ).click()
+    })
+    expect(hooks.client.updateAutomation).toHaveBeenCalledWith(
+      'custom-1',
+      'jog every Friday at 7am',
+      undefined,
+      expect.any(String)
+    )
+    expect(document.querySelector('.dialog-card')).toBeNull()
+  })
+
+  it('does not offer Edit on built-in routines', async () => {
+    hooks.client.listRoutines.mockResolvedValue({
+      routines: [routine({ id: 'collie-morning-briefing' })]
+    })
+    await renderScreen()
+    expect(document.querySelector('.loop-edit')).toBeNull()
+    expect(document.querySelector('.loop-delete')).toBeNull()
   })
 })
