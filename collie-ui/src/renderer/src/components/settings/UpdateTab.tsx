@@ -18,6 +18,16 @@ export default function UpdateTab(): React.JSX.Element {
   const [notice, setNotice] = useState('')
 
   useEffect(() => {
+    // The bridge can be absent (dev tools, odd embeds) — an unguarded call
+    // here throws during render and blanked the entire Settings screen.
+    if (typeof window.collie?.updateStatus !== 'function') {
+      setStatus((current) => ({
+        ...current,
+        phase: 'failed',
+        message: 'Updates are not available in this window.'
+      }))
+      return
+    }
     void window.collie.updateStatus().then(setStatus).catch(() => undefined)
     return window.collie.onUpdateStatus(setStatus)
   }, [])
@@ -73,6 +83,8 @@ export default function UpdateTab(): React.JSX.Element {
     rollback: status.message || FAILED_UPDATE_COPY
   }
 
+  const bridgeReady = typeof window.collie?.checkForUpdate === 'function'
+
   return (
     <section className="settings-card settings-control-card">
       <div className="settings-card-icon">
@@ -107,35 +119,39 @@ export default function UpdateTab(): React.JSX.Element {
         {notice && <p className="inline-notice mt-3" role="alert">{notice}</p>}
       </div>
       <div className="flex flex-wrap gap-2">
-        {(status.phase === 'idle' ||
-          status.phase === 'current' ||
-          status.phase === 'failed' ||
-          status.phase === 'rollback') && (
-          <button
-            className="settings-button"
-            disabled={busy}
-            onClick={() => void run(() => window.collie.checkForUpdate())}
-          >
-            <RefreshCw size={15} /> Check for updates
-          </button>
-        )}
-        {status.phase === 'available' && (
-          <button
-            className="settings-button is-primary"
-            disabled={busy}
-            onClick={() => void run(() => window.collie.downloadUpdate())}
-          >
-            <Download size={15} /> Download update
-          </button>
-        )}
-        {status.phase === 'ready' && (
-          <button
-            className="settings-button is-primary"
-            disabled={busy}
-            onClick={() => void restart()}
-          >
-            <RotateCcw size={15} /> Restart and install
-          </button>
+        {bridgeReady && (
+          <>
+            {(status.phase === 'idle' ||
+              status.phase === 'current' ||
+              status.phase === 'failed' ||
+              status.phase === 'rollback') && (
+              <button
+                className="settings-button"
+                disabled={busy}
+                onClick={() => void run(() => window.collie.checkForUpdate())}
+              >
+                <RefreshCw size={15} /> Check for updates
+              </button>
+            )}
+            {status.phase === 'available' && (
+              <button
+                className="settings-button is-primary"
+                disabled={busy}
+                onClick={() => void run(() => window.collie.downloadUpdate())}
+              >
+                <Download size={15} /> Download update
+              </button>
+            )}
+            {status.phase === 'ready' && (
+              <button
+                className="settings-button is-primary"
+                disabled={busy}
+                onClick={() => void restart()}
+              >
+                <RotateCcw size={15} /> Restart and install
+              </button>
+            )}
+          </>
         )}
       </div>
       <p className="text-sm" style={{ color: 'var(--collie-text-muted)' }}>

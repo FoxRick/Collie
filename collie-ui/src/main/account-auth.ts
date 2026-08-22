@@ -44,6 +44,12 @@ export interface AccountState {
   email: string | null
   /** Epoch milliseconds, or null when unknown. */
   expiresAt: number | null
+  /**
+   * Early-access status from the `early_access` table (spec §4): 'granted'
+   * when the row says so, 'waiting' while on the list, 'unknown' when the
+   * lookup can't run (offline, unconfigured build, not signed in).
+   */
+  access: 'granted' | 'waiting' | 'unknown'
 }
 
 interface StoredSession {
@@ -199,7 +205,10 @@ export function clearAccountSession(): boolean {
 }
 
 /** Derive the user-facing account state from a stored session. */
-function accountStateFromSession(session: StoredSession): AccountState {
+function accountStateFromSession(
+  session: StoredSession,
+  access: AccountState['access'] = 'unknown'
+): AccountState {
   const payload = session.access_token ? decodeJwtPayload(session.access_token) : null
   const email =
     typeof payload?.email === 'string' && payload.email ? payload.email : session.email
@@ -209,9 +218,41 @@ function accountStateFromSession(session: StoredSession): AccountState {
       : null
   const expiresAt = session.expires_at > 0 ? session.expires_at : jwtExp
   if (expiresAt !== null && expiresAt <= Date.now()) {
-    return { signedIn: false, email: email || null, expiresAt }
+    return { signedIn: false, email: email || null, expiresAt, access }
   }
-  return { signedIn: true, email: email || null, expiresAt }
+  return { signedIn: true, email: email || null, expiresAt, access }
+}
+
+/**
+ * Look up the signed-in user's early-access status (spec §4: `early_access`
+ * row keyed by auth email; RLS limits SELECT to the owner's own row).
+ * Returns 'unknown' on anything unexpected — the UI treats that as neutral.
+ */
+export async function fetchAccessStatus(accessToken: string): Promise<AccountState['access']> {
+  const baseUrl = SUPABASE_URL.replace(/\/+$/, '')
+  if (!baseUrl || !SUPABASE_ANON_KEY || !accessToken) return 'unknown'
+  const payload = decodeJwtPayload(accessToken)
+  const email = typeof payload?.email === 'string' ? payload.email : ''
+  if (!email) return 'unknown'
+  try {
+    const url =
+      `${baseUrl}/rest/v1/early_access?select=status&email=eq.${encodeURIComponent(email)}`
+    const response = await fetch(url, {
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${accessToken}`
+      },
+      signal: AbortSignal.timeout(8_000)
+    })
+    if (!response.ok) return 'unknown'
+    const rows = (await response.json().catch(() => null)) as
+      | { status?: unknown }[]
+      | null
+    const status = rows?.[0]?.status
+    return status === 'granted' || status === 'waiting' ? status : 'unknown'
+  } catch {
+    return 'unknown'
+  }
 }
 
 /**
@@ -258,16 +299,22 @@ async function refreshExpiredSession(session: StoredSession): Promise<StoredSess
 /**
  * Current account state for the Settings UI. The JWT payload (email/exp) is
  * decoded client-side for display only; an expired session gets one silent
- * refresh attempt before it reads as signed out.
+ * refresh attempt before it reads as signed out. Early-access status is a
+ * best-effort lookup — 'unknown' must never block showing signed-in state.
  */
 export async function getAccountState(): Promise<AccountState> {
   const session = getStoredSession()
-  if (!session) return { signedIn: false, email: null, expiresAt: null }
+  if (!session) return { signedIn: false, email: null, expiresAt: null, access: 'unknown' }
   const state = accountStateFromSession(session)
-  if (state.signedIn) return state
-  const refreshed = await refreshExpiredSession(session)
-  if (refreshed) return accountStateFromSession(refreshed)
-  return state
+  if (!state.signedIn) {
+    const refreshed = await refreshExpiredSession(session)
+    if (refreshed) {
+      const fresh = accountStateFromSession(refreshed)
+      return { ...fresh, access: await fetchAccessStatus(refreshed.access_token) }
+    }
+    return state
+  }
+  return { ...state, access: await fetchAccessStatus(session.access_token) }
 }
 
 /* ------------------------------------------------------------------ *

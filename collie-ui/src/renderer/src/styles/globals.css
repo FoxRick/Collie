@@ -1339,6 +1339,43 @@ button {
 .settings-icon-button:hover { background: var(--bone); color: var(--ink); }
 .settings-icon-button.is-danger:hover { color: var(--collie-snoot); }
 .settings-loading, .settings-empty { padding: 28px; color: var(--muted); font-size: 13px; text-align: center; }
+
+/* Account: early-access status line (granted / waiting). */
+.account-access-line {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bone);
+  color: var(--ink);
+  font-size: 13px;
+}
+
+/* Danger zone: irreversible actions live in their own card, visually apart. */
+.settings-danger-zone { border-color: color-mix(in srgb, var(--collie-snoot) 30%, var(--line)); }
+.settings-danger-confirm { display: grid; gap: 12px; max-width: 380px; }
+
+/* Advanced disclosure: expert knobs stay reachable but out of the way. */
+.provider-advanced { margin-top: 4px; }
+.provider-add .provider-advanced {
+  grid-column: 1 / -1;
+  border-top: 0;
+  padding: 0;
+}
+.provider-add > button.primary-button { grid-column: 1 / -1; justify-self: start; }
+.provider-add > span.provider-or,
+.provider-add > div.provider-signin-row { grid-column: 1 / -1; }
+.provider-advanced > summary {
+  color: var(--collie-text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+}
+.provider-advanced > summary:hover { color: var(--ink); }
+.provider-advanced > p,
+.provider-advanced > input,
+.provider-advanced > select { margin-top: 10px; }
+.provider-advanced .provider-catalogue-line { font-size: 12px; }
 .onboarding-card { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 13px; }
 .settings-card-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 12px; background: var(--bone); color: var(--grass); }
 .audio-input-card { display: grid; gap: 18px; }

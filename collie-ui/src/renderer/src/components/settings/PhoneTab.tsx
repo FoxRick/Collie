@@ -10,6 +10,8 @@ interface Props {
 export default function PhoneTab({ onNotice }: Props): React.JSX.Element {
   const [telegram, setTelegram] = useState<MessengerInfo | null>(null)
   const [loading, setLoading] = useState(true)
+  // A failed check must not masquerade as "not connected" forever — offer a retry.
+  const [loadFailed, setLoadFailed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [token, setToken] = useState('')
 
@@ -17,8 +19,10 @@ export default function PhoneTab({ onNotice }: Props): React.JSX.Element {
     try {
       const data = await collieClient.getMessengers()
       setTelegram(data.messengers.find((item) => item.id === 'telegram') ?? null)
+      setLoadFailed(false)
     } catch {
       setTelegram(null)
+      setLoadFailed(true)
     } finally {
       setLoading(false)
     }
@@ -44,7 +48,7 @@ export default function PhoneTab({ onNotice }: Props): React.JSX.Element {
       // The core asks Telegram to validate the token before it is saved.
       await collieClient.setMessengerSecret('telegram', 'token', cleanToken)
       const saved = await window.collie?.saveSecret('messenger:telegram:token', cleanToken)
-      if (!saved) throw new Error("Windows couldn't encrypt the Telegram token.")
+      if (!saved) throw new Error("Your computer couldn't encrypt the Telegram token.")
       const data = await collieClient.setMessenger('telegram', { enabled: true })
       setTelegram(data.messengers.find((item) => item.id === 'telegram') ?? null)
       setToken('')
@@ -108,15 +112,38 @@ export default function PhoneTab({ onNotice }: Props): React.JSX.Element {
     return <p className="py-8 text-center text-sm">Checking Telegram…</p>
   }
 
+  if (loadFailed) {
+    return (
+      <section className="settings-card">
+        <h3>Couldn't check Telegram</h3>
+        <p className="settings-lead">
+          Collie can't reach its connection settings right now. Check that
+          Collie is running, then try again.
+        </p>
+        <button
+          type="button"
+          className="settings-button"
+          onClick={() => {
+            setLoading(true)
+            void refresh()
+          }}
+        >
+          Try again
+        </button>
+      </section>
+    )
+  }
+
+  // The page header in SettingsScreen already carries this title — repeating
+  // it here rendered the heading twice.
   const connected = Boolean(telegram?.enabled && telegram.running && telegram.connected)
   const pending = telegram?.pending ?? []
 
   return (
     <div>
-      <h2 className="mb-1 text-xl font-semibold">Telegram</h2>
       <p className="mb-4 text-sm" style={{ color: 'var(--collie-paw)' }}>
-        Chat with Collie from Telegram. Your bot token is encrypted by Windows and never
-        shown in chat or approvals.
+        Chat with Collie from Telegram. Your bot token is encrypted with your
+        computer's own key store and never shown in chat or approvals.
       </p>
 
       <section className="rounded-xl border p-4" style={{ borderColor: 'var(--collie-fur)' }}>

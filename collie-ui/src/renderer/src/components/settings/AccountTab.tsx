@@ -4,17 +4,31 @@ import { useEffect, useState } from 'react'
 /** Display-only account state, typed from the preload bridge (`window.account`). */
 type AccountState = Awaited<ReturnType<typeof window.account.getState>>
 
+const ACCESS_COPY: Record<AccountState['access'], { title: string; detail: string } | null> = {
+  granted: {
+    title: 'Early access: active',
+    detail: 'Your account has full access to this alpha.'
+  },
+  waiting: {
+    title: "You're on the list",
+    detail:
+      'Your spot is reserved. Collie works while you wait — access features unlock automatically.'
+  },
+  unknown: null
+}
+
 /**
  * Collie account card (account-system-spec.md §6): sign in via the system
  * browser (PKCE + localhost callback handled in the main process), show the
- * signed-in email, and sign out. The session itself never reaches the
- * renderer — only the display state does.
+ * signed-in email, early-access status, and sign out. The session itself
+ * never reaches the renderer — only the display state does.
  */
 export default function AccountTab(): React.JSX.Element {
   const [state, setState] = useState<AccountState>({
     signedIn: false,
     email: null,
-    expiresAt: null
+    expiresAt: null,
+    access: 'unknown'
   })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -58,6 +72,8 @@ export default function AccountTab(): React.JSX.Element {
       .finally(() => setBusy(false))
   }
 
+  const accessCopy = ACCESS_COPY[state.access]
+
   return (
     <section className="settings-card">
       <h3>
@@ -69,6 +85,11 @@ export default function AccountTab(): React.JSX.Element {
             Signed in as <strong>{state.email}</strong>. Your chats and files
             stay on this computer — the account is just your identity.
           </p>
+          {accessCopy && (
+            <p className="account-access-line">
+              <strong>{accessCopy.title}.</strong> {accessCopy.detail}
+            </p>
+          )}
           <button
             type="button"
             className="settings-button"
@@ -81,8 +102,10 @@ export default function AccountTab(): React.JSX.Element {
       ) : (
         <>
           <p className="settings-lead">
-            Sign in with your Collie account — a browser window opens and brings
-            you right back. No data leaves this computer.
+            One click with your email — a browser window opens, you tap the
+            link, and you're back. No password to remember, and no data leaves
+            this computer. Don't have an account yet? This creates one and
+            holds your spot on the early-access list.
           </p>
           <button
             type="button"
@@ -90,7 +113,7 @@ export default function AccountTab(): React.JSX.Element {
             onClick={handleSignIn}
             disabled={busy}
           >
-            <LogIn size={14} /> {busy ? 'Opening your browser…' : 'Sign in'}
+            <LogIn size={14} /> {busy ? 'Opening your browser…' : 'Continue with email'}
           </button>
         </>
       )}

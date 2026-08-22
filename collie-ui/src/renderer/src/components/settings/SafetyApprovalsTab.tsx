@@ -31,7 +31,8 @@ export default function SafetyApprovalsTab(): React.JSX.Element {
 
   return (
     <div>
-      <h2 className="mb-2 text-xl font-semibold">Safety & approvals</h2>
+      {/* The page header in SettingsScreen already carries this title and lead —
+          repeating them here rendered the heading twice. */}
       <p className="settings-lead">
         Everyday help can stay smooth without giving Collie authority over consequential actions.
       </p>
