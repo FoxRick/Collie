@@ -1,6 +1,6 @@
 import { createHash } from 'crypto'
 import { mkdtempSync, rmSync } from 'fs'
-import { createServer } from 'http'
+import { createServer, request as httpRequest } from 'http'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -354,6 +354,78 @@ describe('startAccountSignIn', () => {
     } finally {
       await new Promise<void>((resolve) => blocker.close(() => resolve()))
     }
+  })
+})
+
+/**
+ * Raw callback GET with fully controlled headers — realFetch can't fake a
+ * Host or Origin header, so login-CSRF probes use Node's http client with
+ * `setHost: false` and an explicit host header.
+ */
+function rawCallback(opts: { host?: string; origin?: string }): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const headers: Record<string, string> = {
+      host: opts.host ?? `${CALLBACK_HOST}:${CALLBACK_PORT}`
+    }
+    if (opts.origin !== undefined) headers.origin = opts.origin
+    const req = httpRequest(
+      {
+        hostname: CALLBACK_HOST,
+        port: CALLBACK_PORT,
+        path: '/callback?code=attacker-code',
+        method: 'GET',
+        headers,
+        setHost: false
+      },
+      (res) => {
+        res.resume()
+        resolve(res.statusCode ?? 0)
+      }
+    )
+    req.on('error', reject)
+    req.end()
+  })
+}
+
+describe('sign-in callback CSRF defenses (issue #106)', () => {
+  it('rejects a callback addressed to a foreign Host (DNS-rebinding defense)', async () => {
+    const signInPromise = startAccountSignIn()
+    await vi.waitFor(() => {
+      expect(testState.openedUrl).toContain('/auth/v1/authorize')
+    })
+
+    // An attacker page that rebinds its name to 127.0.0.1 delivers its own
+    // code — the request arrives, but Host is the attacker's name.
+    const status = await rawCallback({ host: 'evil.example.com' })
+    expect(status).toBe(404)
+
+    // The flow is untouched: the legitimate redirect still completes it.
+    const ok = await realFetch(
+      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=exchange-me`
+    )
+    expect(ok.status).toBe(200)
+    const state = await signInPromise
+    expect(state.signedIn).toBe(true)
+    expect(state.email).toBe('tester@heycollie.com')
+  })
+
+  it('rejects a callback carrying an Origin header (cross-site fetch defense)', async () => {
+    const signInPromise = startAccountSignIn()
+    await vi.waitFor(() => {
+      expect(testState.openedUrl).toContain('/auth/v1/authorize')
+    })
+
+    // A top-level browser redirect sends no Origin; cross-site fetch/XHR does.
+    const status = await rawCallback({ origin: 'http://evil.example.com' })
+    expect(status).toBe(400)
+
+    const ok = await realFetch(
+      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=exchange-me`
+    )
+    expect(ok.status).toBe(200)
+    const state = await signInPromise
+    expect(state.signedIn).toBe(true)
+    expect(state.email).toBe('tester@heycollie.com')
   })
 })
 
