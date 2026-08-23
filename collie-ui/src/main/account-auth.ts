@@ -354,13 +354,12 @@ function waitForCallbackCode(server: Server, timeoutMs: number): Promise<string>
         res.writeHead(405).end('Method not allowed')
         return
       }
-      // Login-CSRF defense (issue #106): the listener sits on a fixed,
-      // well-known port while the browser flow is in flight, so any local
-      // process — or a cross-site page that reaches 127.0.0.1 (DNS
-      // rebinding) — could try to deliver its own auth code. Two cheap
-      // gates close that: the request must be addressed to this exact
-      // host:port (rebinding changes Host), and a browser's top-level
-      // redirect carries no Origin header — cross-site fetch/XHR does.
+      // Login-CSRF defense in depth (issue #106): the listener sits on a
+      // fixed, well-known port while the browser flow is in flight. Requiring
+      // the exact Host blocks common DNS-rebinding delivery, and rejecting an
+      // Origin blocks common cross-site fetch/XHR delivery (a top-level
+      // browser redirect normally sends no Origin). These checks do not bind
+      // the callback to the flow that initiated it, so issue #106 remains open.
       const host = (req.headers.host ?? '').toLowerCase()
       if (host !== `${CALLBACK_HOST}:${CALLBACK_PORT}`) {
         res.writeHead(404).end('Not found')
