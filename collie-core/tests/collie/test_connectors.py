@@ -12,7 +12,11 @@ import pytest
 
 from collie_core.connectors.catalog import CONNECTOR_CATALOG, connector_def
 from collie_core.connectors.manager import ConnectorManager
-from collie_core.connectors.models import ConnectorDriverKind, ProbeResult
+from collie_core.connectors.models import (
+    ConnectorDriverKind,
+    ProbeResult,
+    RemoteRevocationStatus,
+)
 from collie_core.connectors.policy import classify_connector_tool
 from collie_core.db import CollieDB
 from collie_core.services.credentials import CredentialStore
@@ -20,9 +24,18 @@ from nanobot.agent.tools.mcp import MCPToolWrapper
 
 
 class _FakeDriver:
-    def __init__(self, store: CredentialStore, *, fail: bool = False) -> None:
+    def __init__(
+        self,
+        store: CredentialStore,
+        *,
+        fail: bool = False,
+        revoke_status: RemoteRevocationStatus = RemoteRevocationStatus.REVOKED,
+        revoke_error: Exception | None = None,
+    ) -> None:
         self.store = store
         self.fail = fail
+        self.revoke_status = revoke_status
+        self.revoke_error = revoke_error
         self.revoked: list[str] = []
 
     def connect_and_probe(self, definition, connection_id: str) -> ProbeResult:
@@ -54,8 +67,11 @@ class _FakeDriver:
     def probe(self, definition, connection_id: str) -> ProbeResult:
         return self.connect_and_probe(definition, connection_id)
 
-    def revoke(self, definition, connection_id: str) -> None:
+    def revoke(self, definition, connection_id: str) -> RemoteRevocationStatus:
         self.revoked.append(connection_id)
+        if self.revoke_error is not None:
+            raise self.revoke_error
+        return self.revoke_status
 
 
 @pytest.fixture()
@@ -221,10 +237,55 @@ def test_connect_probe_runtime_bind_and_remove(
 
     removed = manager.remove(connection_id)
     assert removed["status"] == "disconnected"
+    assert removed["remote_revocation"] == "revoked"
     assert driver.revoked == [connection_id]
     assert connector_store.load(f"connector:{connection_id}") is None
     assert manager.get_connection(connection_id) is None
     assert manager.mcp_servers_for_config() == {}
+    db.close()
+
+
+@pytest.mark.parametrize(
+    ("revoke_status", "revoke_error", "expected"),
+    [
+        (RemoteRevocationStatus.UNSUPPORTED, None, "unsupported"),
+        (
+            RemoteRevocationStatus.REVOKED,
+            RuntimeError("provider detail must-not-leak access_token=secret"),
+            "failed",
+        ),
+    ],
+)
+def test_remove_reports_safe_remote_revocation_and_always_cleans_up_locally(
+    tmp_path: Path,
+    connector_store: CredentialStore,
+    monkeypatch: pytest.MonkeyPatch,
+    revoke_status: RemoteRevocationStatus,
+    revoke_error: Exception | None,
+    expected: str,
+) -> None:
+    _enable_connector_for_unit_test(monkeypatch, "notion")
+    db = CollieDB(tmp_path / "collie.db")
+    driver = _FakeDriver(
+        connector_store,
+        revoke_status=revoke_status,
+        revoke_error=revoke_error,
+    )
+    manager = ConnectorManager(
+        db,
+        credentials=connector_store,
+        driver_factory=lambda definition: driver,
+    )
+    connection_id = manager.connect("notion")["connection_id"]
+
+    removed = manager.remove(connection_id)
+
+    assert removed["remote_revocation"] == expected
+    assert "must-not-leak" not in repr(removed)
+    assert "secret" not in repr(removed)
+    assert driver.revoked == [connection_id]
+    assert connector_store.load(f"connector:{connection_id}") is None
+    assert manager.get_connection(connection_id) is None
     db.close()
 
 

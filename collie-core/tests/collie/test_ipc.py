@@ -6,6 +6,7 @@ import asyncio
 import json
 import socket
 import threading
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -882,6 +883,102 @@ async def test_service_commands_roundtrip(tmp_path: Path) -> None:
         services = (await _recv_until(ws, "ok"))["data"]["services"]
         by_id = {s["id"]: s for s in services}
         assert by_id["todoist"]["status"] == "coming_soon"
+        await ws.close()
+    finally:
+        await srv.stop()
+        db.close()
+
+
+@pytest.mark.asyncio
+async def test_connector_removal_ipc_runs_revocation_off_loop_and_reports_safe_outcomes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from collie_core.connectors import catalog
+    from collie_core.connectors import manager as connector_manager
+    from collie_core.connectors.catalog import connector_def
+    from collie_core.connectors.manager import ConnectorManager
+    from collie_core.connectors.models import ProbeResult, RemoteRevocationStatus
+    from collie_core.services.credentials import CredentialStore
+
+    definition = connector_def("notion")
+    assert definition is not None
+    monkeypatch.setitem(
+        catalog._BY_ID,
+        "notion",
+        replace(definition, available=True, release_status="alpha", note=""),
+    )
+    monkeypatch.setattr(connector_manager, "connector_def", catalog.connector_def)
+
+    store = CredentialStore(
+        tmp_path / "credentials",
+        protect=lambda value: value[::-1],
+        unprotect=lambda value: value[::-1],
+    )
+    revocation_outcomes: list[Exception | RemoteRevocationStatus] = [
+        RuntimeError("provider detail must-not-leak access_token=secret"),
+        RemoteRevocationStatus.UNSUPPORTED,
+    ]
+    revoke_threads: list[int] = []
+
+    class ThreadCheckingDriver:
+        def connect_and_probe(self, definition, connection_id: str) -> ProbeResult:
+            store.save(
+                f"connector:{connection_id}",
+                {"tokens": {"access_token": "secret-access-token"}},
+            )
+            return ProbeResult(
+                tools=[
+                    {
+                        "name": "search_pages",
+                        "schema_hash": "read-hash",
+                        "annotations": {"readOnlyHint": True},
+                        "risk": "read",
+                    }
+                ]
+            )
+
+        def revoke(self, definition, connection_id: str) -> RemoteRevocationStatus:
+            # This would raise if the IPC handler called remove() directly on
+            # its running event loop, reproducing issue #114.
+            asyncio.run(asyncio.sleep(0))
+            revoke_threads.append(threading.get_ident())
+            outcome = revocation_outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+    driver = ThreadCheckingDriver()
+    db = CollieDB(tmp_path / "collie.db")
+    manager = ConnectorManager(
+        db,
+        credentials=store,
+        driver_factory=lambda definition: driver,
+    )
+    srv = CollieIPCServer(db, port=_free_port(), service_manager=manager)
+    await srv.start()
+    event_loop_thread = threading.get_ident()
+    try:
+        ws = await _connect(srv)
+
+        first_id = (await asyncio.to_thread(manager.connect, "notion"))["connection_id"]
+        await _send(ws, type="remove_connector", id="remove-1", connection_id=first_id)
+        first = (await _recv_until(ws, "ok"))["data"]
+        assert first["remote_revocation"] == "failed"
+        assert "must-not-leak" not in repr(first)
+        assert "secret" not in repr(first)
+        assert store.load(f"connector:{first_id}") is None
+        assert manager.get_connection(first_id) is None
+
+        second_id = (await asyncio.to_thread(manager.connect, "notion"))["connection_id"]
+        await _send(ws, type="disconnect_service", id="remove-2", service_id="notion")
+        second = (await _recv_until(ws, "ok"))["data"]
+        assert second["connection_id"] == second_id
+        assert second["remote_revocation"] == "unsupported"
+        assert store.load(f"connector:{second_id}") is None
+        assert manager.get_connection(second_id) is None
+
+        assert len(revoke_threads) == 2
+        assert all(thread_id != event_loop_thread for thread_id in revoke_threads)
         await ws.close()
     finally:
         await srv.stop()

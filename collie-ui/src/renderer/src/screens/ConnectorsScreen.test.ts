@@ -18,6 +18,7 @@ vi.mock('../lib/ipc', () => ({
 import ConnectorCard from '../components/connectors/ConnectorCard'
 import {
   connectorConnectNotice,
+  connectorRemovalNotice,
   matchesActiveConnectorAuthStart,
   matchesActiveConnectorStatus
 } from './ConnectorsScreen'
@@ -60,6 +61,13 @@ describe('connector connection status truthfulness', () => {
     expect(connectorConnectNotice('Notion', 'auth_required')).toContain('fresh sign-in')
     expect(connectorConnectNotice('Notion', 'auth_required')).not.toContain('Connected')
     expect(connectorConnectNotice('Notion', 'failed')).not.toContain('Connected')
+  })
+
+  it('reports the provider-side result honestly after local removal', () => {
+    expect(connectorRemovalNotice('Notion', 'revoked')).toContain('access was revoked')
+    expect(connectorRemovalNotice('Notion', 'unsupported')).toContain("can't revoke access")
+    expect(connectorRemovalNotice('Notion', 'failed')).toContain("couldn't confirm")
+    expect(connectorRemovalNotice('Notion', 'not_applicable')).toContain('Connection removed')
   })
 
   it('only accepts auth and testing events for its active UI connection', () => {

@@ -2472,7 +2472,8 @@ class CollieIPCServer:
     async def _cmd_remove_connector(self, connection: ServerConnection, frame: dict) -> dict:
         if self._service_manager is None:
             raise ValueError("connectors aren't available yet")
-        result = self._service_manager.remove(
+        result = await asyncio.to_thread(
+            self._service_manager.remove,
             str(frame.get("connection_id") or ""),
             origin=str(frame.get("origin") or "connectors_ui"),
         )
@@ -2507,7 +2508,7 @@ class CollieIPCServer:
         if self._service_manager is None:
             raise ValueError("services aren't available yet")
         service_id = str(frame.get("service_id") or "")
-        result = self._service_manager.disconnect(service_id)
+        result = await asyncio.to_thread(self._service_manager.disconnect, service_id)
         result["reconfigured"] = await self._reconfigure_quietly()
         return result
 

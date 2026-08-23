@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   collieClient,
   type ConnectorCatalogItem,
-  type ConnectorConnection
+  type ConnectorConnection,
+  type RemoteRevocationStatus
 } from '../lib/ipc'
 import { splitConnectorCatalog } from '../lib/connectorCatalog'
 import ConnectorAuthProgress from '../components/connectors/ConnectorAuthProgress'
@@ -21,6 +22,28 @@ export function connectorConnectNotice(name: string, status: string): string {
     return `${name} needs a fresh sign-in before Collie can use it.`
   if (connectorIsInFlight(status)) return `${name} sign-in is already in progress.`
   return `${name} needs attention before Collie can use it.`
+}
+
+export function connectorRemovalNotice(
+  name: string,
+  remoteRevocation: RemoteRevocationStatus
+): string {
+  if (remoteRevocation === 'revoked') {
+    return `Connection removed. ${name} also confirmed that Collie's access was revoked.`
+  }
+  if (remoteRevocation === 'unsupported') {
+    return (
+      `Connection removed from Collie. I can't revoke access with ${name} automatically yet, ` +
+      `so you may also want to remove Collie in ${name}'s connected-app settings.`
+    )
+  }
+  if (remoteRevocation === 'failed') {
+    return (
+      `Connection removed from Collie, but I couldn't confirm that ${name} signed out. ` +
+      `You may also want to remove Collie in ${name}'s connected-app settings.`
+    )
+  }
+  return 'Connection removed. You can reconnect any time.'
 }
 
 export function matchesActiveConnectorAuthStart(
@@ -275,10 +298,10 @@ export default function ConnectorsScreen(): React.JSX.Element {
               setBusy(true)
               void collieClient
                 .removeConnector(removing.id)
-                .then(() => {
+                .then(({ remote_revocation }) => {
                   setRemoving(null)
                   setSelected(null)
-                  setNotice('Connection removed. You can reconnect any time.')
+                  setNotice(connectorRemovalNotice(removing.provider_name, remote_revocation))
                   return refresh()
                 })
                 .catch((error) =>
