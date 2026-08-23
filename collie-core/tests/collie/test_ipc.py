@@ -1370,12 +1370,14 @@ async def test_renderer_list_limits_are_bounded(
     captured: list[int | None] = []
 
     if command == "get_messages":
+
         def capture_messages(_conversation_id: str, limit: int | None) -> list[dict]:
             captured.append(limit)
             return []
 
         replacement = capture_messages
     else:
+
         def capture_rows(**kwargs: Any) -> list[dict]:
             captured.append(kwargs["limit"])
             return []
@@ -1418,12 +1420,14 @@ async def test_renderer_list_limits_use_safe_fallbacks_for_invalid_values(
     captured: list[int | None] = []
 
     if command == "get_messages":
+
         def capture_messages(_conversation_id: str, limit: int | None) -> list[dict]:
             captured.append(limit)
             return []
 
         replacement = capture_messages
     else:
+
         def capture_rows(**kwargs: Any) -> list[dict]:
             captured.append(kwargs["limit"])
             return []

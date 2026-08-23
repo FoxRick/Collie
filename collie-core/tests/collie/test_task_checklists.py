@@ -291,9 +291,7 @@ def _claim_plan_run(db: CollieDB, conversation_id: str) -> dict:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("task_kind", ["checklist", "plan"])
-async def test_chat_failure_sanitizes_renderer_task_state(
-    db: CollieDB, task_kind: str
-) -> None:
+async def test_chat_failure_sanitizes_renderer_task_state(db: CollieDB, task_kind: str) -> None:
     private_detail = "provider failed at C:\\Users\\alice\\.collie\\secret.json"
     conversation = db.create_conversation("Private failure")
     conversation_id = str(conversation["id"])
