@@ -143,9 +143,7 @@ def _args(
     )
 
 
-def _capture_auto_home(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
-) -> Path:
+def _capture_auto_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str) -> Path:
     """Make the otherwise-random default temp home observable to a test."""
     auto_home = tmp_path / name
 
@@ -258,9 +256,7 @@ async def test_headless_default_temp_home_is_removed_after_database_closes(
 
     runner, llm_port = await _serve(_fake_openai_app())
     try:
-        exit_code, _document = await headless.run_one(
-            _args(tmp_path, llm_port, home=None)
-        )
+        exit_code, _document = await headless.run_one(_args(tmp_path, llm_port, home=None))
     finally:
         await runner.cleanup()
 
@@ -305,9 +301,7 @@ async def test_headless_default_temp_home_is_removed_after_task_error(
     monkeypatch.setattr(headless.CollieRuntime, "_chat", fail_chat)
     runner, llm_port = await _serve(_fake_openai_app())
     try:
-        exit_code, document = await headless.run_one(
-            _args(tmp_path, llm_port, home=None)
-        )
+        exit_code, document = await headless.run_one(_args(tmp_path, llm_port, home=None))
     finally:
         await runner.cleanup()
 
@@ -378,9 +372,7 @@ async def test_headless_preserves_explicit_and_inherited_homes(
     inherited_home.mkdir()
     monkeypatch.setenv("COLLIE_HOME", str(inherited_home))
 
-    exit_code, _document = await headless.run_one(
-        _args(tmp_path, 9999, home=str(explicit_home))
-    )
+    exit_code, _document = await headless.run_one(_args(tmp_path, 9999, home=str(explicit_home)))
     assert exit_code == 3
     assert explicit_home.is_dir()
     assert headless.os.environ["COLLIE_HOME"] == str(inherited_home)

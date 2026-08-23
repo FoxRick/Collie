@@ -261,9 +261,7 @@ async def run_one(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
         return await _run_one_in_home(args, home)
 
 
-async def _run_one_in_home(
-    args: argparse.Namespace, home: Path
-) -> tuple[int, dict[str, Any]]:
+async def _run_one_in_home(args: argparse.Namespace, home: Path) -> tuple[int, dict[str, Any]]:
     """Run one task inside an already-scoped headless home."""
 
     document = _empty_document(args.task, args.provider)
