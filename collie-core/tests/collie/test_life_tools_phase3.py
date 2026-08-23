@@ -52,6 +52,16 @@ def test_expenses_and_budgets(db: CollieDB) -> None:
     assert db.list_budgets()[0]["monthly_limit"] == 300
 
 
+def test_expense_default_date_uses_local_calendar(
+    db: CollieDB, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(db, "_local_today", lambda: "2026-08-01")
+
+    expense = db.add_expense(12.5, category="Transport")
+
+    assert expense["spent_at"] == "2026-08-01"
+
+
 def test_health_upsert_per_day(db: CollieDB) -> None:
     db.log_health("steps", 5000, logged_on="2026-07-18")
     db.log_health("steps", 8000, logged_on="2026-07-18")
@@ -112,30 +122,22 @@ async def test_budget_tool_flow(db: CollieDB) -> None:
     assert card["total_budget"] == 300
 
 
-async def test_budget_default_date_and_summary_share_utc_month(
+async def test_budget_default_date_and_summary_share_local_month(
     db: CollieDB, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A local month boundary must not split the default write from its summary."""
-    from datetime import datetime, timezone
-
+    """A UTC/local month boundary must use the user's local calendar month."""
     import collie_core.db as db_module
-    import collie_core.tools.budget as budget_module
-
-    class BoundaryDateTime(datetime):
-        @classmethod
-        def now(cls, tz=None):
-            return cls(2026, 7, 31, 16, 30, tzinfo=timezone.utc)
 
     monkeypatch.setattr(db_module, "utc_now", lambda: "2026-07-31T16:30:00+00:00")
-    monkeypatch.setattr(budget_module, "datetime", BoundaryDateTime)
+    monkeypatch.setattr(db, "_local_today", lambda: "2026-08-01")
 
     result = await BudgetTool().execute(action="log_expense", amount=12.5, category="Transport")
     card = json.loads(result)
 
-    assert card["month"] == "2026-07"
+    assert card["month"] == "2026-08"
     assert card["total_spent"] == 12.5
-    assert db.expenses_by_category("2026-07") == [{"category": "Transport", "spent": 12.5}]
-    assert db.expenses_by_category("2026-08") == []
+    assert db.expenses_by_category("2026-07") == []
+    assert db.expenses_by_category("2026-08") == [{"category": "Transport", "spent": 12.5}]
 
 
 async def test_budget_tool_needs_amount(db: CollieDB) -> None:

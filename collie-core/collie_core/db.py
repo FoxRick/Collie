@@ -1215,6 +1215,7 @@ class CollieDB:
         spent_at: str | None = None,
     ) -> dict[str, Any]:
         eid = new_id()
+        day = spent_at or self._local_today()
         with self._write() as conn:
             conn.execute(
                 "INSERT INTO expenses (id, amount, category, description, spent_at, "
@@ -1224,7 +1225,7 @@ class CollieDB:
                     amount,
                     category or "Other",
                     description,
-                    spent_at or utc_now()[:10],
+                    day,
                     utc_now(),
                 ),
             )
