@@ -3624,6 +3624,7 @@ class CollieDB:
                 "run_task_state_revisions",
                 "tool_events",
                 "turn_events",
+                "memory_journal",
                 "artifact_versions",
                 "run_steps",
                 "approval_requests",
