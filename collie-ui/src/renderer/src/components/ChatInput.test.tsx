@@ -135,6 +135,37 @@ import ChatInput, {
 } from './ChatInput'
 import type { AttachmentDraft } from '../lib/ipc'
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+function submissionProps(
+  onSend: (text: string, attachments: AttachmentDraft[]) => Promise<boolean>
+) {
+  return {
+    onSend,
+    onStop: vi.fn(),
+    busy: false,
+    mode: 'execute' as const,
+    onModeChange: vi.fn(),
+    onProviderChange: vi.fn(),
+    onProjectChange: vi.fn(),
+    onAddProject: vi.fn(),
+    onAddModel: vi.fn(),
+    approvalPreset: 'ask' as const,
+    onApprovalPresetChange: vi.fn(),
+    fileAccessScope: { mode: 'selected_folder' as const },
+    onFileAccessScopeChange: vi.fn(),
+    onChooseFileAccessFolders: vi.fn(),
+    onTypingChange: vi.fn(),
+    onTranscribe: vi.fn().mockResolvedValue('')
+  }
+}
+
 function findElementByAriaLabel(
   value: unknown,
   ariaLabel: string
@@ -363,6 +394,76 @@ describe('ChatInput compose command listener', () => {
     expect(hooks.stateValue(0)).toBe('')
     expect(hooks.stateValue(1)).toEqual([])
     expect(onTypingChange).toHaveBeenCalledWith(false)
+  })
+
+  it('single-flights rapid submits while an acknowledgement is pending', async () => {
+    const eventTarget = Object.assign(new EventTarget(), {
+      setTimeout: vi.fn(() => 1),
+      clearTimeout: vi.fn()
+    })
+    vi.stubGlobal('window', eventTarget)
+    vi.stubGlobal('document', new EventTarget())
+    const acknowledgement = deferred<boolean>()
+    const onSend = vi.fn(() => acknowledgement.promise)
+    const props = submissionProps(onSend)
+
+    hooks.beginRender()
+    ChatInput(props)
+    hooks.setState(0, 'Send once')
+    hooks.beginRender()
+    const output = ChatInput(props)
+    const send = findElementByAriaLabel(output, 'chat.send').props.onClick as () => void
+
+    send()
+    send()
+    expect(onSend).toHaveBeenCalledTimes(1)
+
+    acknowledgement.resolve(false)
+    await Promise.resolve()
+    await Promise.resolve()
+    send()
+    expect(onSend).toHaveBeenCalledTimes(2)
+  })
+
+  it('removes sent attachment identities but keeps files added while send is pending', async () => {
+    const eventTarget = Object.assign(new EventTarget(), {
+      setTimeout: vi.fn(() => 1),
+      clearTimeout: vi.fn()
+    })
+    vi.stubGlobal('window', eventTarget)
+    vi.stubGlobal('document', new EventTarget())
+    const sent: AttachmentDraft = {
+      name: 'sent.txt',
+      mime: 'text/plain',
+      size: 4,
+      data_url: 'data:text/plain;base64,c2VudA=='
+    }
+    const added: AttachmentDraft = {
+      name: 'added.txt',
+      mime: 'text/plain',
+      size: 5,
+      data_url: 'data:text/plain;base64,YWRkZWQ='
+    }
+    const acknowledgement = deferred<boolean>()
+    const props = submissionProps(vi.fn(() => acknowledgement.promise))
+
+    hooks.beginRender()
+    ChatInput(props)
+    hooks.setState(0, 'Send with files')
+    hooks.setState(1, [sent])
+    hooks.beginRender()
+    const output = ChatInput(props)
+    const send = findElementByAriaLabel(output, 'chat.send').props.onClick as () => void
+    send()
+
+    hooks.setState(1, [sent, added])
+    hooks.beginRender()
+    ChatInput(props)
+    acknowledgement.resolve(true)
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(hooks.stateValue<AttachmentDraft[]>(1)).toEqual([added])
   })
 })
 

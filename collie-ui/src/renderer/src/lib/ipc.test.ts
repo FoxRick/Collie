@@ -142,6 +142,50 @@ describe('CollieClient connection startup', () => {
     client.close()
   })
 
+  it('backs reconnects off exponentially, caps the delay, and resets after open', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    const client = new CollieClient(4321, null, () => 0.5)
+    client.connect()
+    FakeWebSocket.instances[0].open()
+    FakeWebSocket.instances[0].close()
+
+    const delays = [1200, 2400, 4800, 9600, 19_200, 30_000, 30_000]
+    for (const [index, delay] of delays.entries()) {
+      const before = FakeWebSocket.instances.length
+      await vi.advanceTimersByTimeAsync(delay - 1)
+      expect(FakeWebSocket.instances).toHaveLength(before)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(FakeWebSocket.instances).toHaveLength(before + 1)
+      if (index < delays.length - 1) FakeWebSocket.instances.at(-1)!.close()
+    }
+
+    const recovered = FakeWebSocket.instances.at(-1)!
+    recovered.open()
+    recovered.close()
+    const beforeReset = FakeWebSocket.instances.length
+    await vi.advanceTimersByTimeAsync(1199)
+    expect(FakeWebSocket.instances).toHaveLength(beforeReset)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(FakeWebSocket.instances).toHaveLength(beforeReset + 1)
+    client.close()
+  })
+
+  it('applies deterministic jitter to the reconnect delay', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    const client = new CollieClient(4321, null, () => 0)
+    client.connect()
+    FakeWebSocket.instances[0].open()
+    FakeWebSocket.instances[0].close()
+
+    await vi.advanceTimersByTimeAsync(959)
+    expect(FakeWebSocket.instances).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(FakeWebSocket.instances).toHaveLength(2)
+    client.close()
+  })
+
   it('sends Change plan with the generated authenticated envelope id intact', async () => {
     vi.stubGlobal('WebSocket', FakeWebSocket)
     const client = new CollieClient(4321)

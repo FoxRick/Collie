@@ -510,6 +510,9 @@ export type CollieEvent =
 
 type Listener = (event: CollieEvent) => void
 
+const RECONNECT_BASE_DELAY_MS = 1200
+const RECONNECT_MAX_DELAY_MS = 30_000
+const RECONNECT_JITTER_RATIO = 0.2
 const CORE_RESTARTING_MESSAGE = "Collie's engine is restarting. Try again in a moment."
 const CONNECTION_INTERRUPTED_MESSAGE =
   "Collie lost the connection before confirming that action. Check its result before trying again."
@@ -541,11 +544,16 @@ export class CollieClient {
   private listeners = new Set<Listener>()
   private pending = new Map<string, PendingRequest>()
   private retryTimer: ReturnType<typeof setTimeout> | null = null
+  private reconnectAttempts = 0
   private seq = 0
   private closed = false
   connected = false
 
-  constructor(port = 3818, token?: string | null) {
+  constructor(
+    port = 3818,
+    token?: string | null,
+    private readonly random: () => number = Math.random
+  ) {
     this.url = `ws://127.0.0.1:${port}`
     this.token = token || null
   }
@@ -573,6 +581,10 @@ export class CollieClient {
     ) {
       return
     }
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer)
+      this.retryTimer = null
+    }
     let socket: WebSocket
     try {
       socket = this.token
@@ -586,6 +598,7 @@ export class CollieClient {
     socket.onopen = () => {
       if (this.ws !== socket) return
       this.connected = true
+      this.reconnectAttempts = 0
       for (const listener of this.listeners) listener({ type: 'connection_opened' })
     }
     socket.onmessage = (e) => {
@@ -620,10 +633,17 @@ export class CollieClient {
 
   private retry(): void {
     if (this.closed || this.retryTimer) return
+    const exponentialDelay = Math.min(
+      RECONNECT_MAX_DELAY_MS,
+      RECONNECT_BASE_DELAY_MS * 2 ** this.reconnectAttempts
+    )
+    this.reconnectAttempts += 1
+    const jitter = 1 - RECONNECT_JITTER_RATIO + this.random() * RECONNECT_JITTER_RATIO * 2
+    const delayMs = Math.min(RECONNECT_MAX_DELAY_MS, Math.round(exponentialDelay * jitter))
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null
       this.connect()
-    }, 1200)
+    }, delayMs)
   }
 
   close(): void {
