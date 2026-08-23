@@ -402,12 +402,18 @@ def test_cancelled_oauth_attempt_closes_callback_server(
     assert closed == ["shutdown", "close"]
 
 
-def test_claude_oauth_provider_requires_token(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_claude_oauth_provider_defers_token_load(monkeypatch: pytest.MonkeyPatch) -> None:
     from collie_core.providers import claude_oauth
 
-    monkeypatch.setattr(claude_oauth, "_current_access_token", lambda: None)
-    with pytest.raises(RuntimeError, match="Not signed in"):
-        claude_oauth.ClaudeOAuthProvider()
+    monkeypatch.setattr(
+        claude_oauth,
+        "_current_access_token",
+        lambda: pytest.fail("constructor must not load OAuth storage"),
+    )
+
+    provider = claude_oauth.ClaudeOAuthProvider()
+
+    assert provider._client is None
 
 
 async def test_claude_oauth_provider_builds_bearer_client(
@@ -421,6 +427,7 @@ async def test_claude_oauth_provider_builds_bearer_client(
         lambda: claude_oauth._AccessToken("tok-abc", 2_000_000_000),
     )
     provider = claude_oauth.ClaudeOAuthProvider(default_model="claude-sonnet-4-6")
+    assert await provider.refresh_auth()
     assert provider.get_default_model() == "claude-sonnet-4-6"
     assert provider.extra_headers["anthropic-beta"] == "oauth-2025-04-20"
     assert provider._client.auth_token == "tok-abc"
@@ -447,13 +454,21 @@ def test_runtime_provider_override(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     runtime.db.set_setting("provider.auth", "claude-oauth")
     from collie_core.providers import claude_oauth
 
+    token_reads = 0
+
+    def load_token() -> claude_oauth._AccessToken:
+        nonlocal token_reads
+        token_reads += 1
+        return claude_oauth._AccessToken("tok", 2_000_000_000)
+
     monkeypatch.setattr(
         claude_oauth,
         "_current_access_token",
-        lambda: claude_oauth._AccessToken("tok", 2_000_000_000),
+        load_token,
     )
     provider = runtime._provider_override()
     assert type(provider).__name__ == "ClaudeOAuthProvider"
+    assert token_reads == 0
 
     runtime.db.set_setting("provider.auth", "chatgpt-oauth")
     provider = runtime._provider_override()

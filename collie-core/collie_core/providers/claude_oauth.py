@@ -76,20 +76,18 @@ class ClaudeOAuthProvider(AnthropicProvider):
     """AnthropicProvider variant authenticated with a subscription Bearer token."""
 
     def __init__(self, default_model: str = _DEFAULT_MODEL):
-        token = _current_access_token()
-        if token is None:
-            raise RuntimeError("Not signed in with Claude. Complete the OAuth flow first.")
         # Skip AnthropicProvider.__init__ client construction; build our own
-        # Bearer-authenticated client instead.
+        # Bearer-authenticated client lazily after the first async token load.
         from nanobot.providers.base import LLMProvider
 
         LLMProvider.__init__(self, api_key=None, api_base=None)
         self.default_model = default_model
         self.extra_headers: dict[str, str] = {"anthropic-beta": _OAUTH_BETA_HEADER}
-        self._access_token = token.access
-        self._access_token_expires_at = token.expires_at
+        self._access_token: str | None = None
+        self._access_token_expires_at = 0.0
         self._token_lock = asyncio.Lock()
-        self._client = self._build_client(token.access)
+        self._refresh_task: asyncio.Task[_AccessToken | None] | None = None
+        self._client: Any | None = None
 
     def _build_client(self, access: str) -> Any:
         from anthropic import AsyncAnthropic
@@ -101,7 +99,19 @@ class ClaudeOAuthProvider(AnthropicProvider):
         )
 
     def _token_is_fresh(self, now: float) -> bool:
-        return now < self._access_token_expires_at - _EXPIRY_SKEW_SECONDS
+        return (
+            self._access_token is not None
+            and self._client is not None
+            and now < self._access_token_expires_at - _EXPIRY_SKEW_SECONDS
+        )
+
+    @staticmethod
+    async def _load_access_token() -> _AccessToken | None:
+        try:
+            return await asyncio.to_thread(_current_access_token)
+        except Exception:
+            logger.debug("Claude OAuth token refresh failed")
+            return None
 
     async def refresh_auth(self) -> bool:
         """Refresh near-expiry auth once without blocking the event loop."""
@@ -111,28 +121,43 @@ class ClaudeOAuthProvider(AnthropicProvider):
         async with self._token_lock:
             if self._token_is_fresh(time.time()):
                 return True
-            try:
-                token = await asyncio.to_thread(_current_access_token)
-            except Exception:
-                logger.debug("Claude OAuth token refresh failed")
-                return False
+            task = self._refresh_task
+            if task is None:
+                task = asyncio.create_task(self._load_access_token())
+                self._refresh_task = task
+
+        # A cancelled caller must not cancel or discard the shared worker: a
+        # second turn should await the same token refresh instead of starting
+        # another rotating-refresh-token exchange.
+        token = await asyncio.shield(task)
+        async with self._token_lock:
+            if self._refresh_task is task:
+                self._refresh_task = None
             if token is None:
                 return False
 
             token_changed = token.access != self._access_token
+            client = self._client
+            if token_changed or client is None:
+                client = self._build_client(token.access)
             self._access_token = token.access
             self._access_token_expires_at = token.expires_at
-            if token_changed:
-                self._client = self._build_client(token.access)
+            self._client = client
             return True
 
     def get_default_model(self) -> str:
         return self.default_model
 
     async def chat(self, *args: Any, **kwargs: Any) -> Any:
-        await self.refresh_auth()
+        if not await self.refresh_auth():
+            return self._handle_error(
+                RuntimeError("Not signed in with Claude. Complete the OAuth flow first.")
+            )
         return await super().chat(*args, **kwargs)
 
     async def chat_stream(self, *args: Any, **kwargs: Any) -> Any:
-        await self.refresh_auth()
+        if not await self.refresh_auth():
+            return self._handle_error(
+                RuntimeError("Not signed in with Claude. Complete the OAuth flow first.")
+            )
         return await super().chat_stream(*args, **kwargs)
