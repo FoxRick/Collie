@@ -18,7 +18,7 @@ import pytest
 from aiohttp import web
 
 import collie_core.headless as headless
-from collie_core.db import CollieDB, collie_home
+from collie_core.db import CollieDB
 from collie_core.telemetry.prompt_hashes import hash_tool_schema
 
 FAKE_KEY = "sk-bench-secret-0123456789abcdef"
@@ -129,7 +129,6 @@ def _args(
     return headless._parse_args(
         [
             f"--task={values['task']}",
-            f"--home={values['home']}",
             f"--model={values['model']}",
             f"--provider={values['provider']}",
             f"--api-base={values['api_base']}",
@@ -138,9 +137,25 @@ def _args(
             f"--max-iterations={values['max_iterations']}",
             f"--approval-preset={values['approval_preset']}",
         ]
+        + ([f"--home={values['home']}"] if values["home"] is not None else [])
         + ([f"--session-key={values['session_key']}"] if values["session_key"] else [])
         + ([f"--json-out={values['json_out']}"] if values["json_out"] else [])
     )
+
+
+def _capture_auto_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> Path:
+    """Make the otherwise-random default temp home observable to a test."""
+    auto_home = tmp_path / name
+
+    def fake_mkdtemp(*, prefix: str) -> str:
+        assert prefix == "collie-bench-"
+        auto_home.mkdir()
+        return str(auto_home)
+
+    monkeypatch.setattr(headless.tempfile, "mkdtemp", fake_mkdtemp)
+    return auto_home
 
 
 @pytest.mark.asyncio
@@ -218,19 +233,89 @@ async def test_headless_runs_task_and_outputs_contract(
 
 
 @pytest.mark.asyncio
+async def test_headless_default_temp_home_is_removed_after_database_closes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("COLLIE_BENCH_KEY", FAKE_KEY)
+    monkeypatch.delenv("COLLIE_HOME", raising=False)
+    auto_home = _capture_auto_home(tmp_path, monkeypatch, "owned-success-home")
+    events: list[str] = []
+    original_close = headless.CollieDB.close
+    original_rmtree = headless.shutil.rmtree
+
+    def recording_close(db: CollieDB) -> None:
+        events.append("db.close")
+        original_close(db)
+
+    def recording_rmtree(path: Path, *, ignore_errors: bool = False) -> None:
+        assert Path(path) == auto_home
+        assert "db.close" in events
+        events.append("rmtree")
+        original_rmtree(path, ignore_errors=ignore_errors)
+
+    monkeypatch.setattr(headless.CollieDB, "close", recording_close)
+    monkeypatch.setattr(headless.shutil, "rmtree", recording_rmtree)
+
+    runner, llm_port = await _serve(_fake_openai_app())
+    try:
+        exit_code, _document = await headless.run_one(
+            _args(tmp_path, llm_port, home=None)
+        )
+    finally:
+        await runner.cleanup()
+
+    assert exit_code == 0
+    assert events[-2:] == ["db.close", "rmtree"]
+    assert not auto_home.exists()
+    assert "COLLIE_HOME" not in headless.os.environ
+
+
+@pytest.mark.asyncio
 async def test_headless_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("COLLIE_BENCH_KEY", FAKE_KEY)
     monkeypatch.delenv("COLLIE_HOME", raising=False)
+    auto_home = _capture_auto_home(tmp_path, monkeypatch, "owned-timeout-home")
 
     runner, llm_port = await _serve(_fake_openai_app(delay_s=30))
     try:
-        exit_code, document = await headless.run_one(_args(tmp_path, llm_port, timeout=1))
+        exit_code, document = await headless.run_one(
+            _args(tmp_path, llm_port, timeout=1, home=None)
+        )
     finally:
         await runner.cleanup()
 
     assert exit_code == 2
     assert document["exit_state"] == "timeout"
     assert "timed out" in (document["error"] or "")
+    assert not auto_home.exists()
+    assert "COLLIE_HOME" not in headless.os.environ
+
+
+@pytest.mark.asyncio
+async def test_headless_default_temp_home_is_removed_after_task_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("COLLIE_BENCH_KEY", FAKE_KEY)
+    monkeypatch.delenv("COLLIE_HOME", raising=False)
+    auto_home = _capture_auto_home(tmp_path, monkeypatch, "owned-error-home")
+
+    async def fail_chat(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("bench task failed")
+
+    monkeypatch.setattr(headless.CollieRuntime, "_chat", fail_chat)
+    runner, llm_port = await _serve(_fake_openai_app())
+    try:
+        exit_code, document = await headless.run_one(
+            _args(tmp_path, llm_port, home=None)
+        )
+    finally:
+        await runner.cleanup()
+
+    assert exit_code == 1
+    assert document["exit_state"] == "error"
+    assert document["error"] == "bench task failed"
+    assert not auto_home.exists()
+    assert "COLLIE_HOME" not in headless.os.environ
 
 
 @pytest.mark.asyncio
@@ -241,8 +326,9 @@ async def test_headless_missing_key(
     monkeypatch.delenv("COLLIE_BENCH_KEY", raising=False)
     monkeypatch.delenv("COLLIE_PROVIDER_API_KEY", raising=False)
     monkeypatch.delenv("COLLIE_HOME", raising=False)
+    auto_home = _capture_auto_home(tmp_path, monkeypatch, "owned-missing-key-home")
 
-    exit_code, document = await headless.run_one(_args(tmp_path, 9999))
+    exit_code, document = await headless.run_one(_args(tmp_path, 9999, home=None))
 
     assert exit_code == 3
     assert document["exit_state"] == "error"
@@ -253,6 +339,56 @@ async def test_headless_missing_key(
     assert FAKE_KEY not in captured.err
     # The key never appears in the JSON either
     assert FAKE_KEY not in json.dumps(document)
+    assert not auto_home.exists()
+    assert "COLLIE_HOME" not in headless.os.environ
+
+
+@pytest.mark.asyncio
+async def test_headless_configuration_failure_cleans_default_temp_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("COLLIE_BENCH_KEY", FAKE_KEY)
+    monkeypatch.delenv("COLLIE_HOME", raising=False)
+    auto_home = _capture_auto_home(tmp_path, monkeypatch, "owned-config-home")
+
+    async def reject_candidate(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        return {"configured": False, "error": "provider rejected"}
+
+    monkeypatch.setattr(
+        headless.CollieRuntime,
+        "_configure_provider_candidate",
+        reject_candidate,
+    )
+    exit_code, document = await headless.run_one(_args(tmp_path, 9999, home=None))
+
+    assert exit_code == 3
+    assert document["error"] == "provider rejected"
+    assert not auto_home.exists()
+    assert "COLLIE_HOME" not in headless.os.environ
+
+
+@pytest.mark.asyncio
+async def test_headless_preserves_explicit_and_inherited_homes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("COLLIE_BENCH_KEY", raising=False)
+    monkeypatch.delenv("COLLIE_PROVIDER_API_KEY", raising=False)
+    inherited_home = tmp_path / "inherited-home"
+    explicit_home = tmp_path / "explicit-home"
+    inherited_home.mkdir()
+    monkeypatch.setenv("COLLIE_HOME", str(inherited_home))
+
+    exit_code, _document = await headless.run_one(
+        _args(tmp_path, 9999, home=str(explicit_home))
+    )
+    assert exit_code == 3
+    assert explicit_home.is_dir()
+    assert headless.os.environ["COLLIE_HOME"] == str(inherited_home)
+
+    exit_code, _document = await headless.run_one(_args(tmp_path, 9999, home=None))
+    assert exit_code == 3
+    assert inherited_home.is_dir()
+    assert headless.os.environ["COLLIE_HOME"] == str(inherited_home)
 
 
 @pytest.mark.asyncio
@@ -300,8 +436,9 @@ async def test_headless_isolated_home(tmp_path: Path, monkeypatch: pytest.Monkey
         await runner.cleanup()
     assert exit_code == 0
 
-    # collie_home() points inside --home (COLLIE_HOME was set by run_one)
-    assert collie_home().resolve() == (tmp_path / "bench-home").resolve()
+    # The run wrote inside --home, then restored the caller's environment.
+    assert (tmp_path / "bench-home" / "collie.db").exists()
+    assert "COLLIE_HOME" not in headless.os.environ
     assert document["conversation_id"]
 
     # The real user home never gained a collie DB

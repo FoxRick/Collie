@@ -32,6 +32,7 @@ import asyncio
 import contextlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -79,7 +80,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=None,
         help=(
             "COLLIE_HOME directory (created if missing). Defaults to "
-            "$COLLIE_HOME or a fresh tempfile.mkdtemp()."
+            "$COLLIE_HOME or a fresh temporary directory removed after the run."
         ),
     )
     parser.add_argument(
@@ -166,12 +167,30 @@ def _git_commit() -> str:
     return "unknown"
 
 
-def _resolve_home(home_flag: str | None) -> Path:
-    """Resolve --home > $COLLIE_HOME > a fresh temp dir, creating it."""
+def _resolve_home(home_flag: str | None) -> tuple[Path, bool]:
+    """Resolve the bench home and report whether this process owns it."""
     root = home_flag or os.environ.get("COLLIE_HOME")
+    owned = not root
     path = Path(root).expanduser() if root else Path(tempfile.mkdtemp(prefix="collie-bench-"))
     path.mkdir(parents=True, exist_ok=True)
-    return path
+    return path, owned
+
+
+@contextlib.contextmanager
+def _headless_home(home_flag: str | None):
+    """Set ``COLLIE_HOME`` for one run and clean up only owned temp homes."""
+    previous_home = os.environ.get("COLLIE_HOME")
+    home, owned = _resolve_home(home_flag)
+    os.environ["COLLIE_HOME"] = str(home)
+    try:
+        yield home
+    finally:
+        if previous_home is None:
+            os.environ.pop("COLLIE_HOME", None)
+        else:
+            os.environ["COLLIE_HOME"] = previous_home
+        if owned:
+            shutil.rmtree(home, ignore_errors=True)
 
 
 def _normalize_usage(usage: dict[str, Any]) -> dict[str, int]:
@@ -238,8 +257,14 @@ async def run_one(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     ``COLLIE_HOME`` is set from ``--home`` / the environment BEFORE any
     ``CollieDB`` is built, so the bench never touches the real user home.
     """
-    home = _resolve_home(args.home)
-    os.environ["COLLIE_HOME"] = str(home)
+    with _headless_home(args.home) as home:
+        return await _run_one_in_home(args, home)
+
+
+async def _run_one_in_home(
+    args: argparse.Namespace, home: Path
+) -> tuple[int, dict[str, Any]]:
+    """Run one task inside an already-scoped headless home."""
 
     document = _empty_document(args.task, args.provider)
     exit_code = EXIT_OK
@@ -255,20 +280,21 @@ async def run_one(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
         _emit(document, args.json_out)
         return exit_code, document
 
-    db = CollieDB(home / "collie.db")
-    # Approval preset is persisted BEFORE the runtime is constructed so the
-    # PermissionEvaluator reads it at init — the exact same setting the IPC
-    # path writes, never a bypass. (argparse already restricts to
-    # allow|ask|deny.)
-    db.set_setting("permissions.local_write_preset", args.approval_preset)
-    # --max-iterations maps to agent.max_tool_iterations; build_config clamps
-    # to 1..2000, and the flag must never reach the engine outside that range.
-    db.set_setting(
-        "agent.max_tool_iterations",
-        min(MAX_ITERATIONS_MAX, max(MAX_ITERATIONS_MIN, args.max_iterations)),
-    )
+    db: CollieDB | None = None
     runtime: CollieRuntime | None = None
     try:
+        db = CollieDB(home / "collie.db")
+        # Approval preset is persisted BEFORE the runtime is constructed so the
+        # PermissionEvaluator reads it at init — the exact same setting the IPC
+        # path writes, never a bypass. (argparse already restricts to
+        # allow|ask|deny.)
+        db.set_setting("permissions.local_write_preset", args.approval_preset)
+        # --max-iterations maps to agent.max_tool_iterations; build_config clamps
+        # to 1..2000, and the flag must never reach the engine outside that range.
+        db.set_setting(
+            "agent.max_tool_iterations",
+            min(MAX_ITERATIONS_MAX, max(MAX_ITERATIONS_MIN, args.max_iterations)),
+        )
         runtime = CollieRuntime(port=0, db=db)
         # -- provider ---------------------------------------------------------
         # The exact transactional path the UI uses: validate + persist +
@@ -381,7 +407,8 @@ async def run_one(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
             recorder = RunRecorder.active_for(runtime.db)
             if recorder is not None:
                 recorder.shutdown()
-        db.close()
+        if db is not None:
+            db.close()
 
 
 def _emit(document: dict[str, Any], json_out: str | None) -> None:
