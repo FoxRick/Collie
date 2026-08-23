@@ -350,6 +350,7 @@ def test_export_and_clear(db: CollieDB) -> None:
     db.add_message(conv["id"], "user", "hi")
     db.set_profile("dietary", "vegan")
     db.add_person("Sam")
+    db.log_memory_journal("profile", "dietary", "add", "vegan")
     data = db.export_all()
     assert data["schema_version"] == 14
     assert len(data["conversations"]) == 1
@@ -359,6 +360,10 @@ def test_export_and_clear(db: CollieDB) -> None:
     assert db.list_conversations(include_archived=True) == []
     assert db.all_profile() == {}
     assert db.list_people() == []
+    # "Delete everything" must also wipe the memory journal: its rows carry
+    # snapshots of remembered values, so leaving them behind leaks data the
+    # wipe promised to remove (#117).
+    assert db.list_memory_journal() == []
 
 
 def test_concurrent_access(db: CollieDB) -> None:
