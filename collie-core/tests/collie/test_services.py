@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import threading
 import time
 import urllib.parse
@@ -64,8 +65,24 @@ def test_platform_gating() -> None:
 # -- credential store ------------------------------------------------------------
 
 
+_FAKE_PROTECTION_PREFIX = b"TEST-PROTECTED\x00"
+
+
+def _fake_protect(data: bytes) -> bytes:
+    return _FAKE_PROTECTION_PREFIX + data[::-1]
+
+
+def _fake_unprotect(data: bytes) -> bytes:
+    assert data.startswith(_FAKE_PROTECTION_PREFIX)
+    return data[len(_FAKE_PROTECTION_PREFIX) :][::-1]
+
+
+def _portable_credential_store(path: Path) -> CredentialStore:
+    return CredentialStore(path, protect=_fake_protect, unprotect=_fake_unprotect)
+
+
 def test_credential_store_roundtrip(tmp_path: Path) -> None:
-    store = CredentialStore(tmp_path / "creds")
+    store = _portable_credential_store(tmp_path / "creds")
     assert store.load("todoist") is None
     store.save("todoist", {"todoist_token": "tok-123"})
     assert store.load("todoist") == {"todoist_token": "tok-123"}
@@ -73,6 +90,17 @@ def test_credential_store_roundtrip(tmp_path: Path) -> None:
     store.delete("todoist")
     assert store.load("todoist") is None
     store.delete("todoist")  # idempotent
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="requires Windows DPAPI")
+def test_credential_store_real_dpapi_roundtrip(tmp_path: Path) -> None:
+    store = CredentialStore(tmp_path / "creds")
+    store.save("todoist", {"todoist_token": "tok-123"})
+
+    blob = (tmp_path / "creds" / "todoist.bin").read_bytes()
+    assert blob.startswith(b"COLLIE-DPAPI\x00")
+    assert b"tok-123" not in blob
+    assert store.load("todoist") == {"todoist_token": "tok-123"}
 
 
 # -- fake OAuth service ------------------------------------------------------------
@@ -188,7 +216,7 @@ def manager(tmp_path: Path):
     db = CollieDB(tmp_path / "collie.db")
     mgr = ServiceManager(
         db,
-        credentials=CredentialStore(tmp_path / "creds"),
+        credentials=_portable_credential_store(tmp_path / "creds"),
         oauth_runner=lambda spec, service_name: {
             "access_token": "at-fake",
             "refresh_token": "rt-fake",
