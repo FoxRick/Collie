@@ -83,6 +83,8 @@ from nanobot.webui.skills_api import webui_skill_detail_payload, webui_skills_pa
 __all__ = ["CollieIPCServer"]
 
 _MAX_FRAME_BYTES = DEFAULT_WEBUI_INGRESS_POLICY.minimum_full_policy_frame_bytes()
+_GENERIC_ERROR_MESSAGE = "Uh oh. That didn't go as planned. Try again?"
+_MAX_LIST_LIMIT = 500
 
 _MAX_PREVIEW_BYTES = 256 * 1024
 _SAFE_PREVIEW_MIMES = frozenset({"image/png", "image/jpeg", "image/webp", "image/gif"})
@@ -127,6 +129,33 @@ _ALLOWED_ORIGIN_HOSTS = {"localhost", "127.0.0.1", "::1"}
 _PERSON_FIELDS = frozenset(
     {"relationship", "birthday", "allergies", "preferences", "gift_ideas", "notes"}
 )
+
+
+def _public_error_message(
+    error: object,
+    *,
+    fallback: str = _GENERIC_ERROR_MESSAGE,
+) -> str:
+    """Return only exception text that is explicitly safe for the renderer."""
+    if isinstance(error, (ValueError, VoiceInputError)):
+        return str(error)
+    return fallback
+
+
+def _bounded_list_limit(
+    value: Any,
+    *,
+    default: int | None,
+    maximum: int = _MAX_LIST_LIMIT,
+) -> int | None:
+    """Parse a renderer list limit without allowing unbounded SQLite LIMITs."""
+    if value is None:
+        return default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default if default is not None else maximum
+    return max(1, min(parsed, maximum))
 
 
 @dataclass
@@ -467,11 +496,7 @@ class CollieIPCServer:
             # Never include frame locals in diagnostics: secret-bearing commands
             # carry API keys, OAuth credentials, or Telegram bot tokens.
             logger.error("IPC command failed: {} ({})", kind, type(e).__name__)
-            safe_message = (
-                str(e)
-                if isinstance(e, (ValueError, VoiceInputError))
-                else "Uh oh. That didn't go as planned. Try again?"
-            )
+            safe_message = _public_error_message(e)
             await self._send(
                 connection,
                 {
@@ -649,12 +674,12 @@ class CollieIPCServer:
 
     async def _cmd_get_messages(self, connection: ServerConnection, frame: dict) -> dict:
         conv_id = str(frame.get("conversation_id") or "")
-        limit = frame.get("limit")
+        limit = _bounded_list_limit(frame.get("limit"), default=None)
         # Off the event loop: a long conversation loads asynchronously.
         messages = await asyncio.to_thread(
             self.db.get_messages,
             conv_id,
-            int(limit) if limit is not None else None,
+            limit,
         )
         return {"messages": messages}
 
@@ -663,13 +688,13 @@ class CollieIPCServer:
         conv_id = str(frame.get("conversation_id") or "") or None
         session_key = str(frame.get("session_key") or "") or None
         since = str(frame.get("since") or "") or None
-        limit = frame.get("limit")
+        limit = _bounded_list_limit(frame.get("limit"), default=200)
         turns = await asyncio.to_thread(
             self.db.list_turn_events,
             conversation_id=conv_id,
             session_key=session_key,
             since=since,
-            limit=int(limit) if limit is not None else 200,
+            limit=limit,
         )
         return {"turns": turns}
 
@@ -677,12 +702,12 @@ class CollieIPCServer:
         """List tool events (most recent first) — read-only telemetry."""
         turn_id = str(frame.get("turn_id") or "") or None
         tool_name = str(frame.get("tool_name") or "") or None
-        limit = frame.get("limit")
+        limit = _bounded_list_limit(frame.get("limit"), default=500)
         events = await asyncio.to_thread(
             self.db.list_tool_events,
             turn_id=turn_id,
             tool_name=tool_name,
-            limit=int(limit) if limit is not None else 500,
+            limit=limit,
         )
         return {"tool_events": events}
 
@@ -2000,10 +2025,11 @@ class CollieIPCServer:
         }
 
     async def _cmd_list_routine_runs(self, connection: ServerConnection, frame: dict) -> dict:
+        limit = _bounded_list_limit(frame.get("limit"), default=100)
         return {
             "runs": self.db.list_runs(
                 routine_id=str(frame.get("routine_id") or ""),
-                limit=int(frame.get("limit") or 100),
+                limit=limit,
             )
         }
 
@@ -3208,7 +3234,9 @@ class CollieIPCServer:
                         run_id,
                         str(current["step_key"]),
                         status="failed",
-                        error_message=str(event.get("error") or "Tool execution failed")[:500],
+                        error_message=_public_error_message(
+                            event.get("error"), fallback="Tool execution failed."
+                        ),
                     )
                     failed_step = next(
                         (
@@ -3326,6 +3354,7 @@ class CollieIPCServer:
             )
             return
         except Exception as e:
+            safe_error = _public_error_message(e)
             if run_id:
                 self._active_material_runs.pop(run_id, None)
             terminal_task: dict[str, Any] | None = None
@@ -3342,7 +3371,7 @@ class CollieIPCServer:
                             run_id,
                             str(current["step_key"]),
                             status="failed",
-                            error_message=str(e)[:500] or "Task execution failed.",
+                            error_message=safe_error,
                         )
                         failed_step = next(
                             (
@@ -3356,8 +3385,8 @@ class CollieIPCServer:
                     self.db.transition_run(
                         run_id,
                         "failed",
-                        error_code=type(e).__name__,
-                        error_message=str(e)[:1000],
+                        error_code="chat_turn_failed",
+                        error_message=safe_error,
                     )
                     await self.broadcast({"type": "run_failed", "run": self.db.get_run(run_id)})
                     terminal_task = self.db.get_run_task(run_id)
@@ -3379,7 +3408,7 @@ class CollieIPCServer:
                             expected_revision=int(active["revision"]),
                             step_key=str(failing),
                             status="failed",
-                            error_message=str(e)[:500] or "Task execution failed.",
+                            error_message=safe_error,
                         )
                         await self._broadcast_task_state(terminal_task)
                     else:
@@ -3437,8 +3466,8 @@ class CollieIPCServer:
                 {
                     "type": "error",
                     "conversation_id": conv_id,
-                    "message": "Uh oh. That didn't go as planned. Try again?",
-                    "detail": str(e),
+                    "message": safe_error,
+                    "detail": safe_error,
                 }
             )
             return
