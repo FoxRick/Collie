@@ -234,6 +234,14 @@ def _get(obj: Any, key: str) -> Any:
     return getattr(obj, key, None)
 
 
+async def _close_stream_after_error(stream: Any) -> None:
+    """Best-effort close without replacing the active stream exception."""
+    try:
+        await stream.close()
+    except BaseException:
+        logger.debug("OpenAI SDK stream close failed while preserving the stream error")
+
+
 def _coerce_dict(value: Any) -> dict[str, Any] | None:
     """Try to coerce *value* to a dict; return None if not possible or empty."""
     if value is None:
@@ -1616,7 +1624,10 @@ class OpenAICompatProvider(LLMProvider):
                             on_content_delta,
                             on_tool_call_delta=on_tool_call_delta,
                         )
-                    finally:
+                    except BaseException:
+                        await _close_stream_after_error(stream)
+                        raise
+                    else:
                         await stream.close()
                     self._record_responses_success(model, reasoning_effort)
                     return LLMResponse(
@@ -1707,7 +1718,10 @@ class OpenAICompatProvider(LLMProvider):
                                     "name": str(_get(function_call, "name") or ""),
                                     "arguments_delta": str(_get(function_call, "arguments") or ""),
                                 })
-            finally:
+            except BaseException:
+                await _close_stream_after_error(stream)
+                raise
+            else:
                 await stream.close()
             return self._parse_chunks(chunks)
         except asyncio.TimeoutError:
