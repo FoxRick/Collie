@@ -232,6 +232,12 @@ export interface ConnectorConnection {
   route: string
 }
 
+export type RemoteRevocationStatus =
+  | 'revoked'
+  | 'unsupported'
+  | 'failed'
+  | 'not_applicable'
+
 export interface Subagent {
   id: string
   name: string
@@ -506,6 +512,7 @@ export type CollieEvent =
       status?: string
       message?: string
       origin?: string
+      remote_revocation?: RemoteRevocationStatus
     }
 
 type Listener = (event: CollieEvent) => void
@@ -1248,7 +1255,12 @@ export class CollieClient {
 
   removeConnector(
     connectionId: string
-  ): Promise<{ connection_id: string; status: string; reconfigured?: boolean }> {
+  ): Promise<{
+    connection_id: string
+    status: string
+    remote_revocation: RemoteRevocationStatus
+    reconfigured?: boolean
+  }> {
     return this.command('remove_connector', {
       connection_id: connectionId,
       origin: 'connectors_ui'
