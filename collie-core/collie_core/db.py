@@ -1117,31 +1117,49 @@ class CollieDB:
         )
 
     @staticmethod
-    def _reminder_match(reminder_id: str) -> str:
-        """Full-ID or displayed 8-char prefix match."""
-        return reminder_id if len(reminder_id) >= 32 else reminder_id + "%"
+    def _resolve_reminder_id(conn: sqlite3.Connection, reminder_id: str) -> str | None:
+        """Resolve an exact ID or one unambiguous displayed 8-character prefix."""
+        exact = conn.execute("SELECT id FROM reminders WHERE id = ?", (reminder_id,)).fetchone()
+        if exact is not None:
+            return str(exact["id"])
+        if len(reminder_id) != 8 or any(
+            character not in "0123456789abcdefABCDEF" for character in reminder_id
+        ):
+            return None
+        matches = conn.execute(
+            "SELECT id FROM reminders WHERE substr(id, 1, 8) = ? LIMIT 2",
+            (reminder_id.lower(),),
+        ).fetchall()
+        return str(matches[0]["id"]) if len(matches) == 1 else None
 
     def complete_reminder(self, reminder_id: str) -> bool:
         with self._write() as conn:
+            resolved_id = self._resolve_reminder_id(conn, reminder_id)
+            if resolved_id is None:
+                return False
             cursor = conn.execute(
                 "UPDATE reminders SET completed = 1 WHERE id = ?",
-                (self._reminder_match(reminder_id),),
+                (resolved_id,),
             )
             return cursor.rowcount > 0
 
     def snooze_reminder(self, reminder_id: str, until: str) -> bool:
         with self._write() as conn:
+            resolved_id = self._resolve_reminder_id(conn, reminder_id)
+            if resolved_id is None:
+                return False
             cursor = conn.execute(
                 "UPDATE reminders SET snoozed_until = ? WHERE id = ?",
-                (until, self._reminder_match(reminder_id)),
+                (until, resolved_id),
             )
             return cursor.rowcount > 0
 
     def delete_reminder(self, reminder_id: str) -> bool:
         with self._write() as conn:
-            cursor = conn.execute(
-                "DELETE FROM reminders WHERE id = ?", (self._reminder_match(reminder_id),)
-            )
+            resolved_id = self._resolve_reminder_id(conn, reminder_id)
+            if resolved_id is None:
+                return False
+            cursor = conn.execute("DELETE FROM reminders WHERE id = ?", (resolved_id,))
             return cursor.rowcount > 0
 
     # -- shopping list -----------------------------------------------------------------------

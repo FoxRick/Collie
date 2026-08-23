@@ -274,6 +274,70 @@ def test_reminders(db: CollieDB) -> None:
     assert len(db.list_reminders(include_completed=True)) == 1
 
 
+def _mutate_reminder(db: CollieDB, action: str, reminder_id: str) -> bool:
+    if action == "complete":
+        return db.complete_reminder(reminder_id)
+    if action == "snooze":
+        return db.snooze_reminder(reminder_id, "2026-07-21T09:00:00+00:00")
+    return db.delete_reminder(reminder_id)
+
+
+@pytest.mark.parametrize("action", ["complete", "snooze", "delete"])
+@pytest.mark.parametrize("id_form", ["full", "displayed"])
+def test_reminder_mutations_resolve_full_and_displayed_ids(
+    db: CollieDB, action: str, id_form: str
+) -> None:
+    reminder = db.add_reminder("water the plants", "2026-07-20T09:00:00+00:00")
+    reminder_id = str(reminder["id"])
+
+    assert _mutate_reminder(db, action, reminder_id if id_form == "full" else reminder_id[:8])
+    reminders = db.list_reminders(include_completed=True)
+    if action == "delete":
+        assert reminders == []
+    elif action == "complete":
+        assert reminders[0]["completed"] == 1
+    else:
+        assert reminders[0]["snoozed_until"] == "2026-07-21T09:00:00+00:00"
+
+
+@pytest.mark.parametrize("action", ["complete", "snooze", "delete"])
+def test_reminder_mutations_reject_ambiguous_displayed_id(db: CollieDB, action: str) -> None:
+    db.add_reminder(
+        "first",
+        "2026-07-20T09:00:00+00:00",
+        reminder_id="deadbeef000000000000000000000001",
+    )
+    db.add_reminder(
+        "second",
+        "2026-07-20T09:00:00+00:00",
+        reminder_id="deadbeef000000000000000000000002",
+    )
+
+    assert not _mutate_reminder(db, action, "deadbeef")
+    reminders = db.list_reminders(include_completed=True)
+    assert len(reminders) == 2
+    assert all(not reminder["completed"] for reminder in reminders)
+    assert all(reminder["snoozed_until"] is None for reminder in reminders)
+
+
+@pytest.mark.parametrize("action", ["complete", "snooze", "delete"])
+@pytest.mark.parametrize("malformed_id", ["deadbee", "deadbee%"])
+def test_reminder_mutations_reject_malformed_displayed_id(
+    db: CollieDB, action: str, malformed_id: str
+) -> None:
+    db.add_reminder(
+        "water the plants",
+        "2026-07-20T09:00:00+00:00",
+        reminder_id="deadbeef000000000000000000000001",
+    )
+
+    assert not _mutate_reminder(db, action, malformed_id)
+    reminders = db.list_reminders(include_completed=True)
+    assert len(reminders) == 1
+    assert not reminders[0]["completed"]
+    assert reminders[0]["snoozed_until"] is None
+
+
 def test_automations(db: CollieDB) -> None:
     a = db.add_automation(
         "Morning Briefing",
