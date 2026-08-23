@@ -5,7 +5,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import type { AttachmentDraft, CollieEvent, Conversation, TaskState } from '../lib/ipc'
 
 interface ChatInputProps {
-  onSend: (text: string, attachments: AttachmentDraft[]) => void
+  onSend: (text: string, attachments: AttachmentDraft[]) => Promise<boolean>
   onProjectChange: (path: string) => void
   taskProgress?: TaskState | null
 }
