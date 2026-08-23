@@ -61,17 +61,13 @@ jobs:
             echo "tkinter unavailable in the runner Python — ignoring pet tests"
             PET="--ignore=tests/collie/test_pet_status.py"
           fi
-          # Documented Linux-only failures are deselected, never masked with
-          # `|| true`:
-          #  - test_services.py credential/connect/disconnect tests exercise
-          #    CredentialStore, which raises "Encrypted service credentials
-          #    require Windows DPAPI." on non-win32 (collie_core/services/
-          #    credentials.py:38).
+          # The documented Linux-only escape-path failure is deselected, never
+          # masked with `|| true`:
           #  - test_ipc.py::test_read_write_file_rejects_escape_paths is
           #    Windows-shaped and flaky on Linux (documented in
           #    docs + repo testing notes).
-          # These tests are NOT deselected on Windows — the
-          # collie-core-windows job runs them for real (see below).
+          # This test is NOT deselected on Windows — the collie-core-windows
+          # job runs it for real (see below).
           #
           # The full suite (tests/ — not just tests/collie) gates merges so
           # tests/tools, tests/providers and the rest cannot regress silently.
@@ -83,17 +79,13 @@ jobs:
           # moves.
           python -m pytest tests -q $PET \
             --cov=nanobot --cov=collie_core --cov-report=term-missing \
-            --deselect tests/collie/test_services.py::test_credential_store_roundtrip \
-            --deselect tests/collie/test_services.py::test_connect_api_key_service \
-            --deselect tests/collie/test_services.py::test_connect_oauth_service \
-            --deselect tests/collie/test_services.py::test_disconnect_service \
             --deselect tests/collie/test_ipc.py::test_read_write_file_rejects_escape_paths
 
   # The supported product runtime is Windows + CPython 3.12 (see
   # .github/workflows/release.yml: stage-core.cjs stages python312.dll).
-  # The Linux job above deselects five tests that only make sense on
-  # Windows (DPAPI-backed CredentialStore + the escape-path check) — this
-  # job actually runs them, plus the whole suite, on the real platform.
+  # The Linux job above deselects the Windows-shaped escape-path test; this
+  # job runs it, the real-DPAPI integration test, and the whole suite on the
+  # supported platform.
   collie-core-windows:
     name: collie-core (Python 3.12, Windows — supported runtime)
     runs-on: windows-latest
@@ -121,10 +113,9 @@ jobs:
         run: python -m ruff format --check collie_core tests/collie tests/tools
 
       - name: Test (full backend suite, no deselection)
-        # Windows is the supported runtime: the DPAPI/service credential
-        # tests and the ipc escape-path test that are deselected on Linux
-        # must actually pass here. tkinter ships with the setup-python
-        # CPython on Windows, so the pet tests run too.
+        # Windows is the supported runtime: real DPAPI and the ipc escape-path
+        # check must pass here. tkinter ships with the setup-python CPython on
+        # Windows, so the pet tests run too.
         shell: bash
         run: |
           set -o pipefail
