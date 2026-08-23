@@ -289,6 +289,57 @@ def _claim_plan_run(db: CollieDB, conversation_id: str) -> dict:
     return db.claim_plan_execution(plan["id"], plan["version"], plan["plan_hash"])["run"]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("task_kind", ["checklist", "plan"])
+async def test_chat_failure_sanitizes_renderer_task_state(
+    db: CollieDB, task_kind: str
+) -> None:
+    private_detail = "provider failed at C:\\Users\\alice\\.collie\\secret.json"
+    conversation = db.create_conversation("Private failure")
+    conversation_id = str(conversation["id"])
+    run = _claim_plan_run(db, conversation_id) if task_kind == "plan" else None
+    checklist = None
+    if run is None:
+        checklist = _create_checklist(db, conversation_id)
+
+    async def broken_runner(*_args, **_kwargs):
+        raise RuntimeError(private_detail)
+
+    server = CollieIPCServer(db, chat_runner=broken_runner)
+    recorder = _RecordingConnection()
+    server._clients.add(recorder)  # type: ignore[arg-type]
+    try:
+        await server._run_chat_turn(
+            conversation_id,
+            "Do the work",
+            run_id=str(run["id"]) if run is not None else None,
+        )
+
+        rendered = json.dumps(recorder.frames)
+        persisted = json.dumps(db.get_messages(conversation_id))
+        assert private_detail not in rendered
+        assert private_detail not in persisted
+        assert "didn't go as planned" in rendered
+
+        if run is not None:
+            run_state = json.dumps(
+                {
+                    "run": db.get_run(str(run["id"])),
+                    "steps": db.list_run_steps(str(run["id"])),
+                }
+            )
+            assert private_detail not in run_state
+            assert "didn't go as planned" in run_state
+        else:
+            assert checklist is not None
+            task = db.get_task_checklist(str(checklist["id"]))
+            task_state = json.dumps(task)
+            assert private_detail not in task_state
+            assert "didn't go as planned" in task_state
+    finally:
+        await server.stop()
+
+
 def _permission_request(
     action: str, risk: Risk, *, approve_for_me: bool = True
 ) -> PermissionRequest:
@@ -1053,6 +1104,9 @@ async def test_plan_run_tool_error_fails_only_the_selected_step(db: CollieDB) ->
             "queued",
             "queued",
         ]
+        failed_step = db.list_run_steps(str(run["id"]))[0]
+        assert failed_step["error_message"] == "Tool execution failed."
+        assert "network failed" not in json.dumps(db.get_run_task(str(run["id"])))
         assert db.get_run(str(run["id"]))["error_code"] == "step_failed"
     finally:
         await server.stop()
