@@ -133,9 +133,54 @@ async def test_refresh_failure_keeps_cached_client(
     assert await provider.refresh_auth()
     initial_client = provider._client
 
-    assert not await provider.refresh_auth()
+    assert await provider.refresh_auth()
     assert provider._access_token == "cached"
     assert provider._client is initial_client
+
+
+@pytest.mark.parametrize("method_name", ["chat", "chat_stream"])
+async def test_transient_refresh_failure_uses_unexpired_cached_client(
+    monkeypatch: pytest.MonkeyPatch, method_name: str
+) -> None:
+    now = time.time()
+    tokens = iter([_token("cached", now + 30), None])
+
+    async def provider_call(*_args, **_kwargs):
+        return "used cached client"
+
+    monkeypatch.setattr(claude_oauth, "_current_access_token", lambda: next(tokens))
+    monkeypatch.setattr(claude_oauth.AnthropicProvider, method_name, provider_call)
+    provider = claude_oauth.ClaudeOAuthProvider()
+    assert await provider.refresh_auth()
+
+    result = await getattr(provider, method_name)(messages=[])
+
+    assert result == "used cached client"
+    assert provider._access_token == "cached"
+
+
+@pytest.mark.parametrize("method_name", ["chat", "chat_stream"])
+@pytest.mark.parametrize("state", ["expired", "no_client"])
+async def test_missing_or_expired_auth_fails_honestly(
+    monkeypatch: pytest.MonkeyPatch, method_name: str, state: str
+) -> None:
+    now = time.time()
+    tokens = iter([_token("cached", now + 3600), None]) if state == "expired" else iter([None])
+
+    async def unexpected_provider_call(*_args, **_kwargs):
+        pytest.fail("provider call must not run without unexpired auth")
+
+    monkeypatch.setattr(claude_oauth, "_current_access_token", lambda: next(tokens))
+    monkeypatch.setattr(claude_oauth.AnthropicProvider, method_name, unexpected_provider_call)
+    provider = claude_oauth.ClaudeOAuthProvider()
+    if state == "expired":
+        assert await provider.refresh_auth()
+        provider._access_token_expires_at = now - 1
+
+    result = await getattr(provider, method_name)(messages=[])
+
+    assert result.finish_reason == "error"
+    assert "Not signed in with Claude" in (result.content or "")
 
 
 async def test_cancelled_waiter_keeps_single_refresh_in_flight(

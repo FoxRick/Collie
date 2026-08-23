@@ -100,9 +100,15 @@ class ClaudeOAuthProvider(AnthropicProvider):
 
     def _token_is_fresh(self, now: float) -> bool:
         return (
+            self._token_is_unexpired(now)
+            and now < self._access_token_expires_at - _EXPIRY_SKEW_SECONDS
+        )
+
+    def _token_is_unexpired(self, now: float) -> bool:
+        return (
             self._access_token is not None
             and self._client is not None
-            and now < self._access_token_expires_at - _EXPIRY_SKEW_SECONDS
+            and now < self._access_token_expires_at
         )
 
     @staticmethod
@@ -134,7 +140,10 @@ class ClaudeOAuthProvider(AnthropicProvider):
             if self._refresh_task is task:
                 self._refresh_task = None
             if token is None:
-                return False
+                # The skew is an early-refresh window, not an early-expiry
+                # window. A transient storage/network failure may keep using
+                # the cached client until the access token actually expires.
+                return self._token_is_unexpired(time.time())
 
             token_changed = token.access != self._access_token
             client = self._client
