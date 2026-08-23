@@ -241,7 +241,7 @@ export async function buildImagePreviews(
 }
 
 interface Props {
-  onSend: (text: string, attachments: AttachmentDraft[]) => void
+  onSend: (text: string, attachments: AttachmentDraft[]) => Promise<boolean>
   onStop: () => void
   busy: boolean
   steering?: boolean
@@ -304,10 +304,14 @@ export default function ChatInput({
   const [promptIndex, setPromptIndex] = useState(0)
   const [promptLength, setPromptLength] = useState(0)
   const [deletingPrompt, setDeletingPrompt] = useState(false)
+  const textRef = useRef(text)
+  const attachmentsRef = useRef(attachments)
   const recorderRef = useRef<LocalDictationRecorder | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const footerRef = useRef<HTMLDivElement>(null)
   const onTypingChangeRef = useRef(onTypingChange)
+  textRef.current = text
+  attachmentsRef.current = attachments
   onTypingChangeRef.current = onTypingChange
   const t = useT()
   const activeProvider = providers.find((item) => item.is_default === 1)
@@ -430,7 +434,7 @@ export default function ChatInput({
     setCommandIndex(0)
   }, [text])
 
-    const submit = (): void => {
+  const submit = async (): Promise<void> => {
       const trimmed = text.trim()
       if (!trimmed && attachments.length === 0) return
       if (steering && attachments.length > 0) {
@@ -440,10 +444,15 @@ export default function ChatInput({
         )
         return
       }
-      onSend(trimmed, attachments)
-      setText('')
-      onTypingChange?.(false)
-      setAttachments([])
+      const submittedText = text
+      const submittedAttachments = attachments
+      const accepted = await onSend(trimmed, submittedAttachments)
+      if (!accepted) return
+      if (textRef.current === submittedText) {
+        setText('')
+        onTypingChange?.(false)
+      }
+      if (attachmentsRef.current === submittedAttachments) setAttachments([])
       setAttachmentError('')
     }
 
@@ -698,7 +707,7 @@ export default function ChatInput({
             }
             if (event.key === 'Enter' && !event.shiftKey) {
               event.preventDefault()
-              submit()
+              void submit()
             }
           }}
           className="flex-1 resize-none bg-transparent px-1 py-1.5 outline-none"
@@ -735,7 +744,7 @@ export default function ChatInput({
         ) : null}
         <button
           type="button"
-          onClick={submit}
+          onClick={() => void submit()}
           disabled={!text.trim() && attachments.length === 0}
           title={steering ? 'Add instructions to this task' : t('chat.send')}
           aria-label={steering ? 'Add instructions to this task' : t('chat.send')}

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AttachmentDraft, CollieEvent, CollieMessage, TaskState } from '../lib/ipc'
 
 interface ChatInputProps {
-  onSend: (text: string, attachments: AttachmentDraft[]) => void
+  onSend: (text: string, attachments: AttachmentDraft[]) => Promise<boolean>
   onProjectChange: (path: string) => void
   taskProgress?: TaskState | null
 }
@@ -76,8 +76,8 @@ vi.mock('./SkillsScreen', () => ({ default: () => null }))
 vi.mock('./RoutinesScreen', () => ({ default: () => null }))
 vi.mock('./ConnectorsScreen', () => ({ default: () => null }))
 vi.mock('../components/MessageList', () => ({
-  default: ({ messages }: { messages: CollieMessage[] }) => (
-    <ol>
+  default: ({ messages, streaming }: { messages: CollieMessage[]; streaming: boolean }) => (
+    <ol data-streaming={String(streaming)}>
       {messages.map((message) => (
         <li data-message={`${message.role}:${message.id}`} key={message.id}>
           {message.content}
@@ -179,6 +179,20 @@ describe('ChatScreen paced assistant completion order', () => {
       undefined,
       { mode: 'selected_folder' }
     )
+  })
+
+  it('recovers from a rejected send and reports that the draft was not accepted', async () => {
+    const message = "Collie's engine is restarting. Try again in a moment."
+    hooks.client.chat.mockRejectedValueOnce(new Error(message))
+    let accepted = true
+
+    await act(async () => {
+      accepted = await hooks.chatInput().onSend('Keep this draft', [])
+    })
+
+    expect(accepted).toBe(false)
+    expect(container.querySelector('ol')?.dataset.streaming).toBe('false')
+    expect(container.textContent).toContain(message)
   })
 
   it('passes active task progress into the chat input window', async () => {

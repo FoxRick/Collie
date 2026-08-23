@@ -1,6 +1,6 @@
 /**
  * CollieClient — typed client for the Python core's WebSocket IPC.
- * Auto-reconnects; queues commands until connected.
+ * Auto-reconnects; commands fail closed while the core is unavailable.
  */
 
 export interface CollieMessage {
@@ -510,13 +510,37 @@ export type CollieEvent =
 
 type Listener = (event: CollieEvent) => void
 
+const CORE_RESTARTING_MESSAGE = "Collie's engine is restarting. Try again in a moment."
+const CONNECTION_INTERRUPTED_MESSAGE =
+  "Collie lost the connection before confirming that action. Check its result before trying again."
+
+type CollieConnectionErrorCode =
+  | 'CORE_RESTARTING'
+  | 'CONNECTION_INTERRUPTED'
+  | 'CONNECTION_CLOSED'
+
+export class CollieConnectionError extends Error {
+  constructor(
+    message = CORE_RESTARTING_MESSAGE,
+    readonly code: CollieConnectionErrorCode = 'CORE_RESTARTING'
+  ) {
+    super(message)
+    this.name = 'CollieConnectionError'
+  }
+}
+
+interface PendingRequest {
+  settle: (event: CollieEvent) => void
+  fail: (error: Error) => void
+}
+
 export class CollieClient {
   private ws: WebSocket | null = null
   private url: string
   private token: string | null = null
   private listeners = new Set<Listener>()
-  private pending = new Map<string, (event: CollieEvent) => void>()
-  private queue: string[] = []
+  private pending = new Map<string, PendingRequest>()
+  private retryTimer: ReturnType<typeof setTimeout> | null = null
   private seq = 0
   private closed = false
   connected = false
@@ -533,6 +557,10 @@ export class CollieClient {
     if (this.ws) {
       const socket = this.ws
       this.ws = null
+      this.connected = false
+      this.failPending(
+        new CollieConnectionError(CONNECTION_INTERRUPTED_MESSAGE, 'CONNECTION_INTERRUPTED')
+      )
       socket.close()
     }
   }
@@ -558,7 +586,6 @@ export class CollieClient {
     socket.onopen = () => {
       if (this.ws !== socket) return
       this.connected = true
-      for (const raw of this.queue.splice(0)) socket.send(raw)
       for (const listener of this.listeners) listener({ type: 'connection_opened' })
     }
     socket.onmessage = (e) => {
@@ -569,13 +596,10 @@ export class CollieClient {
         return
       }
       const id = 'id' in event ? (event.id as string | undefined) : undefined
-      if (id && this.pending.has(id)) {
-        const resolve = this.pending.get(id)!
-        this.pending.delete(id)
-        resolve(event)
+      if (id && (event.type === 'ok' || event.type === 'error')) {
+        this.pending.get(id)?.settle(event)
         // Command replies (ok AND error) are consumed by the caller — never
-        // fanned out to listeners where a background error would leak into
-        // the chat as a conversation error.
+        // fanned out to listeners, even if the caller already timed out.
         return
       }
       for (const listener of this.listeners) listener(event)
@@ -584,6 +608,9 @@ export class CollieClient {
       if (this.ws !== socket) return
       this.ws = null
       this.connected = false
+      this.failPending(
+        new CollieConnectionError(CONNECTION_INTERRUPTED_MESSAGE, 'CONNECTION_INTERRUPTED')
+      )
       this.retry()
     }
     socket.onerror = () => {
@@ -592,13 +619,26 @@ export class CollieClient {
   }
 
   private retry(): void {
-    if (this.closed) return
-    setTimeout(() => this.connect(), 1200)
+    if (this.closed || this.retryTimer) return
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null
+      this.connect()
+    }, 1200)
   }
 
   close(): void {
     this.closed = true
-    this.ws?.close()
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer)
+      this.retryTimer = null
+    }
+    const socket = this.ws
+    this.ws = null
+    this.connected = false
+    this.failPending(
+      new CollieConnectionError("Collie's engine connection closed.", 'CONNECTION_CLOSED')
+    )
+    socket?.close()
   }
 
   on(listener: Listener): () => void {
@@ -606,13 +646,10 @@ export class CollieClient {
     return () => this.listeners.delete(listener)
   }
 
-  private sendRaw(frame: Record<string, unknown>): void {
-    const raw = JSON.stringify(frame)
-    if (this.connected && this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(raw)
-    } else {
-      this.queue.push(raw)
-    }
+  private failPending(error: Error): void {
+    const pending = [...this.pending.values()]
+    this.pending.clear()
+    for (const request of pending) request.fail(error)
   }
 
   /** Fire a command and await its ok/error reply. */
@@ -621,18 +658,41 @@ export class CollieClient {
     payload: Record<string, unknown> = {},
     timeoutMs = 120_000
   ): Promise<T> {
+    const socket = this.ws
+    if (!this.connected || !socket || socket.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new CollieConnectionError())
+    }
+
     const id = `c${++this.seq}`
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
+      let timer: ReturnType<typeof setTimeout> | null = null
+      let settled = false
+      const finish = (action: () => void): void => {
+        if (settled) return
+        settled = true
+        if (timer) clearTimeout(timer)
         this.pending.delete(id)
-        reject(new Error('Collie took too long to answer.'))
+        action()
+      }
+      const pending: PendingRequest = {
+        settle: (event) => {
+          finish(() => {
+            if (event.type === 'ok') resolve(event.data as T)
+            else reject(new Error((event as { message?: string }).message || 'error'))
+          })
+        },
+        fail: (error) => finish(() => reject(error))
+      }
+      timer = setTimeout(() => {
+        pending.fail(new Error('Collie took too long to answer.'))
       }, timeoutMs)
-      this.pending.set(id, (event) => {
-        clearTimeout(timer)
-        if (event.type === 'ok') resolve(event.data as T)
-        else reject(new Error((event as { message?: string }).message || 'error'))
-      })
-      this.sendRaw({ type, id, ...payload })
+      this.pending.set(id, pending)
+      try {
+        socket.send(JSON.stringify({ type, id, ...payload }))
+      } catch {
+        pending.fail(new CollieConnectionError())
+        socket.close()
+      }
     })
   }
 

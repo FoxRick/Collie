@@ -135,6 +135,26 @@ import ChatInput, {
 } from './ChatInput'
 import type { AttachmentDraft } from '../lib/ipc'
 
+function findElementByAriaLabel(
+  value: unknown,
+  ariaLabel: string
+): { props: Record<string, unknown> } {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      try {
+        return findElementByAriaLabel(item, ariaLabel)
+      } catch {
+        // Keep looking through sibling elements.
+      }
+    }
+  } else if (value && typeof value === 'object') {
+    const props = (value as { props?: Record<string, unknown> }).props
+    if (props?.['aria-label'] === ariaLabel) return { props }
+    if (props && 'children' in props) return findElementByAriaLabel(props.children, ariaLabel)
+  }
+  throw new Error(`Element with aria-label ${ariaLabel} was not found.`)
+}
+
 describe('ChatInput compose command listener', () => {
   beforeEach(() => {
     hooks.reset()
@@ -282,6 +302,67 @@ describe('ChatInput compose command listener', () => {
     output = JSON.stringify(ChatInput(props))
     expect(output).toContain('attachment-thumbnail')
     expect(output).toContain('data:image/png;base64,thumbnail')
+  })
+
+  it('keeps the draft until the engine accepts the submission', async () => {
+    const eventTarget = Object.assign(new EventTarget(), {
+      setTimeout: vi.fn(() => 1),
+      clearTimeout: vi.fn()
+    })
+    vi.stubGlobal('window', eventTarget)
+    vi.stubGlobal('document', new EventTarget())
+    const attachment: AttachmentDraft = {
+      name: 'notes.txt',
+      mime: 'text/plain',
+      size: 5,
+      data_url: 'data:text/plain;base64,aGVsbG8='
+    }
+    const onSend = vi.fn().mockResolvedValue(false)
+    const onTypingChange = vi.fn()
+    const props = {
+      onSend,
+      onStop: vi.fn(),
+      busy: false,
+      mode: 'execute' as const,
+      onModeChange: vi.fn(),
+      onProviderChange: vi.fn(),
+      onProjectChange: vi.fn(),
+      onAddProject: vi.fn(),
+      onAddModel: vi.fn(),
+      approvalPreset: 'ask' as const,
+      onApprovalPresetChange: vi.fn(),
+      fileAccessScope: { mode: 'selected_folder' as const },
+      onFileAccessScopeChange: vi.fn(),
+      onChooseFileAccessFolders: vi.fn(),
+      onTypingChange,
+      onTranscribe: vi.fn().mockResolvedValue('')
+    }
+
+    hooks.beginRender()
+    ChatInput(props)
+    hooks.setState(0, 'Send these notes')
+    hooks.setState(1, [attachment])
+    hooks.beginRender()
+    let output = ChatInput(props)
+    const firstSend = findElementByAriaLabel(output, 'chat.send').props.onClick as () => void
+    firstSend()
+    await Promise.resolve()
+
+    expect(onSend).toHaveBeenCalledWith('Send these notes', [attachment])
+    expect(hooks.stateValue(0)).toBe('Send these notes')
+    expect(hooks.stateValue(1)).toEqual([attachment])
+    expect(onTypingChange).not.toHaveBeenCalledWith(false)
+
+    onSend.mockResolvedValueOnce(true)
+    hooks.beginRender()
+    output = ChatInput(props)
+    const retrySend = findElementByAriaLabel(output, 'chat.send').props.onClick as () => void
+    retrySend()
+    await Promise.resolve()
+
+    expect(hooks.stateValue(0)).toBe('')
+    expect(hooks.stateValue(1)).toEqual([])
+    expect(onTypingChange).toHaveBeenCalledWith(false)
   })
 })
 
