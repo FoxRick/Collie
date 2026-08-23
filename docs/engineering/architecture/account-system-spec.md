@@ -25,7 +25,7 @@
 
 | Piece | Today |
 |---|---|
-| Website | Cloudflare Worker `collie-website` (vinext), `/home/rick/collie-webiste` |
+| Website | Cloudflare Worker `collie-website` (vinext), maintained in a separate repository |
 | Waitlist | `POST /api/early-access` → Supabase table `early_access` (email UNIQUE, source, created_at), per-IP rate-limit via KV (`early-access:<ip>`) |
 | Supabase | Already connected (anon key in Worker env) |
 | App | Electron desktop + Python `collie-core`, local SQLite settings, no auth, no network identity |
