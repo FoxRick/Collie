@@ -16,7 +16,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from collie_core.services.credentials import CredentialStore
+from collie_core.services.credentials import CredentialStore, DpapiUnavailableError
 
 __all__ = ["DpapiTokenStorage", "legacy_oauth_data_root"]
 
@@ -89,24 +89,8 @@ class DpapiTokenStorage:
         return legacy
 
     def save(self, token: Any) -> None:
-        with _DpapiErrorsFallback():
-            self._store.save(self._service_id, _token_to_dict(token))
-            return
-        self._plain_storage().save(token)
-
-
-class _DpapiErrorsFallback:
-    """Context manager that swallows non-Windows DPAPI errors.
-
-    ``CredentialStore`` raises ``RuntimeError`` when DPAPI is unavailable
-    (non-Windows). Any other failure (real encryption errors on Windows)
-    propagates so tokens are never silently stored in plaintext.
-    """
-
-    def __enter__(self) -> None:
-        return None
-
-    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
-        if exc_type is None:
-            return False
-        return bool(issubclass(exc_type, RuntimeError))
+        token_data = _token_to_dict(token)
+        try:
+            self._store.save(self._service_id, token_data)
+        except DpapiUnavailableError:
+            self._plain_storage().save(token)

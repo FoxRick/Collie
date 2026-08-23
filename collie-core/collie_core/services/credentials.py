@@ -17,11 +17,15 @@ from typing import Any
 
 from collie_core.db import collie_home
 
-__all__ = ["CredentialStore"]
+__all__ = ["CredentialStore", "DpapiUnavailableError"]
 
 
 _MAGIC = b"COLLIE-DPAPI\x00"
 _CRYPTPROTECT_UI_FORBIDDEN = 0x1
+
+
+class DpapiUnavailableError(RuntimeError):
+    """Raised when the current platform cannot provide Windows DPAPI."""
 
 
 if sys.platform == "win32":
@@ -37,7 +41,7 @@ def _blob(data: bytes) -> tuple[_DataBlob, object]:
 
 def _dpapi_protect(data: bytes) -> bytes:
     if sys.platform != "win32":
-        raise RuntimeError(
+        raise DpapiUnavailableError(
             "Connected-service credentials can only be stored securely on "
             "Windows for now (Windows DPAPI). On macOS and Linux these "
             "connectors aren't available yet."
@@ -66,7 +70,7 @@ def _dpapi_protect(data: bytes) -> bytes:
 
 def _dpapi_unprotect(data: bytes) -> bytes:
     if sys.platform != "win32":
-        raise RuntimeError("Encrypted service credentials require Windows DPAPI.")
+        raise DpapiUnavailableError("Encrypted service credentials require Windows DPAPI.")
     import ctypes
 
     source, source_buffer = _blob(data)
