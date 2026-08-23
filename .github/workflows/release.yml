@@ -27,6 +27,12 @@ on:
     tags:
       - "v*"
 
+# Least-privilege default for the whole workflow: qualify/build only read the
+# repo. The `release` job narrows itself back up to `contents: write` (it
+# creates the draft GitHub Release) (#107).
+permissions:
+  contents: read
+
 jobs:
   # A tag can be pushed from any commit, so the release pipeline itself must
   # qualify the code before any package is built: core tests (with the
@@ -38,9 +44,9 @@ jobs:
       run:
         working-directory: collie-core
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.11"
           cache: pip
@@ -76,7 +82,7 @@ jobs:
             --deselect tests/collie/test_services.py::test_disconnect_service \
             --deselect tests/collie/test_ipc.py::test_read_write_file_rejects_escape_paths
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -124,9 +130,9 @@ jobs:
       run:
         working-directory: collie-ui
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: 22
           cache: npm
@@ -136,13 +142,13 @@ jobs:
         run: npm ci
 
       - name: Set up Python for the build venv
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: ${{ matrix.python }}
 
       - name: Install standalone Python runtime (python-build-standalone)
         if: matrix.standalone
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
         with:
           python-version: ${{ matrix.python }}
 
@@ -256,7 +262,7 @@ jobs:
           ls -la dist
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: collie-${{ matrix.os }}
           if-no-files-found: error
@@ -285,10 +291,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
 
       - name: Download all platform artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           path: artifacts
           merge-multiple: true
@@ -304,7 +310,7 @@ jobs:
           cat SHA256SUMS.txt
 
       - name: Create GitHub Release (draft)
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2.6.2
         with:
           files: artifacts/*
           draft: true
