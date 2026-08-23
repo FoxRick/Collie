@@ -1,10 +1,10 @@
 interface GlanceWeather {
   location?: string
   icon?: string
-  temp?: string
+  temp?: string | number
   condition?: string
-  high?: string
-  low?: string
+  high?: string | number
+  low?: string | number
   rain_chance?: number
 }
 
@@ -19,6 +19,11 @@ interface Props {
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined
+}
+
+function asTemperature(value: unknown): string | number | undefined {
+  if (typeof value === 'string') return value
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
 function friendlyDue(dueAt: string): string {
@@ -36,11 +41,11 @@ function friendlyDue(dueAt: string): string {
 export default function TodayGlanceCard({ data }: Props): React.JSX.Element | null {
   const weatherRaw = data.weather as Record<string, unknown> | undefined
   const weather: GlanceWeather = weatherRaw ?? {}
-  const temp = asString(weather.temp)
+  const temp = asTemperature(weather.temp)
   const condition = asString(weather.condition)
   const icon = asString(weather.icon) || '⛅'
-  const high = asString(weather.high)
-  const low = asString(weather.low)
+  const high = asTemperature(weather.high)
+  const low = asTemperature(weather.low)
   const rainChance = typeof weather.rain_chance === 'number' ? weather.rain_chance : null
   const location = asString(weather.location)
 
