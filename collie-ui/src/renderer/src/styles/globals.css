@@ -2041,6 +2041,7 @@ button {
 .message-markdown th,
 .message-markdown td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; }
 .message-markdown th { background: var(--bone); font-weight: 700; }
+.message-markdown-remote-image { color: var(--muted); font-size: 0.9em; font-style: italic; }
 
 .thinking-note {
   color: var(--muted);

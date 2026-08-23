@@ -5,6 +5,13 @@ interface Props {
   content: string
 }
 
+function isLocalMarkdownImage(src: string | undefined): boolean {
+  if (!src) return false
+  const value = src.trim()
+  if (/^data:image\/(?:gif|jpe?g|png|webp);base64,/i.test(value)) return true
+  return !/^(?:[a-z][a-z\d+.-]*:|[\\/]{2})/i.test(value)
+}
+
 export default function MarkdownContent({ content }: Props): React.JSX.Element {
   return (
     <div className="message-markdown">
@@ -24,7 +31,15 @@ export default function MarkdownContent({ content }: Props): React.JSX.Element {
             >
               {children}
             </a>
-          )
+          ),
+          img: ({ src, alt }) =>
+            isLocalMarkdownImage(src) ? (
+              <img src={src} alt={alt ?? ''} loading="lazy" />
+            ) : (
+              <span className="message-markdown-remote-image" role="note">
+                Remote image hidden for privacy{alt ? `: ${alt}` : '.'}
+              </span>
+            )
         }}
       >
         {content}
