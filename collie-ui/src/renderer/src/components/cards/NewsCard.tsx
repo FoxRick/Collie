@@ -1,3 +1,5 @@
+import { safeImageSource } from '../../lib/safeImageSource'
+
 interface Props {
   data: Record<string, unknown>
 }
@@ -29,28 +31,31 @@ export default function NewsCard({ data }: Props): React.JSX.Element {
         </span>
       </div>
       <div className="space-y-2">
-        {articles.map((article, i) => (
-          <div key={i} className="flex gap-3 rounded-xl p-2" style={{ background: 'var(--collie-bone)' }}>
-            {(article.image as string) && (
-              <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg">
-                <img
-                  src={String(article.image || '')}
-                  alt=""
-                  className="h-full w-full object-cover"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                />
-              </div>
-            )}
-            <div className="min-w-0 flex-1">
-              <div className="line-clamp-2 text-sm font-semibold" style={{ color: 'var(--collie-nose)' }}>
-                {article.headline as string}
-              </div>
-              <div className="mt-1 text-xs" style={{ color: 'var(--collie-paw)' }}>
-                {article.source as string}
+        {articles.map((article, i) => {
+          const imageSource = safeImageSource(article.image)
+          return (
+            <div key={i} className="flex gap-3 rounded-xl p-2" style={{ background: 'var(--collie-bone)' }}>
+              {imageSource && (
+                <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg">
+                  <img
+                    src={imageSource}
+                    alt=""
+                    className="h-full w-full object-cover"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                  />
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="line-clamp-2 text-sm font-semibold" style={{ color: 'var(--collie-nose)' }}>
+                  {article.headline as string}
+                </div>
+                <div className="mt-1 text-xs" style={{ color: 'var(--collie-paw)' }}>
+                  {article.source as string}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

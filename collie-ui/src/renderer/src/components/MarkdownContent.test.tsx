@@ -40,11 +40,28 @@ describe('MarkdownContent images', () => {
     expect(container.textContent).toContain('Remote image hidden for privacy')
   })
 
+  it.each([
+    'http://tracker.example/pixel.png',
+    'file:///C:/Users/example/private.png',
+    'blob:https://tracker.example/id'
+  ])('blocks scheme-bearing image source %s', (source) => {
+    const container = render(`![tracking pixel](${source})`)
+
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.textContent).toContain('Remote image hidden for privacy')
+  })
+
   it('preserves local relative images', () => {
     const container = render('![local](./assets/example.png)')
     const images = container.querySelectorAll('img')
 
     expect(images).toHaveLength(1)
     expect(images[0]?.getAttribute('src')).toBe('./assets/example.png')
+  })
+
+  it('preserves supported inline raster images', () => {
+    const container = render('![inline](data:image/png;base64,iVBORw0KGgo=)')
+
+    expect(container.querySelector('img')?.getAttribute('src')).toBe('data:image/png;base64,iVBORw0KGgo=')
   })
 })
