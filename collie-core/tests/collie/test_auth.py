@@ -493,6 +493,61 @@ def test_dpapi_token_storage_round_trip(fake_dpapi_store) -> None:
     assert loaded.account_id == "a1"
 
 
+@pytest.mark.parametrize("error", [RuntimeError("unexpected"), OSError("disk failure")])
+def test_dpapi_token_storage_unexpected_save_errors_never_fall_back_to_plaintext(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    from collie_core.providers.storage import DpapiTokenStorage
+
+    home = tmp_path / "home"
+    legacy_root = tmp_path / "legacy"
+    monkeypatch.setenv("COLLIE_HOME", str(home))
+    monkeypatch.setenv("COLLIE_OAUTH_ROOT", str(legacy_root))
+    storage = DpapiTokenStorage(token_filename="claude.json")
+
+    def fail_save(*_args) -> None:
+        raise error
+
+    monkeypatch.setattr(storage._store, "save", fail_save)
+
+    with pytest.raises(type(error), match=str(error)):
+        storage.save(FakeToken(access="acc", refresh="ref", expires=1234))
+
+    assert storage._plain is None
+    assert not storage.get_token_path().exists()
+    assert not (legacy_root / "auth" / "claude.json").exists()
+
+
+def test_dpapi_token_storage_falls_back_only_when_dpapi_is_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import collie_core.services.credentials as credentials_mod
+    from collie_core.providers.storage import DpapiTokenStorage
+    from collie_core.services.credentials import DpapiUnavailableError
+
+    home = tmp_path / "home"
+    legacy_root = tmp_path / "legacy"
+    monkeypatch.setenv("COLLIE_HOME", str(home))
+    monkeypatch.setenv("COLLIE_OAUTH_ROOT", str(legacy_root))
+
+    with monkeypatch.context() as platform_patch:
+        platform_patch.setattr(credentials_mod.sys, "platform", "non-windows-test")
+        with pytest.raises(DpapiUnavailableError):
+            credentials_mod._dpapi_protect(b"payload")
+
+    storage = DpapiTokenStorage(token_filename="claude.json")
+
+    def unavailable(_data: bytes) -> bytes:
+        raise DpapiUnavailableError("DPAPI is unavailable")
+
+    monkeypatch.setattr(storage._store, "_protect", unavailable)
+    storage.save(FakeToken(access="acc", refresh="ref", expires=1234, account_id=None))
+
+    assert not storage.get_token_path().exists()
+    assert (legacy_root / "auth" / "claude.json").exists()
+    assert storage.load().refresh == "ref"
+
+
 def test_legacy_oauth_root_honors_isolation_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
