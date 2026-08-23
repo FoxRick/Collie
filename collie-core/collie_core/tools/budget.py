@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import math
-from datetime import UTC, datetime
 from typing import Any
 
 from collie_core.permissions.models import PermissionRequest, Risk
@@ -18,8 +17,8 @@ from nanobot.agent.tools.base import Tool, tool_parameters
 __all__ = ["BudgetTool"]
 
 
-def _this_month() -> str:
-    return datetime.now(UTC).strftime("%Y-%m")
+def _this_month(db: Any) -> str:
+    return db._local_today()[:7]
 
 
 def _card(db: Any, month: str) -> str:
@@ -133,10 +132,10 @@ class BudgetTool(Tool):
                 description=str(kwargs.get("description") or "") or None,
                 spent_at=str(kwargs.get("date") or "") or None,
             )
-            return _card(db, _this_month())
+            return _card(db, _this_month(db))
 
         if action == "summary":
-            month = str(kwargs.get("month") or "").strip() or _this_month()
+            month = str(kwargs.get("month") or "").strip() or _this_month(db)
             return _card(db, month)
 
         if action == "set_budget":
@@ -150,7 +149,7 @@ class BudgetTool(Tool):
             if not math.isfinite(amount) or amount < 0 or amount > 1_000_000_000:
                 return self.error("That limit doesn't look right — try a sensible number.")
             db.set_budget(category, amount)
-            return _card(db, _this_month())
+            return _card(db, _this_month(db))
 
         return self.error(
             f"Not sure what to do with action '{action}'. Try log_expense, summary, or set_budget."
