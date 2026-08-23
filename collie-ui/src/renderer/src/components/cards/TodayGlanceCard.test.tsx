@@ -52,6 +52,28 @@ describe('TodayGlanceCard', () => {
     expect(container.textContent).toContain('Coming up')
   })
 
+  it('renders numeric temperatures from the Open-Meteo payload', () => {
+    const container = render(
+      <TodayGlanceCard
+        data={{
+          weather: {
+            location: 'Berlin, Germany',
+            icon: '☀️',
+            temp: 24.3,
+            condition: 'Clear',
+            high: 26.1,
+            low: 14.2,
+            rain_chance: 10
+          }
+        }}
+      />
+    )
+
+    expect(container.querySelector('[aria-label="Today at a glance"]')).not.toBeNull()
+    expect(container.textContent).toContain('24.3°C')
+    expect(container.textContent).toContain('H 26.1° · L 14.2°')
+  })
+
   it('shows the rain hint only above the threshold', () => {
     const rainy = {
       ...fullData,
