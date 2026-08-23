@@ -81,25 +81,13 @@ class OpenAICodexProvider(LLMProvider):
             headers = _build_headers(token.account_id, token.access)
 
             stage = "codex_request"
-            try:
-                content, tool_calls, finish_reason, usage, reasoning_content = await _request_codex(
-                    DEFAULT_CODEX_URL, headers, body, verify=True,
-                    proxy=self.proxy,
-                    on_content_delta=on_content_delta,
-                    on_thinking_delta=on_thinking_delta,
-                    on_tool_call_delta=on_tool_call_delta,
-                )
-            except Exception as e:
-                if "CERTIFICATE_VERIFY_FAILED" not in str(e):
-                    raise
-                logger.warning("SSL verification failed for Codex API; retrying with verify=False")
-                content, tool_calls, finish_reason, usage, reasoning_content = await _request_codex(
-                    DEFAULT_CODEX_URL, headers, body, verify=False,
-                    proxy=self.proxy,
-                    on_content_delta=on_content_delta,
-                    on_thinking_delta=on_thinking_delta,
-                    on_tool_call_delta=on_tool_call_delta,
-                )
+            content, tool_calls, finish_reason, usage, reasoning_content = await _request_codex(
+                DEFAULT_CODEX_URL, headers, body, verify=True,
+                proxy=self.proxy,
+                on_content_delta=on_content_delta,
+                on_thinking_delta=on_thinking_delta,
+                on_tool_call_delta=on_tool_call_delta,
+            )
             return LLMResponse(
                 content=content,
                 tool_calls=tool_calls,

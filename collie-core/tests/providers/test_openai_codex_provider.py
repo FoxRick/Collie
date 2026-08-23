@@ -173,6 +173,46 @@ async def test_codex_request_uses_configured_proxy(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_codex_certificate_failure_never_disables_tls_verification(monkeypatch) -> None:
+    _mock_codex_token(monkeypatch)
+    verify_calls: list[bool] = []
+
+    async def fake_request(*args: Any, verify: bool, **kwargs: Any):
+        _ = args, kwargs
+        verify_calls.append(verify)
+        raise httpx.ConnectError("[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed")
+
+    monkeypatch.setattr("nanobot.providers.openai_codex_provider._request_codex", fake_request)
+
+    provider = OpenAICodexProvider()
+    response = await provider.chat([{"role": "user", "content": "hello"}])
+
+    assert verify_calls == [True]
+    assert response.finish_reason == "error"
+    assert response.error_kind == "connection"
+
+
+@pytest.mark.asyncio
+async def test_codex_success_keeps_tls_verification_enabled(monkeypatch) -> None:
+    _mock_codex_token(monkeypatch)
+    verify_calls: list[bool] = []
+
+    async def fake_request(*args: Any, verify: bool, **kwargs: Any):
+        _ = args, kwargs
+        verify_calls.append(verify)
+        return "ok", [], "stop", {}, None
+
+    monkeypatch.setattr("nanobot.providers.openai_codex_provider._request_codex", fake_request)
+
+    provider = OpenAICodexProvider()
+    response = await provider.chat([{"role": "user", "content": "hello"}])
+
+    assert verify_calls == [True]
+    assert response.content == "ok"
+    assert response.finish_reason == "stop"
+
+
+@pytest.mark.asyncio
 async def test_codex_prompt_cache_key_uses_stable_conversation_prefix(monkeypatch) -> None:
     bodies: list[dict] = []
 
