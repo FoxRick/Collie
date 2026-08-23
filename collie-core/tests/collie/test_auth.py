@@ -410,17 +410,28 @@ def test_claude_oauth_provider_requires_token(monkeypatch: pytest.MonkeyPatch) -
         claude_oauth.ClaudeOAuthProvider()
 
 
-def test_claude_oauth_provider_builds_bearer_client(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_claude_oauth_provider_builds_bearer_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from collie_core.providers import claude_oauth
 
-    monkeypatch.setattr(claude_oauth, "_current_access_token", lambda: "tok-abc")
+    monkeypatch.setattr(
+        claude_oauth,
+        "_current_access_token",
+        lambda: claude_oauth._AccessToken("tok-abc", 2_000_000_000),
+    )
     provider = claude_oauth.ClaudeOAuthProvider(default_model="claude-sonnet-4-6")
     assert provider.get_default_model() == "claude-sonnet-4-6"
     assert provider.extra_headers["anthropic-beta"] == "oauth-2025-04-20"
     assert provider._client.auth_token == "tok-abc"
 
-    monkeypatch.setattr(claude_oauth, "_current_access_token", lambda: "tok-refreshed")
-    assert provider.refresh_auth() is True
+    provider._access_token_expires_at = 0
+    monkeypatch.setattr(
+        claude_oauth,
+        "_current_access_token",
+        lambda: claude_oauth._AccessToken("tok-refreshed", 2_000_000_000),
+    )
+    assert await provider.refresh_auth() is True
     assert provider._client.auth_token == "tok-refreshed"
 
 
@@ -436,7 +447,11 @@ def test_runtime_provider_override(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     runtime.db.set_setting("provider.auth", "claude-oauth")
     from collie_core.providers import claude_oauth
 
-    monkeypatch.setattr(claude_oauth, "_current_access_token", lambda: "tok")
+    monkeypatch.setattr(
+        claude_oauth,
+        "_current_access_token",
+        lambda: claude_oauth._AccessToken("tok", 2_000_000_000),
+    )
     provider = runtime._provider_override()
     assert type(provider).__name__ == "ClaudeOAuthProvider"
 
