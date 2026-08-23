@@ -32,6 +32,15 @@ const SYNCED_FILES = ['AGENTS.md', 'VISION.md'] as const
 /** REST timeout — bounded so a hanging network never hangs the UI. */
 const HTTP_TIMEOUT_MS = 15_000
 
+/**
+ * Toggle transitions may overlap when the renderer changes its mind while a
+ * baseline upload is still in flight. Keep writes ordered, and let each
+ * transition detect whether a newer request superseded it before it persists
+ * state. A rejected transition must not poison the queue for later requests.
+ */
+let syncToggleGeneration = 0
+let syncToggleQueue: Promise<void> = Promise.resolve()
+
 export interface SyncSnapshotSummary {
   deviceId: string
   deviceName: string
@@ -311,16 +320,36 @@ export async function getSyncStatus(): Promise<SyncStatus> {
   }
 }
 
-export async function enableSync(enabled: boolean): Promise<SyncStatus> {
+export function enableSync(enabled: boolean): Promise<SyncStatus> {
+  const generation = ++syncToggleGeneration
+  const transition = syncToggleQueue.then(() => applySyncToggle(enabled, generation))
+  syncToggleQueue = transition.then(
+    () => undefined,
+    () => undefined
+  )
+  return transition
+}
+
+async function applySyncToggle(enabled: boolean, generation: number): Promise<SyncStatus> {
+  // A newer queued request already owns the desired state. Avoid unnecessary
+  // network or settings work for this stale transition.
+  if (generation !== syncToggleGeneration) return getSyncStatus()
+
   const status = await getSyncStatus()
+  if (generation !== syncToggleGeneration) return getSyncStatus()
   if (enabled && !status.signedIn) {
     throw new Error('Sign in to Collie before turning on syncing.')
   }
-  await writeToggle(enabled)
+
   if (enabled) {
-    // First flip = immediate baseline upload, so "on" means backed up.
+    // Finish the baseline before persisting true, so a failed upload always
+    // leaves sync durably off. If the user disabled sync while this upload was
+    // running, the newer transition wins and true is never written.
     await uploadSnapshot()
+    if (generation !== syncToggleGeneration) return getSyncStatus()
   }
+
+  await writeToggle(enabled)
   return getSyncStatus()
 }
 

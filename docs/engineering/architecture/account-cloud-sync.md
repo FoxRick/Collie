@@ -97,8 +97,11 @@ create policy "own rows only"
 3. Confirm dialog states what will be replaced, in plain language.
 
 **Toggle:** stored locally (`settings` key `account.sync_enabled`, default
-off). Turning it on does the first upload immediately. Turning it off stops
-uploads; online copies remain until account deletion.
+off). Turning it on uploads the first snapshot before the enabled state is
+stored, so a failed baseline leaves sync off. Toggle transitions are ordered,
+and a newer request supersedes an in-flight older one before it can persist
+stale state. Turning it off stops uploads; online copies remain until account
+deletion.
 
 **Device identity:** `device_id` = random UUID persisted in userData on first
 run; `device_name` = `<username>'s <os>` at first upload, editable later (v2).
@@ -117,6 +120,9 @@ run; `device_name` = `<username>'s <os>` at first upload, editable later (v2).
 ## 7. Verification matrix
 
 - Toggle on with no account → toggle disabled, plain-language hint
+- Baseline upload fails → toggle remains off and a later toggle still works
+- Toggle off during the baseline upload → the completed upload cannot persist
+  a stale enabled state
 - Sign in → (if enabled) snapshot appears in Supabase with device name
 - Back up twice → still one row per device (upsert, not accumulate)
 - Second device sign-in → sees first device's snapshot, restores, content

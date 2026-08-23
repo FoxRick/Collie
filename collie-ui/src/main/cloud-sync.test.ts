@@ -8,7 +8,11 @@ const testState = vi.hoisted(() => {
     userData: '',
     coreCalls: [] as Array<{ type: string; payload: Record<string, unknown> }>,
     fetches: [] as Array<{ url: string; init: RequestInit }>,
+    events: [] as string[],
+    toggleValue: false,
+    failCoreType: null as string | null,
     nextFetchResponse: null as Response | null,
+    nextFetchPromise: null as Promise<Response> | null,
     cfg: { url: 'https://test.supabase.co', key: 'test-anon-key' }
   }
 })
@@ -35,13 +39,18 @@ vi.mock('../shared/account-config', () => ({
 vi.mock('./core-client', () => ({
   commandWithCore: (type: string, payload: Record<string, unknown>) => {
     testState.coreCalls.push({ type, payload })
+    if (testState.failCoreType === type) {
+      return Promise.reject(new Error(`core ${type} failed`))
+    }
     if (type === 'get_settings') {
-      const lastSet = [...testState.coreCalls]
-        .reverse()
-        .find((c) => c.type === 'set_setting')
       return Promise.resolve({
-        settings: lastSet?.payload?.value === true ? { 'account.sync_enabled': true } : {}
+        settings: testState.toggleValue ? { 'account.sync_enabled': true } : {}
       })
+    }
+    if (type === 'set_setting') {
+      testState.toggleValue = payload.value === true
+      testState.events.push(`toggle:${String(payload.value)}`)
+      return Promise.resolve({})
     }
     if (type === 'get_profile') return Promise.resolve({ profile: { favorite_color: 'blue' } })
     if (type === 'get_people')
@@ -71,6 +80,20 @@ function makeJwt(sub: string): string {
   return `${enc({ alg: 'none', typ: 'JWT' })}.${enc({ sub })}.${enc({})}`
 }
 
+function deferred<T>(): {
+  promise: Promise<T>
+  resolve: (value: T) => void
+  reject: (reason?: unknown) => void
+} {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((onResolve, onReject) => {
+    resolve = onResolve
+    reject = onReject
+  })
+  return { promise, resolve, reject }
+}
+
 const globalFetch = global.fetch
 
 import {
@@ -98,16 +121,29 @@ beforeEach(() => {
   testState.userData = mkdtempSync(join(tmpdir(), 'collie-cloud-sync-'))
   testState.coreCalls = []
   testState.fetches = []
+  testState.events = []
+  testState.toggleValue = false
+  testState.failCoreType = null
   testState.nextFetchResponse = null
+  testState.nextFetchPromise = null
   resetSecureStorageCache()
   global.fetch = ((url: string | URL, init: RequestInit = {}): Promise<Response> => {
     const urlString = String(url)
     if (urlString.startsWith('https://test.supabase.co')) {
       testState.fetches.push({ url: urlString, init })
-      return Promise.resolve(
-        testState.nextFetchResponse ??
-          new Response(JSON.stringify([{ created_at: '2026-08-22T00:00:00Z' }]), { status: 200 })
-      )
+      testState.events.push(`fetch:${String(init.method ?? 'GET')}:started`)
+      const response =
+        testState.nextFetchPromise ??
+        Promise.resolve(
+          testState.nextFetchResponse ??
+            new Response(JSON.stringify([{ created_at: '2026-08-22T00:00:00Z' }]), {
+              status: 200
+            })
+        )
+      return response.then((result) => {
+        testState.events.push(`fetch:${String(init.method ?? 'GET')}:resolved`)
+        return result
+      })
     }
     return globalFetch(url, init)
   }) as typeof fetch
@@ -135,9 +171,22 @@ describe('cloud sync status + toggle', () => {
     await expect(enableSync(true)).rejects.toThrow(/Sign in/)
   })
 
-  it('persists the toggle through the core settings table and uploads a baseline', async () => {
+  it('persists true only after the baseline upload succeeds', async () => {
     signInAs('user-1')
-    await enableSync(true)
+    const uploadGate = deferred<Response>()
+    testState.nextFetchPromise = uploadGate.promise
+
+    const transition = enableSync(true)
+    await vi.waitFor(() => {
+      expect(testState.fetches.some((entry) => entry.init.method === 'POST')).toBe(true)
+    })
+    expect(testState.coreCalls.some((call) => call.type === 'set_setting')).toBe(false)
+
+    uploadGate.resolve(
+      new Response(JSON.stringify([{ created_at: '2026-08-22T00:00:00Z' }]), { status: 200 })
+    )
+    await transition
+
     const setCall = testState.coreCalls.find((c) => c.type === 'set_setting')
     expect(setCall?.payload).toEqual({ key: 'account.sync_enabled', value: true })
     expect(testState.coreCalls.some((c) => c.type === 'get_profile')).toBe(true)
@@ -146,6 +195,62 @@ describe('cloud sync status + toggle', () => {
     expect(upload?.init.headers).toMatchObject({
       Prefer: 'resolution=merge-duplicates,return=representation'
     })
+    expect(testState.events.indexOf('fetch:POST:resolved')).toBeLessThan(
+      testState.events.indexOf('toggle:true')
+    )
+  })
+
+  it('leaves sync off when the baseline upload fails', async () => {
+    signInAs('user-1')
+    testState.nextFetchResponse = new Response('unavailable', { status: 503 })
+
+    await expect(enableSync(true)).rejects.toThrow(/503/)
+
+    expect(testState.toggleValue).toBe(false)
+    expect(
+      testState.coreCalls.some(
+        (call) => call.type === 'set_setting' && call.payload.value === true
+      )
+    ).toBe(false)
+
+    // A rejected enable must not poison the serialized transition queue.
+    await expect(enableSync(false)).resolves.toMatchObject({ enabled: false })
+  })
+
+  it('leaves sync off when gathering the baseline fails', async () => {
+    signInAs('user-1')
+    testState.failCoreType = 'get_profile'
+
+    await expect(enableSync(true)).rejects.toThrow(/get_profile/)
+
+    expect(testState.toggleValue).toBe(false)
+    expect(testState.fetches).toHaveLength(0)
+    expect(testState.coreCalls.some((call) => call.type === 'set_setting')).toBe(false)
+  })
+
+  it('lets a newer disable supersede an in-flight enable', async () => {
+    signInAs('user-1')
+    const upload = deferred<Response>()
+    testState.nextFetchPromise = upload.promise
+
+    const enabling = enableSync(true)
+    await vi.waitFor(() => {
+      expect(testState.fetches.some((entry) => entry.init.method === 'POST')).toBe(true)
+    })
+    const disabling = enableSync(false)
+
+    upload.resolve(
+      new Response(JSON.stringify([{ created_at: '2026-08-22T00:00:00Z' }]), { status: 200 })
+    )
+    const [enableStatus, disableStatus] = await Promise.all([enabling, disabling])
+
+    expect(enableStatus.enabled).toBe(false)
+    expect(disableStatus.enabled).toBe(false)
+    expect(
+      testState.coreCalls
+        .filter((call) => call.type === 'set_setting')
+        .map((call) => call.payload.value)
+    ).toEqual([false])
   })
 
   it('refuses to enable when Supabase is unconfigured', async () => {
