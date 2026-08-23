@@ -22,6 +22,7 @@ class _AsyncStream:
     def __init__(self, chunks: list[Any]) -> None:
         self._chunks = chunks
         self._idx = 0
+        self.close = AsyncMock()
 
     def __aiter__(self) -> _AsyncStream:
         return self

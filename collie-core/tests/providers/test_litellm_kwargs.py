@@ -78,6 +78,25 @@ def _fake_responses_response(content: str = "ok") -> MagicMock:
     return resp
 
 
+class _FakeSDKStream:
+    """Async iterator with the installed OpenAI SDK's async close contract."""
+
+    def __init__(self, iterator) -> None:
+        self._iterator = iterator
+        self.close = AsyncMock()
+
+    def __aiter__(self):
+        return self._iterator
+
+
+def _failing_sdk_stream(error: Exception) -> _FakeSDKStream:
+    async def _stream():
+        raise error
+        yield
+
+    return _FakeSDKStream(_stream())
+
+
 def _fake_responses_stream(text: str = "ok"):
     async def _stream():
         yield SimpleNamespace(type="response.output_text.delta", delta=text)
@@ -90,7 +109,7 @@ def _fake_responses_stream(text: str = "ok"):
             ),
         )
 
-    return _stream()
+    return _FakeSDKStream(_stream())
 
 
 def _fake_chat_stream(text: str = "ok"):
@@ -104,7 +123,7 @@ def _fake_chat_stream(text: str = "ok"):
             usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5, total_tokens=15),
         )
 
-    return _stream()
+    return _FakeSDKStream(_stream())
 
 
 def _fake_chat_stream_reasoning_chunks():
@@ -170,7 +189,7 @@ def _fake_chat_stream_reasoning_chunks():
             ),
         )
 
-    return _stream()
+    return _FakeSDKStream(_stream())
 
 
 def _fake_chat_stream_tool_call_chunks():
@@ -235,7 +254,7 @@ def _fake_chat_stream_tool_call_chunks():
             usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5, total_tokens=15),
         )
 
-    return _stream()
+    return _FakeSDKStream(_stream())
 
 
 def _fake_chat_stream_legacy_function_call_chunks():
@@ -294,13 +313,14 @@ def _fake_chat_stream_legacy_function_call_chunks():
             usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5, total_tokens=15),
         )
 
-    return _stream()
+    return _FakeSDKStream(_stream())
 
 
 @pytest.mark.asyncio
 async def test_openai_compat_stream_forwards_reasoning_deltas_deepseek_style() -> None:
     """Regression: DeepSeek-V4 / reasoner expose ``delta.reasoning_content`` during streaming."""
-    mock_chat = AsyncMock(return_value=_fake_chat_stream_reasoning_chunks())
+    stream = _fake_chat_stream_reasoning_chunks()
+    mock_chat = AsyncMock(return_value=stream)
     spec = find_by_name("deepseek")
     thinking: list[str] = []
     content: list[str] = []
@@ -332,6 +352,7 @@ async def test_openai_compat_stream_forwards_reasoning_deltas_deepseek_style() -
     assert content == ["answer"]
     assert result.reasoning_content == "step1step2"
     assert result.content == "answer"
+    stream.close.assert_awaited_once()
     mock_chat.assert_awaited_once()
 
 
@@ -435,10 +456,15 @@ class _FakeResponsesError(Exception):
 
 
 class _StalledStream:
+    def __init__(self):
+        self.close = AsyncMock()
+        self.next_started = asyncio.Event()
+
     def __aiter__(self):
         return self
 
     async def __anext__(self):
+        self.next_started.set()
         await asyncio.sleep(3600)
         raise StopAsyncIteration
 
@@ -764,7 +790,8 @@ async def test_openrouter_gpt5_stays_on_chat_completions() -> None:
 @pytest.mark.asyncio
 async def test_direct_openai_streaming_gpt5_uses_responses_api() -> None:
     mock_chat = AsyncMock(return_value=_StalledStream())
-    mock_responses = AsyncMock(return_value=_fake_responses_stream("hi"))
+    responses_stream = _fake_responses_stream("hi")
+    mock_responses = AsyncMock(return_value=responses_stream)
     spec = find_by_name("openai")
 
     with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI") as mock_client_class:
@@ -784,8 +811,59 @@ async def test_direct_openai_streaming_gpt5_uses_responses_api() -> None:
 
     assert result.content == "hi"
     assert result.finish_reason == "stop"
+    responses_stream.close.assert_awaited_once()
     mock_responses.assert_awaited_once()
     mock_chat.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_direct_openai_closes_responses_stream_on_idle_timeout(monkeypatch) -> None:
+    monkeypatch.setenv("NANOBOT_STREAM_IDLE_TIMEOUT_S", "0.01")
+    stream = _StalledStream()
+    provider = OpenAICompatProvider(
+        api_key="sk-test-key",
+        default_model="gpt-5-chat",
+        spec=find_by_name("openai"),
+    )
+    provider._client = SimpleNamespace(
+        responses=SimpleNamespace(create=AsyncMock(return_value=stream)),
+    )
+
+    result = await provider.chat_stream(
+        messages=[{"role": "user", "content": "hello"}],
+        model="gpt-5-chat",
+    )
+
+    assert result.finish_reason == "error"
+    assert "stream stalled" in (result.content or "")
+    stream.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_direct_openai_closes_responses_stream_on_cancellation(monkeypatch) -> None:
+    monkeypatch.setenv("NANOBOT_STREAM_IDLE_TIMEOUT_S", "30")
+    stream = _StalledStream()
+    provider = OpenAICompatProvider(
+        api_key="sk-test-key",
+        default_model="gpt-5-chat",
+        spec=find_by_name("openai"),
+    )
+    provider._client = SimpleNamespace(
+        responses=SimpleNamespace(create=AsyncMock(return_value=stream)),
+    )
+
+    task = asyncio.create_task(
+        provider.chat_stream(
+            messages=[{"role": "user", "content": "hello"}],
+            model="gpt-5-chat",
+        )
+    )
+    await asyncio.wait_for(stream.next_started.wait(), timeout=1)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    stream.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -845,7 +923,8 @@ async def test_direct_openai_open_circuit_skips_responses_api() -> None:
 
 @pytest.mark.asyncio
 async def test_direct_openai_stream_responses_unsupported_param_falls_back() -> None:
-    mock_chat = AsyncMock(return_value=_fake_chat_stream("fallback stream"))
+    chat_stream = _fake_chat_stream("fallback stream")
+    mock_chat = AsyncMock(return_value=chat_stream)
     mock_responses = AsyncMock(
         side_effect=_FakeResponsesError(400, "Unknown parameter: max_output_tokens for Responses API")
     )
@@ -867,8 +946,66 @@ async def test_direct_openai_stream_responses_unsupported_param_falls_back() -> 
         )
 
     assert result.content == "fallback stream"
+    chat_stream.close.assert_awaited_once()
     mock_responses.assert_awaited_once()
     mock_chat.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_direct_openai_closes_failed_responses_stream_before_fallback() -> None:
+    responses_stream = _failing_sdk_stream(
+        _FakeResponsesError(400, "Unknown parameter: max_output_tokens for Responses API")
+    )
+    chat_stream = _fake_chat_stream("fallback stream")
+    spec = find_by_name("openai")
+
+    with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI") as mock_client_class:
+        client_instance = mock_client_class.return_value
+        client_instance.responses.create = AsyncMock(return_value=responses_stream)
+        client_instance.chat.completions.create = AsyncMock(return_value=chat_stream)
+
+        provider = OpenAICompatProvider(
+            api_key="sk-test-key",
+            default_model="gpt-5-chat",
+            spec=spec,
+        )
+        result = await provider.chat_stream(
+            messages=[{"role": "user", "content": "hello"}],
+            model="gpt-5-chat",
+        )
+
+    assert result.content == "fallback stream"
+    responses_stream.close.assert_awaited_once()
+    chat_stream.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_direct_openai_close_failure_preserves_responses_fallback() -> None:
+    responses_stream = _failing_sdk_stream(
+        _FakeResponsesError(400, "Unknown parameter: max_output_tokens for Responses API")
+    )
+    responses_stream.close.side_effect = RuntimeError("close failed")
+    chat_stream = _fake_chat_stream("fallback stream")
+    provider = OpenAICompatProvider(
+        api_key="sk-test-key",
+        default_model="gpt-5-chat",
+        spec=find_by_name("openai"),
+    )
+    provider._client = SimpleNamespace(
+        responses=SimpleNamespace(create=AsyncMock(return_value=responses_stream)),
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=AsyncMock(return_value=chat_stream)),
+        ),
+    )
+
+    result = await provider.chat_stream(
+        messages=[{"role": "user", "content": "hello"}],
+        model="gpt-5-chat",
+    )
+
+    assert result.content == "fallback stream"
+    responses_stream.close.assert_awaited_once()
+    chat_stream.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -1229,7 +1366,8 @@ def test_openai_compat_defaults_missing_tool_arguments_to_empty_object() -> None
 @pytest.mark.asyncio
 async def test_openai_compat_stream_watchdog_returns_error_on_stall(monkeypatch) -> None:
     monkeypatch.setenv("NANOBOT_STREAM_IDLE_TIMEOUT_S", "0.01")
-    mock_create = AsyncMock(return_value=_StalledStream())
+    stream = _StalledStream()
+    mock_create = AsyncMock(return_value=stream)
     spec = find_by_name("openai")
 
     with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI") as mock_client_class:
@@ -1249,6 +1387,78 @@ async def test_openai_compat_stream_watchdog_returns_error_on_stall(monkeypatch)
     assert result.finish_reason == "error"
     assert result.content is not None
     assert "stream stalled" in result.content
+    stream.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_openai_compat_closes_chat_stream_on_midstream_error() -> None:
+    stream = _failing_sdk_stream(RuntimeError("stream failed"))
+    provider = OpenAICompatProvider(api_key="sk-test-key", default_model="gpt-4o")
+    provider._client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=AsyncMock(return_value=stream)),
+        ),
+    )
+
+    result = await provider.chat_stream(
+        messages=[{"role": "user", "content": "hello"}],
+        model="gpt-4o",
+    )
+
+    assert result.finish_reason == "error"
+    assert "stream failed" in (result.content or "")
+    stream.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_openai_compat_closes_chat_stream_on_cancellation(monkeypatch) -> None:
+    monkeypatch.setenv("NANOBOT_STREAM_IDLE_TIMEOUT_S", "30")
+    stream = _StalledStream()
+    provider = OpenAICompatProvider(api_key="sk-test-key", default_model="gpt-4o")
+    provider._client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=AsyncMock(return_value=stream)),
+        ),
+    )
+
+    task = asyncio.create_task(
+        provider.chat_stream(
+            messages=[{"role": "user", "content": "hello"}],
+            model="gpt-4o",
+        )
+    )
+    await asyncio.wait_for(stream.next_started.wait(), timeout=1)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    stream.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_openai_compat_close_failure_preserves_cancellation(monkeypatch) -> None:
+    monkeypatch.setenv("NANOBOT_STREAM_IDLE_TIMEOUT_S", "30")
+    stream = _StalledStream()
+    stream.close.side_effect = RuntimeError("close failed")
+    provider = OpenAICompatProvider(api_key="sk-test-key", default_model="gpt-4o")
+    provider._client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=AsyncMock(return_value=stream)),
+        ),
+    )
+
+    task = asyncio.create_task(
+        provider.chat_stream(
+            messages=[{"role": "user", "content": "hello"}],
+            model="gpt-4o",
+        )
+    )
+    await asyncio.wait_for(stream.next_started.wait(), timeout=1)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    stream.close.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
