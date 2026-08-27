@@ -175,15 +175,13 @@ export async function gatherSnapshot(): Promise<SyncPayload> {
 }
 
 /**
- * Restore a payload through the app's normal write paths: MD files go
- * through `write_file` (versioned + undoable), memory rows through the
- * same person/date/profile commands the Settings UI itself uses.
+ * Plain sequential restore through the app's normal write paths: MD files
+ * go through `write_file` (versioned + undoable), memory rows through the
+ * same person/date/profile commands the Settings UI itself uses. This is
+ * the raw writer — `restoreSnapshot` wraps it so a failed restore can roll
+ * back to the pre-restore snapshot.
  */
-export async function restoreSnapshot(payload: SyncPayload): Promise<void> {
-  if (!payload || payload.version !== 1) {
-    throw new Error("This backup isn't a format this Collie understands.")
-  }
-
+async function applyRestore(payload: SyncPayload): Promise<void> {
   // Memory first (structured rows), then the two authored files.
   const profile = isRecord(payload.profile) ? payload.profile : {}
   for (const [key, value] of Object.entries(profile)) {
@@ -238,6 +236,33 @@ export async function restoreSnapshot(payload: SyncPayload): Promise<void> {
     const content = payload[key]
     if (typeof content !== 'string' || !content.trim()) continue
     await coreCommand('write_file', { path: file, content })
+  }
+}
+
+/**
+ * Restore a payload atomically: snapshot the current on-device state, then
+ * apply the incoming payload. If the restore fails partway (a mid-way error
+ * leaves only some memory rows / files written), replay the pre-restore
+ * snapshot as a best-effort rollback so the device isn't left half-restored,
+ * then rethrow the original error to tell the user the restore didn't finish.
+ */
+export async function restoreSnapshot(payload: SyncPayload): Promise<void> {
+  if (!payload || payload.version !== 1) {
+    throw new Error("This backup isn't a format this Collie understands.")
+  }
+
+  const before = await gatherSnapshot()
+  try {
+    await applyRestore(payload)
+  } catch (err) {
+    // Best-effort rollback: if the rollback itself fails, there's nothing
+    // more we can safely do — surface the original restore error.
+    try {
+      await applyRestore(before)
+    } catch {
+      // best effort
+    }
+    throw err
   }
 }
 
