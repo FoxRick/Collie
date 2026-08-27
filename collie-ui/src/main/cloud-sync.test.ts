@@ -312,6 +312,53 @@ describe('snapshot gather/restore', () => {
       restoreSnapshot({ version: 99 } as unknown as Parameters<typeof restoreSnapshot>[0])
     ).rejects.toThrow(/format/)
   })
+
+  it('rolls back to the pre-restore state when the restore fails partway', async () => {
+    // The restore fails at the new-person add (the mock rejects every
+    // 'add_person_memory'), AFTER it has already half-written the incoming
+    // profile color. The wrapper must then replay the pre-restore snapshot.
+    testState.failCoreType = 'add_person_memory'
+
+    await expect(
+      restoreSnapshot({
+        version: 1,
+        profile: { favorite_color: 'red' },
+        people: [{ name: 'New Friend', gift_ideas: 'tea' }],
+        dates: [{ date: '12-24', label: 'Trip', recurring: false }],
+        agents_md: '# About Me (from laptop)',
+        vision_md: '# Personality (from laptop)'
+      })
+    ).rejects.toThrow(/add_person_memory/)
+
+    const calls = testState.coreCalls
+    // The error still propagates — the caller knows the restore didn't finish.
+    // The failing add was only attempted once: the rollback matches the
+    // pre-existing 'Maya' by name (update), so the new person is not re-added.
+    expect(calls.filter((c) => c.type === 'add_person_memory')).toHaveLength(1)
+    // Pre-restore profile color (blue) replays over the half-written 'red'.
+    expect(
+      calls
+        .filter((c) => c.type === 'set_profile_memory')
+        .some((c) => c.payload.value === 'blue')
+    ).toBe(true)
+    // Pre-existing people are updated, not duplicated.
+    expect(calls.some((c) => c.type === 'update_person_memory')).toBe(true)
+    // Both authored files are rewritten with their pre-restore content.
+    const writes = calls.filter((c) => c.type === 'write_file')
+    expect(
+      writes.some(
+        (c) => c.payload.path === 'AGENTS.md' && c.payload.content === '# About Me'
+      )
+    ).toBe(true)
+    expect(
+      writes.some(
+        (c) => c.payload.path === 'VISION.md' && c.payload.content === '# Personality'
+      )
+    ).toBe(true)
+    // Dates are content-addressed/duplicate-skipped, so the pre-existing
+    // date is preserved rather than stacked — no add_date_memory for it.
+    expect(calls.filter((c) => c.type === 'add_date_memory')).toHaveLength(0)
+  })
 })
 
 describe('supabase REST', () => {
