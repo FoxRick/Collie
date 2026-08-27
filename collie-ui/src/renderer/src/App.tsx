@@ -54,11 +54,12 @@ export default function App(): React.JSX.Element {
     })
 
     const boot = async (): Promise<void> => {
-      // The core binds its own port and issues a per-boot token; learn both
-      // from the main process before speaking to the socket.
+      // The core binds its own port; learn it from the main process. The
+      // per-boot token is handled entirely in main (core-client.ts broker) —
+      // it is never handed to the renderer.
       try {
         const core = await window.collie?.coreState()
-        if (core) collieClient.applyEndpoint(core.port, core.token)
+        if (core) collieClient.applyEndpoint(core.port)
       } catch {
         // main process unavailable — keep the default endpoint
       }
