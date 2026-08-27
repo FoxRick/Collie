@@ -61,7 +61,13 @@ create table if not exists public.user_sync_snapshots (
   device_id text not null,            -- stable random id, generated per install
   device_name text not null,          -- user-readable, e.g. "Rick's laptop"
   payload jsonb not null,             -- §3 shape
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- Maker liveness columns (see §4b): PATCHed by the heartbeat, never in the
+  -- snapshot payload. `payload` stays NOT NULL with no default — the heartbeat
+  -- therefore PATCHes, it does NOT merge-upsert (a partial upsert would 400).
+  last_seen timestamptz,              -- last heartbeat ("live" = within ~10m)
+  version text,                       -- app version at heartbeat
+  platform text                       -- process.platform (win32/darwin/linux)
 );
 create index if not exists user_sync_snapshots_user_idx
   on public.user_sync_snapshots (user_id, created_at desc);
@@ -74,6 +80,18 @@ create policy "own rows only"
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 ```
+
+### §4b. Maker liveness view (owner-only, not client-facing)
+
+The heartbeat is a **PATCH** of `last_seen`/`version`/`platform` on the
+device's existing row, gated on the same opt-in sync toggle (signed in + sync
+on). It reports a device id + version + platform only — no content, no
+conversations. The founder reads presence with the service role
+(`tools/device_liveness.py`), which bypasses RLS:
+
+- **live now** = `last_seen > now() - interval '10 minutes'`
+- **active 24h** = `last_seen > now() - interval '24 hours'`
+- plus a version/platform spread so update adoption is visible.
 
 - One row per (user, device): the app **upserts** on `(user_id, device_id)`.
 - RLS: every operation scoped to `auth.uid()`; anon key only, no service role
