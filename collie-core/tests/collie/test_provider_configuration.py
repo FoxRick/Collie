@@ -313,3 +313,47 @@ async def test_probe_auth_failure_rolls_back_with_warm_error_copy(
     assert runtime.db.default_provider()["id"] == old["id"]
     assert runtime.db.get_provider("api-probe-fail") is None
     assert collie_settings.get_api_key("probe-fail") is None
+
+
+@pytest.mark.asyncio
+async def test_probe_model_not_found_rolls_back_with_warm_model_copy(
+    runtime: CollieRuntime,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicitly chosen model the provider doesn't advertise is a model
+    error (not a key error). It must roll the transaction back to the working
+    provider, never silently switch to a model the user didn't pick, and tell
+    the user which models are actually available."""
+    old = _seed_working_provider(runtime)
+
+    async def configure_locked(*, probe_api_base: str | None = None) -> dict[str, Any]:
+        return {"configured": True, "model": runtime.db.get_setting("provider.model")}
+
+    async def fake_probe(**kwargs: object) -> dict[str, Any]:
+        # The config seam must flag that this was a user-chosen (non-default)
+        # model, so a wrong name is a hard "model" error rather than a guess.
+        assert kwargs.get("explicit_model") is True
+        return {
+            "ok": False,
+            "error": "model",
+            "detail": "requested model 'deepseek-ghost' is not offered",
+            "models": ["deepseek-v4-flash", "deepseek-reasoner"],
+        }
+
+    monkeypatch.setattr(runtime, "_configure_locked", configure_locked)
+    monkeypatch.setattr("collie_core.providers.validation.probe_api_key", fake_probe)
+
+    result = await runtime._configure_provider_candidate(
+        _candidate("deepseek", key="sk-good", model="deepseek-ghost")
+    )
+
+    assert result["configured"] is False
+    assert result["validated"] is False
+    assert result["error_kind"] == "model"
+    assert "isn't one DeepSeek offers" in result["error"]
+    assert "deepseek-v4-flash" in result["error"]
+    assert result["rolled_back"] is True
+    assert runtime.db.default_provider()["id"] == old["id"]
+    assert runtime.db.get_provider("api-deepseek") is None
+    assert collie_settings.get_api_key("deepseek") is None
+    assert collie_settings.get_api_key("old-provider") == "old-secret"

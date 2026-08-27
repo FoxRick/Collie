@@ -655,6 +655,14 @@ class CollieRuntime:
                         normalized["api_base"] = catalogue_entry.get("api_base")
                     if not normalized.get("model"):
                         normalized["model"] = catalogue_entry.get("default_model")
+                # Was the model explicitly chosen by the user (vs Collie's curated
+                # default)? A typed model the provider doesn't advertise is a hard
+                # error that must roll back — not something to paper over by
+                # silently substituting the first entry in the provider's list.
+                default_model = catalogue_entry.get("default_model") if catalogue_entry else None
+                explicit_model = (
+                    bool(normalized.get("model")) and normalized.get("model") != default_model
+                )
                 provider = self.db.configure_provider_candidate_record(**normalized)
                 configured = await self._configure_locked(probe_api_base=normalized.get("api_base"))
                 if not configured.get("configured"):
@@ -680,6 +688,7 @@ class CollieRuntime:
                     api_base=normalized.get("api_base"),
                     protocol=str(normalized.get("protocol") or "openai"),
                     model=normalized.get("model"),
+                    explicit_model=explicit_model,
                     catalogue=catalogue,
                 )
                 if not probe.get("ok"):
@@ -699,6 +708,9 @@ class CollieRuntime:
                         )
                     else:
                         rollback = await self._restore_provider_snapshot_locked(transaction)
+                        provider_display = (
+                            catalogue_entry.get("name") if catalogue_entry else runtime_name
+                        )
                         if error_kind == "auth":
                             message = (
                                 "That key didn't work. Double-check it, or get help here → "
@@ -708,6 +720,16 @@ class CollieRuntime:
                             message = (
                                 "I couldn't reach that provider to check the key. "
                                 "Check your connection and try again."
+                            )
+                        elif error_kind == "model":
+                            offered = probe.get("models") or []
+                            sample = ", ".join(offered[:5])
+                            message = (
+                                f"That model name isn't one {provider_display} offers. "
+                                f"Available: {sample}."
+                                if sample
+                                else f"That model name isn't one {provider_display} offers. "
+                                f"Pick one of the models it lists instead."
                             )
                         else:
                             message = "That provider didn't accept the key. Double-check it and try again."
