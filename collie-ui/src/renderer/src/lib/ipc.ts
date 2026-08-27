@@ -572,17 +572,19 @@ export class CollieClient {
   /** Make the bridge the renderer's transport. Idempotent; no socket to open. */
   connect(): void {
     if (this.closed) return
-    if (this.connected) return
-    this.connected = true
+    // Subscribe to the main-process broker's event stream. Real core
+    // reachability is reported by the broker (it emits connection_opened /
+    // ready only once its socket to the core is actually open), so this
+    // method does NOT flip `connected` itself. That keeps the boot probe's
+    // offline screen honest: a core that never starts never emits
+    // connection_opened, so `connected` stays false and the user sees the
+    // Offline screen rather than a dead-ende Welcome screen.
     const bridge = this.bridge()
     if (!this.coreEventsUnsub && bridge) {
       this.coreEventsUnsub = bridge.onCoreEvent((event) =>
         this.dispatch(event as CollieEvent)
       )
     }
-    // Bridge is live — surface the connection_opened event exactly as the old
-    // WebSocket transport did, so consumers that hydrate on it keep working.
-    for (const listener of this.listeners) listener({ type: 'connection_opened' })
   }
 
   close(): void {
@@ -611,6 +613,11 @@ export class CollieClient {
       // never fan it out to listeners — even if the caller timed out.
       this.pending.get(id)?.settle(event)
       return
+    }
+    // The broker only emits connection_opened / ready once its socket to the
+    // core is genuinely open — that is the moment we are connected.
+    if (event.type === 'connection_opened' || event.type === 'ready') {
+      this.connected = true
     }
     for (const listener of this.listeners) listener(event)
   }
@@ -641,8 +648,14 @@ export class CollieClient {
     payload: Record<string, unknown> = {},
     timeoutMs = 120_000
   ): Promise<T> {
-    if (!this.connected) {
-      return Promise.reject(new CollieConnectionError())
+    // The renderer no longer holds a WebSocket; main's broker connects to the
+    // core on demand. Fail closed only when the client (or the bridge) is
+    // gone — relaying is otherwise always attempted, so a healthy core is
+    // reached even before a `connection_opened` arrives.
+    if (this.closed) {
+      return Promise.reject(
+        new CollieConnectionError("Collie's engine connection closed.", 'CONNECTION_CLOSED')
+      )
     }
 
     const id = `c${++this.seq}`

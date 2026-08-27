@@ -32,8 +32,9 @@ describe('CollieClient bridge transport (#122)', () => {
     vi.unstubAllGlobals()
   })
 
-  it('fails closed while the bridge has not been connected', async () => {
-    installBridge()
+  it('fails closed when the bridge is unavailable', async () => {
+    // No window.collie bridge installed — commands cannot be relayed to the
+    // core, so the client fails closed (CORE_RESTARTING) rather than hang.
     const client = new CollieClient(4321)
 
     const reply = client.command('toggle_automation', {
@@ -57,7 +58,8 @@ describe('CollieClient bridge transport (#122)', () => {
     client.connect()
 
     expect(bridge.onCoreEvent).toHaveBeenCalledTimes(1)
-    expect(client.connected).toBe(true)
+    // `connected` only flips once the broker reports a real core socket.
+    expect(client.connected).toBe(false)
 
     bridge.coreSend.mockResolvedValueOnce({ configured: false })
     const reply = client.command<{ configured: boolean }>('get_status')
@@ -72,14 +74,21 @@ describe('CollieClient bridge transport (#122)', () => {
     expect(bridge.unsubscribe).toHaveBeenCalled()
   })
 
-  it('emits connection_opened to listeners when the bridge goes live', () => {
-    installBridge()
+  it('emits connection_opened to listeners only when the broker reports the core socket open', () => {
+    const bridge = installBridge()
     const client = new CollieClient(4321)
     const listener = vi.fn()
     client.on(listener)
 
     client.connect()
+    // Not emitted at connect() time — the broker must actually reach the core.
+    expect(listener).not.toHaveBeenCalledWith({ type: 'connection_opened' })
+    expect(client.connected).toBe(false)
+
+    // The broker's core socket opens.
+    bridge.listener?.({ type: 'connection_opened' })
     expect(listener).toHaveBeenCalledWith({ type: 'connection_opened' })
+    expect(client.connected).toBe(true)
     client.close()
   })
 
