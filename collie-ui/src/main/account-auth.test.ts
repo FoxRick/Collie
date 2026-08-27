@@ -249,6 +249,14 @@ describe('getAccountState', () => {
   })
 })
 
+/** Extract the per-attempt OAuth `state` nonce from the opened authorize URL. */
+function openedAuthorizeState(): string {
+  const url = new URL(testState.openedUrl)
+  const state = url.searchParams.get('state')
+  if (!state) throw new Error('expected a state param on the authorize URL')
+  return state
+}
+
 describe('startAccountSignIn', () => {
   it('completes the browser-callback flow end to end', async () => {
     const signInPromise = startAccountSignIn()
@@ -265,10 +273,14 @@ describe('startAccountSignIn', () => {
     expect(authorizeUrl.searchParams.get('code_challenge_method')).toBe('S256')
     expect(authorizeUrl.searchParams.get('code_challenge')).toMatch(/^[A-Za-z0-9_-]{43}$/)
     expect(authorizeUrl.searchParams.get('client_id')).toBe('test-anon-key')
+    // A fresh, per-attempt state nonce is carried on the authorize URL.
+    const stateNonce = authorizeUrl.searchParams.get('state')
+    expect(stateNonce).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    expect(stateNonce).not.toBe(authorizeUrl.searchParams.get('code_challenge'))
 
-    // Simulate the browser redirect after the user signs in.
+    // Simulate the browser redirect after the user signs in, echoing the state.
     const callbackResponse = await realFetch(
-      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=exchange-me`
+      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=exchange-me&state=${stateNonce}`
     )
     expect(callbackResponse.status).toBe(200)
 
@@ -334,7 +346,7 @@ describe('startAccountSignIn', () => {
     )
 
     const callbackResponse = await realFetch(
-      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=exchange-me`
+      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=exchange-me&state=${openedAuthorizeState()}`
     )
     expect(callbackResponse.status).toBe(200)
 
@@ -401,7 +413,7 @@ describe('sign-in callback CSRF defenses (issue #106)', () => {
 
     // The flow is untouched: the legitimate redirect still completes it.
     const ok = await realFetch(
-      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=exchange-me`
+      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=exchange-me&state=${openedAuthorizeState()}`
     )
     expect(ok.status).toBe(200)
     const state = await signInPromise
@@ -420,12 +432,64 @@ describe('sign-in callback CSRF defenses (issue #106)', () => {
     expect(status).toBe(400)
 
     const ok = await realFetch(
-      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=exchange-me`
+      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=exchange-me&state=${openedAuthorizeState()}`
     )
     expect(ok.status).toBe(200)
     const state = await signInPromise
     expect(state.signedIn).toBe(true)
     expect(state.email).toBe('tester@heycollie.com')
+  })
+
+  it('rejects a callback carrying a mismatched or missing state and never exchanges it', async () => {
+    const signInPromise = startAccountSignIn()
+    await vi.waitFor(() => {
+      expect(testState.openedUrl).toContain('/auth/v1/authorize')
+    })
+    const state = openedAuthorizeState()
+
+    // A code minted for a DIFFERENT flow echoes the wrong state — reject it.
+    const wrong = await realFetch(
+      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=attacker-code&state=not-the-issued-state`
+    )
+    expect(wrong.status).toBe(400)
+    expect(testState.exchange).toBeNull()
+
+    // A callback with NO state at all is equally rejected.
+    const missing = await realFetch(
+      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=attacker-code`
+    )
+    expect(missing.status).toBe(400)
+    expect(testState.exchange).toBeNull()
+
+    // The flow survives the rejected probes: the correct state still completes it.
+    const ok = await realFetch(
+      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=exchange-me&state=${state}`
+    )
+    expect(ok.status).toBe(200)
+    const accountState = await signInPromise
+    expect(accountState.signedIn).toBe(true)
+    expect(accountState.email).toBe('tester@heycollie.com')
+    // Only the well-state-bound code was exchanged.
+    expect(testState.exchange?.body).toEqual({
+      auth_code: 'exchange-me',
+      code_verifier: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/)
+    })
+  })
+
+  it('completes the callback when the correct issued state is echoed back', async () => {
+    const signInPromise = startAccountSignIn()
+    await vi.waitFor(() => {
+      expect(testState.openedUrl).toContain('/auth/v1/authorize')
+    })
+    const state = openedAuthorizeState()
+
+    const ok = await realFetch(
+      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=exchange-me&state=${state}`
+    )
+    expect(ok.status).toBe(200)
+    const accountState = await signInPromise
+    expect(accountState.signedIn).toBe(true)
+    expect(accountState.email).toBe('tester@heycollie.com')
   })
 })
 
