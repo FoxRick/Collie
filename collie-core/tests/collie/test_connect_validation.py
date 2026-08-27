@@ -95,6 +95,56 @@ async def test_probe_api_key_success_via_models_endpoint(openai_server: str) -> 
 
 
 @pytest.mark.asyncio
+async def test_probe_api_key_accepts_requested_model_in_list(openai_server: str) -> None:
+    result = await probe_api_key(
+        provider_id="deepseek",
+        api_key="sk-good",
+        api_base=openai_server,
+        protocol="openai",
+        model="deepseek-v4-flash",
+        catalogue=CatalogueStore(),
+    )
+    assert result["ok"] is True
+    assert result["model"] == "deepseek-v4-flash"
+
+
+@pytest.mark.asyncio
+async def test_probe_api_key_rejects_explicit_unknown_model(openai_server: str) -> None:
+    # The model list advertises deepseek-v4-flash / deepseek-reasoner. An
+    # explicitly chosen model the provider doesn't advertise must be a
+    # definitive "model not found" — never silently re-mapped, and never ok.
+    result = await probe_api_key(
+        provider_id="deepseek",
+        api_key="sk-good",
+        api_base=openai_server,
+        protocol="openai",
+        model="deepseek-ghost",
+        explicit_model=True,
+        catalogue=CatalogueStore(),
+    )
+    assert result["ok"] is False
+    assert result["error"] == "model"
+    assert result["models"] == ["deepseek-v4-flash", "deepseek-reasoner"]
+
+
+@pytest.mark.asyncio
+async def test_probe_api_key_keeps_curated_default_when_not_explicit(openai_server: str) -> None:
+    # Collie's curated default may not be advertised for some endpoints; when no
+    # model was explicitly typed we keep it (lenient) instead of rejecting it.
+    result = await probe_api_key(
+        provider_id="deepseek",
+        api_key="sk-good",
+        api_base=openai_server,
+        protocol="openai",
+        model="deepseek-ghost",
+        explicit_model=False,
+        catalogue=CatalogueStore(),
+    )
+    assert result["ok"] is True
+    assert result["model"] == "deepseek-ghost"
+
+
+@pytest.mark.asyncio
 async def test_probe_api_key_rejects_bad_key(openai_server: str) -> None:
     result = await probe_api_key(
         provider_id="deepseek",

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, Plus, Trash2 } from 'lucide-react'
 import {
   collieClient,
+  type CatalogueProvider,
   type ProviderInfo,
   type RuntimeStatus
 } from '../../lib/ipc'
@@ -63,6 +64,7 @@ export default function ProviderManager({
   const [busyOAuth, setBusyOAuth] = useState<string | null>(null)
   const [busyAction, setBusyAction] = useState('')
   const [secretProviders, setSecretProviders] = useState<string[]>([])
+  const [catalogue, setCatalogue] = useState<CatalogueProvider[]>([])
   const [catalogueUpdatedAt, setCatalogueUpdatedAt] = useState<string>('')
   const [catalogueBusy, setCatalogueBusy] = useState(false)
   const oauthAttemptRef = useRef(0)
@@ -75,7 +77,10 @@ export default function ProviderManager({
   useEffect(() => {
     void collieClient
       .getProviderCatalogue()
-      .then((data) => setCatalogueUpdatedAt(data.refresh?.refreshed_at || ''))
+      .then((data) => {
+        setCatalogue(data.providers)
+        setCatalogueUpdatedAt(data.refresh?.refreshed_at || '')
+      })
       .catch(() => undefined)
   }, [])
 
@@ -287,6 +292,14 @@ export default function ProviderManager({
     }
   }
 
+  // Models the selected provider actually offers (from the catalogue), so a
+  // non-coder sees real model names instead of guessing an ID. Empty for
+  // 'custom'/'ollama', which have no catalogue entry.
+  const catalogueModelIds =
+    catalogue.find((entry) => entry.id === provider)?.models
+      ?.map((item) => item.id)
+      .filter((value): value is string => Boolean(value)) ?? []
+
   return (
     <section className="settings-card provider-manager">
       <div className="provider-heading">
@@ -416,8 +429,16 @@ export default function ProviderManager({
               value={model}
               aria-label="Model ID"
               onChange={(event) => setModel(event.target.value)}
-              placeholder="Model ID (optional)"
+              placeholder={catalogueModelIds.length > 0 ? 'Pick a model' : 'Model ID (optional)'}
+              list={catalogueModelIds.length > 0 ? 'provider-model-suggestions' : undefined}
             />
+            {catalogueModelIds.length > 0 && (
+              <datalist id="provider-model-suggestions">
+                {catalogueModelIds.map((item) => (
+                  <option key={item} value={item} />
+                ))}
+              </datalist>
+            )}
             {!['custom', 'ollama'].includes(provider) && (
               <input
                 type="url"
