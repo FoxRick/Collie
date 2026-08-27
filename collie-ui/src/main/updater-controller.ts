@@ -109,6 +109,16 @@ export class UpdateController {
     updater.allowPrerelease = true
     updater.channel = 'alpha'
 
+    // Windows updates: when the published NSIS build was produced with a
+    // code-signing certificate (see collie-ui/electron-builder.yml
+    // win.publisherName + win.verifyUpdateCodeSignature), electron-updater
+    // verifies the downloaded update's Authenticode signature against the
+    // publisher before applying it, and rejects a mismatch. When the build
+    // ships unsigned (no cert on the CI runner, as in current alpha) that
+    // publisherName is absent from the installed update config, so signature
+    // verification is skipped and updates proceed via the HTTPS feed + SHA256
+    // hashes. No behavior change in this controller either way.
+
     updater.on('checking-for-update', () => this.setStatus({ phase: 'checking' }))
     updater.on('update-available', (info: UpdateInfo) =>
       this.setStatus({ phase: 'available', availableVersion: info.version })

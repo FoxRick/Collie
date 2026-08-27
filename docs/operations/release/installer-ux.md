@@ -70,8 +70,47 @@ original setup are kept).
    profile and walk all five pages; verify no UAC prompt appears and that
    unchecking the desktop checkbox leaves no desktop icon after install.
 
+## Authenticode update signing
+
+Windows update signing + publisher verification is wired (issue #59) in
+`collie-ui/electron-builder.yml`:
+
+- `win.verifyUpdateCodeSignature: true` — verify an available update's
+  Authenticode signature against the publisher (the electron-builder default is
+  `true`; declared explicitly here). It only takes effect when the build is
+  actually signed.
+- `win.publisherName` is intentionally **not** set as a config key — the `win`
+  schema is strict (`additionalProperties: false`) and would reject it and fail
+  the build. Instead, electron-builder derives the publisher name from the
+  code-signing certificate's subject and writes it into the installed app's
+  `app-update.yml`; electron-updater verifies the update's signature against
+  that publisher. The certificate's Subject common name should be the trusted
+  identity (e.g. the org/product name).
+
+electron-builder signs the NSIS installer automatically when a code-signing
+certificate is present on the build (`CSC_LINK` / `WIN_CSC_LINK` +
+`CSC_KEY_PASSWORD` / `WIN_CSC_KEY_PASSWORD`). `.github/workflows/release.yml`
+promotes the `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD` repo secrets to the
+Windows build job's env so signing activates **only when a maintainer
+provisions the certificate** (Settings → Secrets and variables → Actions).
+When no certificate is present those env values are empty, which
+electron-builder treats as "no certificate", so:
+
+- the installer ships **unsigned** (SmartScreen may warn), and
+- no `publisherName` is written to the installed app's `app-update.yml`, so
+  electron-updater **skips** signature verification and updates are delivered
+  over HTTPS with SHA256 feed hashes (the same as before).
+
+Once the certificate is provisioned, the installed app carries a
+`publisherName`, electron-updater verifies an available update's signature
+against it, and signed alpha builds remain installable and publisher-verified.
+
+The certificate itself is an ops secret — it is never committed to the repo.
+
 ## Follow-ups (not in this change)
 
-- Code signing + SmartScreen reputation (an unsigned alpha triggers
-  "Windows protected your PC").
+- SmartScreen reputation for unsigned builds ("Windows protected your PC") —
+  resolved only once a code-signing certificate is provisioned, and
+  Reputation/visibility may need time to build after the first signed
+  release.
 - First-run in-app welcome flow (the natural next step after setup).
