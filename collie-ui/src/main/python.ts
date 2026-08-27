@@ -14,9 +14,11 @@ import {
 
 const IPC_PORT = Number(process.env.COLLIE_IPC_PORT || 3818)
 
-// Per-boot secret handed to the core out-of-band; the renderer presents it
-// as the WebSocket subprotocol so no other local process can drive the core.
-const ipcToken = randomBytes(32).toString('hex')
+// Per-boot secret handed to the core out-of-band. It lives ONLY here in the
+// main process — it is used to spawn the core (env) and to authenticate the
+// main-process broker's WebSocket (core-client.ts). It is NEVER sent to the
+// renderer, so no renderer compromise can open a socket that drives the core.
+export const ipcToken = randomBytes(32).toString('hex')
 
 let child: ChildProcess | null = null
 let state: 'stopped' | 'starting' | 'running' | 'failed' = 'stopped'
@@ -43,10 +45,14 @@ const restartBudget = new RestartBudget(MAX_ABNORMAL_EXITS, HEALTHY_WINDOW_MS)
 export function coreState(): {
   state: string
   port: number
+  /** Redacted — the per-boot token never leaves the main process. */
   token: string
   error: string
 } {
-  return { state, port: readyPort ?? IPC_PORT, token: ipcToken, error: lastError }
+  // The token field is kept for shape compatibility (preload + renderer
+  // mocks reference it), but it is ALWAYS empty here. The real ipcToken lives
+  // only in the main process and is consumed by core-client.ts's broker.
+  return { state, port: readyPort ?? IPC_PORT, token: '', error: lastError }
 }
 
 function bundledPythonCandidates(): string[] {

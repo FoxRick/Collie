@@ -23,7 +23,13 @@ import {
   secureStorageAvailable,
   stageSecretChange
 } from './secrets'
-import { pushStoredSecretsToCore } from './core-client'
+import {
+  coreSend,
+  onCoreEvent,
+  pushStoredSecretsToCore,
+  stopCoreBroker,
+  type CoreCommandFrame
+} from './core-client'
 import { startKeychainServer, stopKeychainServer } from './keychain-server'
 import { getAccountState, signOut, startAccountSignIn } from './account-auth'
 import {
@@ -353,6 +359,11 @@ function registerIpc(): void {
   }
 
   handle('collie:core-state', () => coreState())
+  // #122: the renderer no longer holds the per-boot token or opens its own
+  // socket to the core. Every command is relayed here, over main's single
+  // authenticated connection (core-client.ts CoreBroker), guarded by the
+  // exact renderer-URL sender check.
+  handle('collie:core-send', (frame: CoreCommandFrame): Promise<unknown> => coreSend(frame))
   handle('collie:secure-storage-status', () => ({
     available: secureStorageAvailable(),
     platform: process.platform
@@ -583,6 +594,15 @@ app.whenReady().then(async () => {
   }
   registerIpc()
   createWindow()
+  // #122: forward every core-pushed event (ready/delta/message/card/
+  // approval_*, connection_opened, ...) to the app's own renderer. The
+  // renderer no longer opens a socket to the core, so this is the only
+  // path by which it learns about core activity.
+  onCoreEvent((event) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('collie:core-event', event)
+    }
+  })
   createTray()
   updates.onStatus((status) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -636,6 +656,7 @@ app.on('before-quit', () => {
 
 app.on('will-quit', () => {
   stopCore()
+  stopCoreBroker()
   stopPet()
   stopKeychainServer()
 })

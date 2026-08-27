@@ -517,12 +517,7 @@ export type CollieEvent =
 
 type Listener = (event: CollieEvent) => void
 
-const RECONNECT_BASE_DELAY_MS = 1200
-const RECONNECT_MAX_DELAY_MS = 30_000
-const RECONNECT_JITTER_RATIO = 0.2
 const CORE_RESTARTING_MESSAGE = "Collie's engine is restarting. Try again in a moment."
-const CONNECTION_INTERRUPTED_MESSAGE =
-  "Collie lost the connection before confirming that action. Check its result before trying again."
 
 type CollieConnectionErrorCode =
   | 'CORE_RESTARTING'
@@ -545,132 +540,86 @@ interface PendingRequest {
 }
 
 export class CollieClient {
-  private ws: WebSocket | null = null
-  private url: string
-  private token: string | null = null
+  // #122: the renderer no longer opens a WebSocket to the core. The main
+  // process owns the single authenticated socket (core-client.ts broker) and
+  // relays commands over Electron IPC (window.collie.coreSend) and pushes
+  // core events back (window.collie.onCoreEvent). The per-boot token never
+  // reaches this process.
   private listeners = new Set<Listener>()
   private pending = new Map<string, PendingRequest>()
-  private retryTimer: ReturnType<typeof setTimeout> | null = null
-  private reconnectAttempts = 0
   private seq = 0
   private closed = false
+  private port = 3818
+  private coreEventsUnsub: (() => void) | null = null
   connected = false
 
   constructor(
     port = 3818,
-    token?: string | null,
-    private readonly random: () => number = Math.random
+    _token?: string | null,
+    private readonly _random: () => number = Math.random
   ) {
-    this.url = `ws://127.0.0.1:${port}`
-    this.token = token || null
+    this.port = port
   }
 
-  /** Re-point at the core's actual port/token (from main-process coreState). */
-  applyEndpoint(port: number, token?: string | null): void {
-    this.url = `ws://127.0.0.1:${port}`
-    this.token = token || null
-    if (this.ws) {
-      const socket = this.ws
-      this.ws = null
-      this.connected = false
-      this.failPending(
-        new CollieConnectionError(CONNECTION_INTERRUPTED_MESSAGE, 'CONNECTION_INTERRUPTED')
-      )
-      socket.close()
-    }
+  /**
+   * Re-point at the core's actual port. The token argument is deliberately
+   * dropped — the renderer never learns it (it lives in main only).
+   */
+  applyEndpoint(port: number): void {
+    if (typeof port === 'number' && Number.isFinite(port)) this.port = port
   }
 
+  /** Make the bridge the renderer's transport. Idempotent; no socket to open. */
   connect(): void {
     if (this.closed) return
-    if (
-      this.ws &&
-      (this.ws.readyState === WebSocket.CONNECTING || this.ws.readyState === WebSocket.OPEN)
-    ) {
-      return
-    }
-    if (this.retryTimer) {
-      clearTimeout(this.retryTimer)
-      this.retryTimer = null
-    }
-    let socket: WebSocket
-    try {
-      socket = this.token
-        ? new WebSocket(this.url, [`collie-${this.token}`])
-        : new WebSocket(this.url)
-      this.ws = socket
-    } catch {
-      this.retry()
-      return
-    }
-    socket.onopen = () => {
-      if (this.ws !== socket) return
-      this.connected = true
-      this.reconnectAttempts = 0
-      for (const listener of this.listeners) listener({ type: 'connection_opened' })
-    }
-    socket.onmessage = (e) => {
-      let event: CollieEvent
-      try {
-        event = JSON.parse(String(e.data)) as CollieEvent
-      } catch {
-        return
-      }
-      const id = 'id' in event ? (event.id as string | undefined) : undefined
-      if (id && (event.type === 'ok' || event.type === 'error')) {
-        this.pending.get(id)?.settle(event)
-        // Command replies (ok AND error) are consumed by the caller — never
-        // fanned out to listeners, even if the caller already timed out.
-        return
-      }
-      for (const listener of this.listeners) listener(event)
-    }
-    socket.onclose = () => {
-      if (this.ws !== socket) return
-      this.ws = null
-      this.connected = false
-      this.failPending(
-        new CollieConnectionError(CONNECTION_INTERRUPTED_MESSAGE, 'CONNECTION_INTERRUPTED')
+    // Subscribe to the main-process broker's event stream. Real core
+    // reachability is reported by the broker (it emits connection_opened /
+    // ready only once its socket to the core is actually open), so this
+    // method does NOT flip `connected` itself. That keeps the boot probe's
+    // offline screen honest: a core that never starts never emits
+    // connection_opened, so `connected` stays false and the user sees the
+    // Offline screen rather than a dead-ende Welcome screen.
+    const bridge = this.bridge()
+    if (!this.coreEventsUnsub && bridge) {
+      this.coreEventsUnsub = bridge.onCoreEvent((event) =>
+        this.dispatch(event as CollieEvent)
       )
-      this.retry()
     }
-    socket.onerror = () => {
-      socket.close()
-    }
-  }
-
-  private retry(): void {
-    if (this.closed || this.retryTimer) return
-    const exponentialDelay = Math.min(
-      RECONNECT_MAX_DELAY_MS,
-      RECONNECT_BASE_DELAY_MS * 2 ** this.reconnectAttempts
-    )
-    this.reconnectAttempts += 1
-    const jitter = 1 - RECONNECT_JITTER_RATIO + this.random() * RECONNECT_JITTER_RATIO * 2
-    const delayMs = Math.min(RECONNECT_MAX_DELAY_MS, Math.round(exponentialDelay * jitter))
-    this.retryTimer = setTimeout(() => {
-      this.retryTimer = null
-      this.connect()
-    }, delayMs)
   }
 
   close(): void {
     this.closed = true
-    if (this.retryTimer) {
-      clearTimeout(this.retryTimer)
-      this.retryTimer = null
-    }
-    const socket = this.ws
-    this.ws = null
     this.connected = false
+    if (this.coreEventsUnsub) {
+      this.coreEventsUnsub()
+      this.coreEventsUnsub = null
+    }
     this.failPending(
       new CollieConnectionError("Collie's engine connection closed.", 'CONNECTION_CLOSED')
     )
-    socket?.close()
   }
 
   on(listener: Listener): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
+  }
+
+  /** Fan out a core event to listeners (and settle any matching reply). */
+  private dispatch(event: CollieEvent): void {
+    const id = 'id' in event ? (event.id as string | undefined) : undefined
+    if (id && (event.type === 'ok' || event.type === 'error')) {
+      // Replies are normally consumed by the command() promise (via the
+      // bridge). If one still arrives here, settle the waiting request and
+      // never fan it out to listeners — even if the caller timed out.
+      this.pending.get(id)?.settle(event)
+      return
+    }
+    // The broker only emits connection_opened / ready once its socket to the
+    // core is genuinely open — that is the moment we are connected.
+    if (event.type === 'connection_opened' || event.type === 'ready') {
+      this.connected = true
+    }
+    for (const listener of this.listeners) listener(event)
   }
 
   private failPending(error: Error): void {
@@ -679,18 +628,38 @@ export class CollieClient {
     for (const request of pending) request.fail(error)
   }
 
+  /** Resolve the preload IPC bridge (absent in non-browser test environments). */
+  private bridge(): Window['collie'] | undefined {
+    return typeof window !== 'undefined' ? window.collie : undefined
+  }
+
+  /** Relay one command frame to the core via main's guarded IPC bridge. */
+  private send(frame: Record<string, unknown>): Promise<unknown> {
+    const bridge = this.bridge()
+    if (!bridge?.coreSend) {
+      return Promise.reject(new CollieConnectionError())
+    }
+    return bridge.coreSend(frame)
+  }
+
   /** Fire a command and await its ok/error reply. */
   command<T = Record<string, unknown>>(
     type: string,
     payload: Record<string, unknown> = {},
     timeoutMs = 120_000
   ): Promise<T> {
-    const socket = this.ws
-    if (!this.connected || !socket || socket.readyState !== WebSocket.OPEN) {
-      return Promise.reject(new CollieConnectionError())
+    // The renderer no longer holds a WebSocket; main's broker connects to the
+    // core on demand. Fail closed only when the client (or the bridge) is
+    // gone — relaying is otherwise always attempted, so a healthy core is
+    // reached even before a `connection_opened` arrives.
+    if (this.closed) {
+      return Promise.reject(
+        new CollieConnectionError("Collie's engine connection closed.", 'CONNECTION_CLOSED')
+      )
     }
 
     const id = `c${++this.seq}`
+    const frame = { type, id, ...payload }
     return new Promise<T>((resolve, reject) => {
       let timer: ReturnType<typeof setTimeout> | null = null
       let settled = false
@@ -714,12 +683,13 @@ export class CollieClient {
         pending.fail(new Error('Collie took too long to answer.'))
       }, timeoutMs)
       this.pending.set(id, pending)
-      try {
-        socket.send(JSON.stringify({ type, id, ...payload }))
-      } catch {
-        pending.fail(new CollieConnectionError())
-        socket.close()
-      }
+      this.send(frame).then(
+        (data) => finish(() => resolve(data as T)),
+        (error) =>
+          finish(() =>
+            reject(error instanceof Error ? error : new Error(String(error)))
+          )
+      )
     })
   }
 

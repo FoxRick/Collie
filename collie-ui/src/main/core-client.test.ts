@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./python', () => ({
-  coreState: vi.fn(() => ({ state: 'running', port: 3818, token: 'test-token', error: '' }))
+  coreState: vi.fn(() => ({ state: 'running', port: 3818, token: '', error: '' })),
+  ipcToken: 'test-token'
 }))
 
 const loadSecretsMock = vi.fn()

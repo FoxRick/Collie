@@ -1,68 +1,40 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CollieClient } from './ipc'
 
-class FakeWebSocket {
-  static readonly CONNECTING = 0
-  static readonly OPEN = 1
-  static readonly CLOSED = 3
-  static instances: FakeWebSocket[] = []
-
-  readyState = FakeWebSocket.CONNECTING
-  onopen: (() => void) | null = null
-  onmessage: ((event: { data: string }) => void) | null = null
-  onclose: (() => void) | null = null
-  onerror: (() => void) | null = null
-  send = vi.fn()
-
-  constructor(readonly url: string) {
-    FakeWebSocket.instances.push(this)
-  }
-
-  open(): void {
-    this.readyState = FakeWebSocket.OPEN
-    this.onopen?.()
-  }
-
-  close(): void {
-    this.readyState = FakeWebSocket.CLOSED
-    this.onclose?.()
-  }
+interface BridgeMock {
+  coreSend: ReturnType<typeof vi.fn>
+  onCoreEvent: ReturnType<typeof vi.fn>
+  listener: ((event: unknown) => void) | null
+  unsubscribe: ReturnType<typeof vi.fn>
 }
 
-describe('CollieClient connection startup', () => {
+/** Install a fake preload bridge (window.collie) and expose its handlers. */
+function installBridge(): BridgeMock {
+  const bridge: BridgeMock = {
+    coreSend: vi.fn(async () => ({})),
+    onCoreEvent: vi.fn(),
+    listener: null,
+    unsubscribe: vi.fn()
+  }
+  bridge.onCoreEvent.mockImplementation((listener: (event: unknown) => void) => {
+    bridge.listener = listener
+    return bridge.unsubscribe
+  })
+  vi.stubGlobal('window', {
+    collie: { coreSend: bridge.coreSend, onCoreEvent: bridge.onCoreEvent }
+  })
+  return bridge
+}
+
+describe('CollieClient bridge transport (#122)', () => {
   afterEach(() => {
-    FakeWebSocket.instances = []
     vi.useRealTimers()
     vi.unstubAllGlobals()
   })
 
-  it('reuses an in-flight socket and sends a connected command once', async () => {
-    vi.stubGlobal('WebSocket', FakeWebSocket)
-    const client = new CollieClient(4321)
-
-    client.connect()
-    client.connect()
-
-    expect(FakeWebSocket.instances).toHaveLength(1)
-    const socket = FakeWebSocket.instances[0]
-    socket.open()
-    const reply = client.command<{ configured: boolean }>('get_status')
-    expect(socket.send).toHaveBeenCalledTimes(1)
-
-    const request = JSON.parse(socket.send.mock.calls[0][0] as string)
-    socket.onmessage?.({
-      data: JSON.stringify({
-        id: request.id,
-        type: 'ok',
-        data: { configured: false }
-      })
-    })
-    await expect(reply).resolves.toEqual({ configured: false })
-    client.close()
-  })
-
-  it('fails closed while disconnected and never replays the command after reconnect', async () => {
-    vi.stubGlobal('WebSocket', FakeWebSocket)
+  it('fails closed when the bridge is unavailable', async () => {
+    // No window.collie bridge installed — commands cannot be relayed to the
+    // core, so the client fails closed (CORE_RESTARTING) rather than hang.
     const client = new CollieClient(4321)
 
     const reply = client.command('toggle_automation', {
@@ -76,155 +48,151 @@ describe('CollieClient connection startup', () => {
         message: "Collie's engine is restarting. Try again in a moment."
       })
     )
-
-    client.connect()
-    const socket = FakeWebSocket.instances[0]
-    socket.open()
-    expect(socket.send).not.toHaveBeenCalled()
-    client.close()
   })
 
-  it('rejects in-flight commands and clears their timers when the socket closes', async () => {
-    vi.useFakeTimers()
-    vi.stubGlobal('WebSocket', FakeWebSocket)
+  it('connects idempotently, subscribes once, and relays a command frame', async () => {
+    const bridge = installBridge()
     const client = new CollieClient(4321)
-    client.connect()
-    const socket = FakeWebSocket.instances[0]
-    socket.open()
-
-    const reply = client.chat(null, 'Do this once')
-    expect(socket.send).toHaveBeenCalledOnce()
-    expect(vi.getTimerCount()).toBe(1)
-    socket.close()
-
-    await expect(reply).rejects.toEqual(
-      expect.objectContaining({
-        name: 'CollieConnectionError',
-        code: 'CONNECTION_INTERRUPTED',
-        message:
-          'Collie lost the connection before confirming that action. Check its result before trying again.'
-      })
-    )
-    // Only the reconnect timer remains; the 120-second command timer is gone.
-    expect(vi.getTimerCount()).toBe(1)
 
     client.connect()
-    const replacement = FakeWebSocket.instances[1]
-    replacement.open()
-    expect(replacement.send).not.toHaveBeenCalled()
+    client.connect()
+
+    expect(bridge.onCoreEvent).toHaveBeenCalledTimes(1)
+    // `connected` only flips once the broker reports a real core socket.
+    expect(client.connected).toBe(false)
+
+    bridge.coreSend.mockResolvedValueOnce({ configured: false })
+    const reply = client.command<{ configured: boolean }>('get_status')
+
+    expect(bridge.coreSend).toHaveBeenCalledTimes(1)
+    const frame = bridge.coreSend.mock.calls[0][0] as Record<string, unknown>
+    expect(frame).toMatchObject({ type: 'get_status', id: 'c1' })
+    await expect(reply).resolves.toEqual({ configured: false })
+
     client.close()
-    expect(vi.getTimerCount()).toBe(0)
-    vi.useRealTimers()
+    expect(client.connected).toBe(false)
+    expect(bridge.unsubscribe).toHaveBeenCalled()
   })
 
-  it('cleans up timed-out commands without leaking their late reply to listeners', async () => {
-    vi.useFakeTimers()
-    vi.stubGlobal('WebSocket', FakeWebSocket)
+  it('emits connection_opened to listeners only when the broker reports the core socket open', () => {
+    const bridge = installBridge()
+    const client = new CollieClient(4321)
+    const listener = vi.fn()
+    client.on(listener)
+
+    client.connect()
+    // Not emitted at connect() time — the broker must actually reach the core.
+    expect(listener).not.toHaveBeenCalledWith({ type: 'connection_opened' })
+    expect(client.connected).toBe(false)
+
+    // The broker's core socket opens.
+    bridge.listener?.({ type: 'connection_opened' })
+    expect(listener).toHaveBeenCalledWith({ type: 'connection_opened' })
+    expect(client.connected).toBe(true)
+    client.close()
+  })
+
+  it('fans core-pushed events out to subscribed listeners', () => {
+    const bridge = installBridge()
     const client = new CollieClient(4321)
     const listener = vi.fn()
     client.on(listener)
     client.connect()
-    const socket = FakeWebSocket.instances[0]
-    socket.open()
 
+    bridge.listener?.({ type: 'thinking', state: 'working', phrase: 'going', pet_animation: 'walking' })
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'thinking', phrase: 'going' })
+    )
+
+    client.close()
+  })
+
+  it('rejects in-flight commands when the client is closed', async () => {
+    const bridge = installBridge()
+    const client = new CollieClient(4321)
+    client.connect()
+
+    let settle!: (value: unknown) => void
+    bridge.coreSend.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          settle = resolve
+        })
+    )
+    const reply = client.chat(null, 'Do this once')
+
+    client.close()
+    await expect(reply).rejects.toEqual(
+      expect.objectContaining({
+        name: 'CollieConnectionError',
+        code: 'CONNECTION_CLOSED',
+        message: "Collie's engine connection closed."
+      })
+    )
+    // The late core reply must not resolve the already-rejected command.
+    settle({ conversation_id: 'conversation-1' })
+  })
+
+  it('cleans up timed-out commands without leaking their late reply to listeners', async () => {
+    const bridge = installBridge()
+    vi.useFakeTimers()
+    const client = new CollieClient(4321)
+    const listener = vi.fn()
+    client.on(listener)
+    client.connect()
+
+    // Hold the bridge reply open so the caller's timeout fires first.
+    bridge.coreSend.mockImplementation(() => new Promise(() => undefined))
     const reply = client.command('get_status', {}, 50)
-    const request = JSON.parse(socket.send.mock.calls[0][0] as string)
     const rejected = expect(reply).rejects.toThrow('Collie took too long to answer.')
     await vi.advanceTimersByTimeAsync(50)
     await rejected
 
-    socket.onmessage?.({
-      data: JSON.stringify({ id: request.id, type: 'error', message: 'late reply' })
+    // A late reply that arrives over the event channel is never fanned out.
+    bridge.listener?.({
+      id: 'c1',
+      type: 'error',
+      message: 'late reply'
     })
     expect(listener).not.toHaveBeenCalledWith(
-      expect.objectContaining({ id: request.id, type: 'error' })
+      expect.objectContaining({ id: 'c1', type: 'error' })
     )
     client.close()
-  })
-
-  it('backs reconnects off exponentially, caps the delay, and resets after open', async () => {
-    vi.useFakeTimers()
-    vi.stubGlobal('WebSocket', FakeWebSocket)
-    const client = new CollieClient(4321, null, () => 0.5)
-    client.connect()
-    FakeWebSocket.instances[0].open()
-    FakeWebSocket.instances[0].close()
-
-    const delays = [1200, 2400, 4800, 9600, 19_200, 30_000, 30_000]
-    for (const [index, delay] of delays.entries()) {
-      const before = FakeWebSocket.instances.length
-      await vi.advanceTimersByTimeAsync(delay - 1)
-      expect(FakeWebSocket.instances).toHaveLength(before)
-      await vi.advanceTimersByTimeAsync(1)
-      expect(FakeWebSocket.instances).toHaveLength(before + 1)
-      if (index < delays.length - 1) FakeWebSocket.instances.at(-1)!.close()
-    }
-
-    const recovered = FakeWebSocket.instances.at(-1)!
-    recovered.open()
-    recovered.close()
-    const beforeReset = FakeWebSocket.instances.length
-    await vi.advanceTimersByTimeAsync(1199)
-    expect(FakeWebSocket.instances).toHaveLength(beforeReset)
-    await vi.advanceTimersByTimeAsync(1)
-    expect(FakeWebSocket.instances).toHaveLength(beforeReset + 1)
-    client.close()
-  })
-
-  it('applies deterministic jitter to the reconnect delay', async () => {
-    vi.useFakeTimers()
-    vi.stubGlobal('WebSocket', FakeWebSocket)
-    const client = new CollieClient(4321, null, () => 0)
-    client.connect()
-    FakeWebSocket.instances[0].open()
-    FakeWebSocket.instances[0].close()
-
-    await vi.advanceTimersByTimeAsync(959)
-    expect(FakeWebSocket.instances).toHaveLength(1)
-    await vi.advanceTimersByTimeAsync(1)
-    expect(FakeWebSocket.instances).toHaveLength(2)
-    client.close()
+    vi.useRealTimers()
   })
 
   it('sends Change plan with the generated authenticated envelope id intact', async () => {
-    vi.stubGlobal('WebSocket', FakeWebSocket)
+    const bridge = installBridge()
     const client = new CollieClient(4321)
     client.connect()
-    const socket = FakeWebSocket.instances[0]
-    socket.open()
+
+    bridge.coreSend.mockResolvedValueOnce({
+      requested: true,
+      conversation_id: 'conversation-1',
+      run_id: 'run-1',
+      plan_id: 'plan-1',
+      plan_version: 1,
+      execution_mode: 'plan',
+      status: 'pending_safe_boundary'
+    })
     const reply = client.changePlan('conversation-1', 'run-1')
-    const request = JSON.parse(socket.send.mock.calls[0][0] as string)
-    expect(request).toMatchObject({
+    const frame = bridge.coreSend.mock.calls[0][0] as Record<string, unknown>
+    expect(frame).toMatchObject({
       type: 'change_plan',
       id: 'c1',
       conversation_id: 'conversation-1',
       run_id: 'run-1'
-    })
-    socket.onmessage?.({
-      data: JSON.stringify({
-        id: request.id,
-        type: 'ok',
-        data: {
-          requested: true,
-          conversation_id: 'conversation-1',
-          run_id: 'run-1',
-          plan_id: 'plan-1',
-          plan_version: 1,
-          execution_mode: 'plan',
-          status: 'pending_safe_boundary'
-        }
-      })
     })
     await expect(reply).resolves.toMatchObject({ requested: true, status: 'pending_safe_boundary' })
     client.close()
   })
 
   it('sends execute mode and the explicit file-access scope with chat', async () => {
-    vi.stubGlobal('WebSocket', FakeWebSocket)
+    const bridge = installBridge()
     const client = new CollieClient(4321)
     client.connect()
-    const socket = FakeWebSocket.instances[0]
-    socket.open()
+
+    bridge.coreSend.mockResolvedValueOnce({ conversation_id: 'conversation-1' })
     const reply = client.chat(
       null,
       'Organize these files',
@@ -233,8 +201,8 @@ describe('CollieClient connection startup', () => {
       'C:\\Selected',
       { mode: 'chosen_folders', roots: ['C:\\First', 'C:\\Second'] }
     )
-    const request = JSON.parse(socket.send.mock.calls[0][0] as string)
-    expect(request).toMatchObject({
+    const frame = bridge.coreSend.mock.calls[0][0] as Record<string, unknown>
+    expect(frame).toMatchObject({
       type: 'chat',
       execution_mode: 'execute',
       project_path: 'C:\\Selected',
@@ -243,42 +211,32 @@ describe('CollieClient connection startup', () => {
         roots: ['C:\\First', 'C:\\Second']
       }
     })
-    socket.onmessage?.({
-      data: JSON.stringify({
-        id: request.id,
-        type: 'ok',
-        data: { conversation_id: 'conversation-1' }
-      })
-    })
     await expect(reply).resolves.toEqual({ conversation_id: 'conversation-1' })
     client.close()
   })
 
   it('keeps General Chat narrow when no selected folder exists', async () => {
-    vi.stubGlobal('WebSocket', FakeWebSocket)
+    const bridge = installBridge()
     const client = new CollieClient(4321)
     client.connect()
-    const socket = FakeWebSocket.instances[0]
-    socket.open()
+
+    bridge.coreSend.mockResolvedValueOnce({ conversation_id: 'conversation-1' })
     const reply = client.chat(null, 'Hello')
-    const request = JSON.parse(socket.send.mock.calls[0][0] as string)
-    expect(request.execution_mode).toBe('execute')
-    expect(request).toMatchObject({
+    const frame = bridge.coreSend.mock.calls[0][0] as Record<string, unknown>
+    expect(frame.execution_mode).toBe('execute')
+    expect(frame).toMatchObject({
       file_access_scope: { mode: 'selected_folder' }
     })
-    expect(request).not.toHaveProperty('project_path')
-    socket.onmessage?.({
-      data: JSON.stringify({
-        id: request.id,
-        type: 'ok',
-        data: { conversation_id: 'conversation-1' }
-      })
-    })
+    // The wire (JSON.stringify, as main's broker does) drops the undefined
+    // project_path — General Chat stays narrow.
+    const wire = JSON.parse(JSON.stringify(frame))
+    expect(wire).not.toHaveProperty('project_path')
     await expect(reply).resolves.toEqual({ conversation_id: 'conversation-1' })
     client.close()
   })
 
   it('gives getSubagentActivity a short default timeout for 2 s polls', async () => {
+    installBridge()
     const client = new CollieClient(4321)
     const commandSpy = vi
       .spyOn(client, 'command')
@@ -286,5 +244,14 @@ describe('CollieClient connection startup', () => {
     void client.getSubagentActivity()
     expect(commandSpy).toHaveBeenCalledWith('get_subagent_activity', {}, 5_000)
     commandSpy.mockRestore()
+  })
+
+  it('applies the endpoint port without a token argument', () => {
+    installBridge()
+    const client = new CollieClient(3818)
+    client.applyEndpoint(4321)
+    // applyEndpoint is a no-op for the bridge (main owns the port), but must
+    // accept a bare port number without a token argument.
+    expect(client.connected).toBe(false)
   })
 })
