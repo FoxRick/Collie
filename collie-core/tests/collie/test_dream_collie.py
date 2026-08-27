@@ -332,6 +332,7 @@ async def test_dream_rollback_restores_prior_memory(tmp_path: Path, db: CollieDB
     current = memory_file.read_text(encoding="utf-8")
     result = versions.rollback("memory_dream", "MEMORY.md", current_text=current)
     memory_file.write_text(result["restored_text"], encoding="utf-8")
+    versions.mark_rolled_back(result["version_id"])
     assert memory_file.read_text(encoding="utf-8").strip() == ""
     assert db.list_artifact_versions(artifact_type="memory_dream")[0]["status"] == "rolled_back"
 

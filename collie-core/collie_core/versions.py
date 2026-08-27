@@ -16,11 +16,30 @@ independent of the workspace layout.
 from __future__ import annotations
 
 import difflib
+import threading
 from typing import Any
 
 from collie_core.db import CollieDB
 
-__all__ = ["VersionStore", "VersionConflictError"]
+__all__ = ["VersionStore", "VersionConflictError", "artifact_lock"]
+
+
+# -- per-artifact lock registry ------------------------------------------------
+# Rollback and apply (Gardener/Dream) each do a read-modify-write on the same
+# artifact file from different threads (apply runs via ``asyncio.to_thread``).
+# This shared lock serializes them so a rollback can't clobber a concurrent
+# apply (or vice versa). Keys are ``(artifact_type, artifact_key)``; the
+# registry lives here and is used directly by the apply/rollback handlers in
+# ``ipc/server.py``.
+
+_LOCKS_GUARD = threading.Lock()
+_ARTIFACT_LOCKS: dict[tuple[str, str], threading.Lock] = {}
+
+
+def artifact_lock(artifact_type: str, key: str) -> threading.Lock:
+    """Return the shared per-artifact lock for an artifact type + key."""
+    with _LOCKS_GUARD:
+        return _ARTIFACT_LOCKS.setdefault((artifact_type, key), threading.Lock())
 
 
 class VersionConflictError(Exception):
@@ -37,6 +56,18 @@ def make_diff(before: str, after: str, key: str) -> str:
             tofile=f"{key} (after)",
         )
     )
+
+
+def _normalize_text(text: str) -> str:
+    """Normalize an artifact text for equality comparison.
+
+    Mirrors the gardener/runner apply normalization (a trailing ``\\n`` is
+    always appended) plus CRLF handling: ``\\r\\n`` -> ``\\n`` and trailing
+    newlines stripped. This prevents a whitespace-only difference (e.g. the
+    stored ``after_text`` vs. a manual edit that adds a trailing blank line)
+    from permanently refusing a rollback.
+    """
+    return (text or "").replace("\r\n", "\n").rstrip("\n")
 
 
 class VersionStore:
@@ -107,10 +138,12 @@ class VersionStore:
         * ``current_text`` — the artifact's current content, read by the
           caller before calling. When it differs from the target version's
           ``after_text`` the rollback is refused (never clobber newer
-          owner edits).
+          owner edits). Trailing-newline / CRLF differences are normalized
+          away so a whitespace-only change doesn't permanently block undo.
 
-        The version row is marked ``rolled_back`` and the caller writes the
-        returned ``restored_text`` to the artifact (and re-syncs as needed).
+        The caller writes the returned ``restored_text`` to the artifact (and
+        re-syncs as needed) and then calls :meth:`mark_rolled_back` with the
+        returned ``version_id`` — never *before* the write succeeds.
         """
         rows = self.db.list_artifact_versions(
             artifact_type=artifact_type, artifact_key=key, limit=200
@@ -131,14 +164,13 @@ class VersionStore:
 
         after_text = target.get("after_text") or ""
         current = current_text if current_text is not None else ""
-        if current != after_text:
+        if _normalize_text(current) != _normalize_text(after_text):
             raise VersionConflictError(
                 "That edit has already been changed since — I won't overwrite "
                 "the newer version. Undo the most recent change first."
             )
 
         restored = target.get("before_text") or ""
-        self.db.mark_artifact_rolled_back(str(target["id"]))
         return {
             "version_id": str(target["id"]),
             "artifact_type": artifact_type,
@@ -147,3 +179,13 @@ class VersionStore:
             "restored_text": restored,
             "status": "rolled_back",
         }
+
+    def mark_rolled_back(self, version_id: str) -> None:
+        """Mark a version row ``rolled_back`` (call after writing the file).
+
+        Callers must only invoke this *after* the restored text has been
+        written successfully — marking before the write would leave the row
+        in ``rolled_back`` while the artifact still holds newer content if
+        the write raises.
+        """
+        self.db.mark_artifact_rolled_back(str(version_id))

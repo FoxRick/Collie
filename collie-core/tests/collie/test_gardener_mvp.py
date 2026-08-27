@@ -503,6 +503,7 @@ def test_rollback_restores_prior_text(db: CollieDB, workspace: Path) -> None:
     current = (sub_dir / "helper.md").read_text(encoding="utf-8")
     rollback = versions.rollback("subagent", "helper.md", current_text=current)
     (sub_dir / "helper.md").write_text(rollback["restored_text"], encoding="utf-8")
+    versions.mark_rolled_back(rollback["version_id"])
 
     assert (sub_dir / "helper.md").read_text(encoding="utf-8") == original
     row = db.list_artifact_versions(artifact_type="subagent")[0]
