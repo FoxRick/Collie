@@ -660,7 +660,9 @@ class CollieRuntime:
                 # error that must roll back — not something to paper over by
                 # silently substituting the first entry in the provider's list.
                 default_model = catalogue_entry.get("default_model") if catalogue_entry else None
-                explicit_model = bool(normalized.get("model")) and normalized.get("model") != default_model
+                explicit_model = (
+                    bool(normalized.get("model")) and normalized.get("model") != default_model
+                )
                 provider = self.db.configure_provider_candidate_record(**normalized)
                 configured = await self._configure_locked(probe_api_base=normalized.get("api_base"))
                 if not configured.get("configured"):
@@ -724,8 +726,9 @@ class CollieRuntime:
                             sample = ", ".join(offered[:5])
                             message = (
                                 f"That model name isn't one {provider_display} offers. "
-                                f"Available: {sample}." if sample else
-                                f"That model name isn't one {provider_display} offers. "
+                                f"Available: {sample}."
+                                if sample
+                                else f"That model name isn't one {provider_display} offers. "
                                 f"Pick one of the models it lists instead."
                             )
                         else:
