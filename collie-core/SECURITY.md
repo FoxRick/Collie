@@ -24,8 +24,10 @@ from the Collie GitHub Releases page and verify the published checksum.
 
 Windows update signing + publisher verification is wired (issue #59): the
 packaged installer is Authenticode-signed and electron-updater verifies an
-available update's signature against `win.publisherName` **when the build was
-produced with a code-signing certificate**. The certificate is injected at
+available update's signature against the publisher name written into the
+installed app's `app-update.yml` (derived from the certificate's subject)
+**when the build was produced with a code-signing certificate**. The
+certificate is injected at
 release time from the `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD` repo secrets
 (see `.github/workflows/release.yml`). Until that secret is provisioned by a
 maintainer:

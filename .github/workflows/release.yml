@@ -8,8 +8,9 @@ name: Release
 # release checks).
 #
 # Signing notes (alpha):
-#  - Windows: Authenticode update signing is wired (win.publisherName +
-#    verifyUpdateCodeSignature in collie-ui/electron-builder.yml) and
+#  - Windows: Authenticode update signing is wired (win.verifyUpdateCodeSignature
+#    in collie-ui/electron-builder.yml; electron-builder derives the
+#    publisherName electron-updater verifies against from the signing cert) and
 #    activates when a code-signing certificate is injected via the
 #    WIN_CSC_LINK / WIN_CSC_KEY_PASSWORD repo secrets (see the
 #    "Expose Windows code-signing certificate" step). Until those secrets are

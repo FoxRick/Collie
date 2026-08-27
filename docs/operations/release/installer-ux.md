@@ -75,10 +75,17 @@ original setup are kept).
 Windows update signing + publisher verification is wired (issue #59) in
 `collie-ui/electron-builder.yml`:
 
-- `win.publisherName: Collie (heycollie.com)` — the stable subject the
-  code-signing certificate should carry.
 - `win.verifyUpdateCodeSignature: true` — verify an available update's
-  Authenticode signature against the publisher before applying it.
+  Authenticode signature against the publisher (the electron-builder default is
+  `true`; declared explicitly here). It only takes effect when the build is
+  actually signed.
+- `win.publisherName` is intentionally **not** set as a config key — the `win`
+  schema is strict (`additionalProperties: false`) and would reject it and fail
+  the build. Instead, electron-builder derives the publisher name from the
+  code-signing certificate's subject and writes it into the installed app's
+  `app-update.yml`; electron-updater verifies the update's signature against
+  that publisher. The certificate's Subject common name should be the trusted
+  identity (e.g. the org/product name).
 
 electron-builder signs the NSIS installer automatically when a code-signing
 certificate is present on the build (`CSC_LINK` / `WIN_CSC_LINK` +
