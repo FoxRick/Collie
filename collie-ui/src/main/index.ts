@@ -33,11 +33,13 @@ import {
 import { startKeychainServer, stopKeychainServer } from './keychain-server'
 import { getAccountState, signOut, startAccountSignIn } from './account-auth'
 import {
- enableSync,
- getSyncStatus,
- listSnapshots,
- restoreFromDevice,
- uploadSnapshot
+  enableSync,
+  getSyncStatus,
+  listSnapshots,
+  restoreFromDevice,
+  startHeartbeat,
+  stopHeartbeat,
+  uploadSnapshot
 } from './cloud-sync'
 import { autoUpdater } from 'electron-updater'
 import {
@@ -638,6 +640,11 @@ app.whenReady().then(async () => {
     }
   }, 15_000)
 
+  // Maker liveness heartbeat: while signed in + sync on, report this device's
+  // presence (id + version + platform) so the founder can see live/active
+  // users. Gated internally on the same opt-in sync toggle; silent on failure.
+  startHeartbeat()
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
     else mainWindow?.show()
@@ -655,6 +662,7 @@ app.on('before-quit', () => {
 })
 
 app.on('will-quit', () => {
+  stopHeartbeat()
   stopCore()
   stopCoreBroker()
   stopPet()
