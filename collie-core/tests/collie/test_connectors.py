@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,7 +18,7 @@ from collie_core.connectors.models import (
 )
 from collie_core.connectors.policy import classify_connector_tool
 from collie_core.db import CollieDB
-from collie_core.services.credentials import CredentialStore
+from collie_core.services.credentials import CredentialStore, secure_keychain_available
 from nanobot.agent.tools.mcp import MCPToolWrapper
 
 
@@ -119,15 +118,17 @@ def test_launch_catalog_enables_direct_mcp_routes_ready_for_live_oauth() -> None
     enabled = {item.id for item in CONNECTOR_CATALOG if item.available}
     # Only routes that can complete OAuth today (official hosted MCP with
     # dynamic client registration) are enabled; the rest stay coming_soon.
-    # OAuth token persistence is Windows-DPAPI-only for now, so on other
-    # platforms none of the OAuth routes are enabled.
-    assert enabled == (oauth_routes if sys.platform == "win32" else set())
+    # OAuth token persistence is DPAPI on Windows and the Electron safeStorage
+    # keychain bridge on macOS/Linux; the bridge is only published to the core
+    # when a real keyring backend exists, so without it nothing is enabled.
+    keychain_ready = secure_keychain_available()
+    assert enabled == (oauth_routes if keychain_ready else set())
     for provider_id in oauth_routes:
         definition = by_id[provider_id]
         assert definition.driver == ConnectorDriverKind.OFFICIAL_MCP
         # release_status derives from available: alpha where the route is
         # enabled, coming_soon where the platform can't persist OAuth yet.
-        expected_status = "alpha" if sys.platform == "win32" else "coming_soon"
+        expected_status = "alpha" if keychain_ready else "coming_soon"
         assert definition.release_status == expected_status
         assert definition.endpoint
         # A live route must pin its network boundary to its endpoint host.

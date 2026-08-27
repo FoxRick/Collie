@@ -4,6 +4,7 @@ import { existsSync } from 'fs'
 import { join, resolve } from 'path'
 import { inspectDevPythonEnvironment } from './python-environment'
 import { resetSecretsConsumption } from './secrets'
+import { keychainAddress } from './keychain-server'
 import {
   coreExitError,
   LineBuffer,
@@ -114,13 +115,24 @@ export async function spawnCore(isDev: boolean): Promise<void> {
     clearTimeout(healthyTimer)
     healthyTimer = null
   }
+  // Hand the OS keychain bridge to the core when one is available so the
+  // connector catalog can enable OAuth routes on macOS/Linux. Two env vars
+  // face a localhost endpoint guarded by the per-boot bearer token; absent
+  // these the core keeps the routes honestly gated to coming-soon.
+  const keychain = keychainAddress()
   const spawnedChild = spawn(python, ['-m', 'collie_core.runtime', '--port', String(IPC_PORT)], {
     cwd,
     env: {
       ...env,
       COLLIE_IPC_PORT: String(IPC_PORT),
       COLLIE_IPC_TOKEN: ipcToken,
-      COLLIE_MCP_RUNTIME_ROOT: bundledMcpRuntime(isDev)
+      COLLIE_MCP_RUNTIME_ROOT: bundledMcpRuntime(isDev),
+      ...(keychain
+        ? {
+            COLLIE_KEYCHAIN_PORT: String(keychain.port),
+            COLLIE_KEYCHAIN_TOKEN: keychain.token
+          }
+        : {})
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true
