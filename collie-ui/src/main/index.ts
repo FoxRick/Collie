@@ -24,6 +24,7 @@ import {
   stageSecretChange
 } from './secrets'
 import { pushStoredSecretsToCore } from './core-client'
+import { startKeychainServer, stopKeychainServer } from './keychain-server'
 import { getAccountState, signOut, startAccountSignIn } from './account-auth'
 import {
  enableSync,
@@ -588,6 +589,11 @@ app.whenReady().then(async () => {
       mainWindow.webContents.send('collie:update-status-changed', status)
     }
   })
+  // Stand up the OS keychain bridge BEFORE spawning the core so python.ts can
+  // hand the bridge address to the core via env (see spawnCore). When no real
+  // keyring backend is available the server does not start and the connector
+  // catalog honestly gates its routes to coming-soon.
+  await startKeychainServer()
   await spawnCore(isDev)
   // Push stored secrets to the core over the main process's own connection
   // (the renderer never sees decrypted values).
@@ -631,6 +637,7 @@ app.on('before-quit', () => {
 app.on('will-quit', () => {
   stopCore()
   stopPet()
+  stopKeychainServer()
 })
 
 app.on('window-all-closed', () => {

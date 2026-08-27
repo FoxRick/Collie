@@ -1,7 +1,10 @@
 """Encrypted credential storage for connected services.
 
-Windows DPAPI binds every credential blob to the signed-in Windows account.
-No service token is persisted as plaintext.
+On Windows every credential blob is bound to the signed-in account with
+Windows DPAPI. On macOS/Linux credential blobs are encrypted by the
+Electron main-process keychain bridge (Electron ``safeStorage`` -> the OS
+keychain) so tokens recover only for the signed-in OS account there too.
+No service token is ever persisted as plaintext.
 """
 
 from __future__ import annotations
@@ -16,8 +19,9 @@ from pathlib import Path
 from typing import Any
 
 from collie_core.db import collie_home
+from collie_core.keychain import HttpKeychain, keychain_configured
 
-__all__ = ["CredentialStore", "DpapiUnavailableError"]
+__all__ = ["CredentialStore", "DpapiUnavailableError", "secure_keychain_available"]
 
 
 _MAGIC = b"COLLIE-DPAPI\x00"
@@ -26,6 +30,20 @@ _CRYPTPROTECT_UI_FORBIDDEN = 0x1
 
 class DpapiUnavailableError(RuntimeError):
     """Raised when the current platform cannot provide Windows DPAPI."""
+
+
+def secure_keychain_available() -> bool:
+    """Whether connected-service credentials can be encrypted at rest here.
+
+    Windows always has DPAPI. macOS/Linux require the Electron main-process
+    keychain bridge to be configured (the shell sets the env vars when it
+    actually obtained a real keyring backend). Without the bridge the
+    catalog gates OAuth connectors to coming-soon rather than persist a
+    token in plaintext or fail mid-OAuth.
+    """
+    if sys.platform == "win32":
+        return True
+    return keychain_configured()
 
 
 if sys.platform == "win32":
@@ -93,8 +111,21 @@ def _dpapi_unprotect(data: bytes) -> bytes:
         ctypes.windll.kernel32.LocalFree(cast(destination.pbData, c_void_p))
 
 
+def _default_crypt() -> tuple[Callable[[bytes], bytes], Callable[[bytes], bytes]]:
+    """Return the platform-appropriate encrypt/decrypt callables.
+
+    Windows -> DPAPI. macOS/Linux -> the Electron ``safeStorage`` bridge when
+    the shell configured one (otherwise DPAPI, whose clear unavailability
+    error keeps the gate honest rather than writing a token in plaintext).
+    """
+    if sys.platform != "win32" and keychain_configured():
+        keychain = HttpKeychain()
+        return keychain.encrypt, keychain.decrypt
+    return _dpapi_protect, _dpapi_unprotect
+
+
 class CredentialStore:
-    """Read/write per-service DPAPI credential blobs."""
+    """Read/write per-service encrypted credential blobs."""
 
     def __init__(
         self,
@@ -104,8 +135,18 @@ class CredentialStore:
         unprotect: Callable[[bytes], bytes] | None = None,
     ) -> None:
         self.base_dir = base_dir or (collie_home() / "credentials")
-        self._protect = protect or _dpapi_protect
-        self._unprotect = unprotect or _dpapi_unprotect
+        if protect is None or unprotect is None:
+            # Default crypt: DPAPI on Windows, Electron-safeStorage bridge on
+            # macOS/Linux when the shell published a keyring backend. If no
+            # bridge is configured on non-Windows the unavailability error
+            # surfaces clearly instead of a plaintext write — the catalog
+            # keeps the route gated so this is never reached for a live app.
+            default_protect, default_unprotect = _default_crypt()
+            self._protect = protect or default_protect
+            self._unprotect = unprotect or default_unprotect
+        else:
+            self._protect = protect
+            self._unprotect = unprotect
 
     def _path(self, service_id: str) -> Path:
         safe = "".join(c for c in service_id if c.isalnum() or c in "-_")
