@@ -54,6 +54,33 @@ describe('MessageList streaming output', () => {
     act(() => root.unmount())
   })
 
+  it('keeps following paused after a small upward scroll and resumes at the bottom', () => {
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView)
+    scrollIntoView.mockClear()
+    act(() => root.render(<MessageList messages={[]} streamText="First frame" />))
+    const scroller = container.firstElementChild as HTMLDivElement
+    Object.defineProperties(scroller, {
+      scrollHeight: { configurable: true, value: 1_000 },
+      clientHeight: { configurable: true, value: 300 },
+      scrollTop: { configurable: true, value: 700, writable: true }
+    })
+    act(() => scroller.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -40 })))
+    scroller.scrollTop = 660
+    act(() => scroller.dispatchEvent(new Event('scroll', { bubbles: true })))
+    const callsBeforeUpdate = scrollIntoView.mock.calls.length
+    act(() => root.render(<MessageList messages={[]} streamText="Second frame" />))
+    expect(scrollIntoView).toHaveBeenCalledTimes(callsBeforeUpdate)
+    expect(container.querySelector('.chat-jump-latest')).not.toBeNull()
+    scroller.scrollTop = 700
+    act(() => scroller.dispatchEvent(new Event('scroll', { bubbles: true })))
+    act(() => root.render(<MessageList messages={[]} streamText="Third frame" />))
+    expect(scrollIntoView).toHaveBeenCalledTimes(callsBeforeUpdate + 1)
+    expect(container.querySelector('.chat-jump-latest')).toBeNull()
+    act(() => root.unmount())
+  })
+
   it('shows a compact activity status without an empty answer before the first token', () => {
     const container = document.createElement('div')
     const root = createRoot(container)

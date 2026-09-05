@@ -57,7 +57,7 @@ function MessageList({ messages, streamText, streaming = false, activityLabel, c
         const element = scrollRef.current
         if (!element) return
         shouldFollowRef.current =
-          element.scrollHeight - element.scrollTop - element.clientHeight < 96
+          element.scrollHeight - element.scrollTop - element.clientHeight <= 1
         setFollowing(shouldFollowRef.current)
       }}
     >
