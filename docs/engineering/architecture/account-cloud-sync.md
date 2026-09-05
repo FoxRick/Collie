@@ -83,15 +83,11 @@ create policy "own rows only"
 
 ### §4b. Maker liveness view (owner-only, not client-facing)
 
-The heartbeat is a **PATCH** of `last_seen`/`version`/`platform` on the
-device's existing row, gated on the same opt-in sync toggle (signed in + sync
-on). It reports a device id + version + platform only — no content, no
-conversations. The founder reads presence with the service role
-(`tools/device_liveness.py`), which bypasses RLS:
-
-- **live now** = `last_seen > now() - interval '10 minutes'`
-- **active 24h** = `last_seen > now() - interval '24 hours'`
-- plus a version/platform spread so update adoption is visible.
+Install presence is now independent of cloud sync and accounts. See
+[install heartbeat](install-heartbeat.md) for the anonymous write API,
+count definitions, privacy disclosure, and deployment order. Older clients
+PATCH the legacy presence columns on their existing snapshot; that only
+covers signed-in users with sync enabled and is not an installation count.
 
 - One row per (user, device): the app **upserts** on `(user_id, device_id)`.
 - RLS: every operation scoped to `auth.uid()`; anon key only, no service role
