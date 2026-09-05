@@ -3,6 +3,7 @@ import { collieClient } from './lib/ipc'
 import { initI18n, useT } from './lib/i18n'
 import { initTheme } from './lib/theme'
 import WelcomeScreen from './screens/WelcomeScreen'
+import AccountOnboarding from './screens/AccountOnboarding'
 import ChatScreen from './screens/ChatScreen'
 import CollieFace from './components/CollieFace'
 import type { AppView } from './lib/navigation'
@@ -137,7 +138,7 @@ export default function App(): React.JSX.Element {
   }
 
   if (screen === 'welcome') {
-    return (
+    const welcome = (
       <WelcomeScreen
         onDone={() => {
           setScreen('app')
@@ -151,6 +152,7 @@ export default function App(): React.JSX.Element {
         } : undefined}
       />
     )
+    return replayingOnboarding ? welcome : <AccountOnboarding>{welcome}</AccountOnboarding>
   }
 
   return (
