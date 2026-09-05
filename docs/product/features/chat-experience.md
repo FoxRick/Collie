@@ -21,6 +21,12 @@ arrive, and the sidebar should prioritize starting and returning to chats.
   preview that can be dismissed without losing the user's place in the chat.
 - Assistant text streams at a smooth, readable pace without frame-like jumps,
   erratic reflow, or a blinking typing cursor.
+- Live text catches up after provider bursts; a delivered answer appears in
+  full immediately, without an artificial post-completion typing delay.
+- Before text arrives, a compact activity line shows the current work. It is
+  separate from the answer, with no overlapping skeleton placeholders.
+- Scrolling back pauses automatic following. **Jump to latest** resumes it;
+  switching conversations starts at the latest messages in that conversation.
 - Markdown is rendered continuously while a response streams. Users do not see
   raw formatting markers such as `**` or `__` before styled text appears.
 - The sidebar order is: **New Chat**, **Agents**, **Skills**, **Routines**,

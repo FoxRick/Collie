@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AttachmentDraft, CollieEvent, CollieMessage, TaskState } from '../lib/ipc'
 
 interface ChatInputProps {
+  onStop: () => void
+  busy: boolean
   onSend: (text: string, attachments: AttachmentDraft[]) => Promise<boolean>
   onProjectChange: (path: string) => void
   taskProgress?: TaskState | null
@@ -76,8 +78,8 @@ vi.mock('./SkillsScreen', () => ({ default: () => null }))
 vi.mock('./RoutinesScreen', () => ({ default: () => null }))
 vi.mock('./ConnectorsScreen', () => ({ default: () => null }))
 vi.mock('../components/MessageList', () => ({
-  default: ({ messages, streaming }: { messages: CollieMessage[]; streaming: boolean }) => (
-    <ol data-streaming={String(streaming)}>
+  default: ({ messages, streaming, streamText }: { messages: CollieMessage[]; streaming: boolean; streamText: string }) => (
+    <ol data-streaming={String(streaming)} data-stream-text={streamText}>
       {messages.map((message) => (
         <li data-message={`${message.role}:${message.id}`} key={message.id}>
           {message.content}
@@ -134,6 +136,47 @@ describe('ChatScreen paced assistant completion order', () => {
   afterEach(() => {
     act(() => root.unmount())
     vi.useRealTimers()
+  })
+
+  it('shows the entire final answer immediately, even with a large reveal backlog', async () => {
+    const emit = hooks.listener()
+    await act(async () => emit({ type: 'message', conversation_id: conversationId,
+      message: message('user-1', 'user', 'Explain this') }))
+    const answer = message('answer', 'assistant', 'A complete answer. '.repeat(500))
+    act(() => emit({ type: 'delta', conversation_id: conversationId, text: answer.content }))
+    await act(async () => emit({ type: 'message', conversation_id: conversationId, message: answer }))
+    expect(container.querySelector('[data-message="assistant:answer"]')?.textContent).toBe(answer.content)
+    expect(container.querySelector('ol')?.dataset.streaming).toBe('false')
+    await act(async () => vi.advanceTimersByTimeAsync(1_000))
+    expect(container.querySelector('[data-message="assistant:answer"]')?.textContent).toBe(answer.content)
+    expect(container.querySelector('ol')?.dataset.streamText).toBe('')
+  })
+
+  it('stops revealing buffered text when Stop is acknowledged', async () => {
+    hooks.client.stopConversation.mockResolvedValue({ cancelled_subagents: 0 })
+    const emit = hooks.listener()
+    await act(async () => emit({ type: 'message', conversation_id: conversationId,
+      message: message('user-stop', 'user', 'Start') }))
+    act(() => emit({ type: 'delta', conversation_id: conversationId, text: 'Working '.repeat(500) }))
+    expect(hooks.chatInput().busy).toBe(true)
+    await act(async () => vi.advanceTimersByTimeAsync(32))
+    const partial = container.querySelector('ol')?.dataset.streamText
+    await act(async () => hooks.chatInput().onStop())
+    await act(async () => vi.advanceTimersByTimeAsync(1_000))
+    expect(container.querySelector('ol')?.dataset.streamText).toBe(partial)
+    expect(container.querySelector('ol')?.dataset.streaming).toBe('false')
+    expect(hooks.chatInput().busy).toBe(false)
+  })
+
+  it('clears a stale reveal timer when the core restarts', async () => {
+    const emit = hooks.listener()
+    await act(async () => emit({ type: 'message', conversation_id: conversationId,
+      message: message('user-restart', 'user', 'Start') }))
+    act(() => emit({ type: 'delta', conversation_id: conversationId, text: 'Old stream'.repeat(500) }))
+    await act(async () => emit({ type: 'ready', protocol: 1, phrase: 'Ready' }))
+    await act(async () => vi.advanceTimersByTimeAsync(1_000))
+    expect(container.querySelector('ol')?.dataset.streamText).toBe('')
+    expect(container.querySelector('ol')?.dataset.streaming).toBe('false')
   })
 
   it('keeps a completed assistant turn above a later user turn while its text catches up', async () => {

@@ -197,7 +197,7 @@ export function stableMarkdownStreamText(content: string): string {
 export function nextStreamReveal(
   displayed: string,
   content: string,
-  maxCharacters = 18
+  maxCharacters?: number
 ): string {
   const target = visibleStreamText(content)
   if (target === displayed) return target
@@ -205,5 +205,11 @@ export function nextStreamReveal(
   const sharedLimit = Math.min(displayed.length, target.length)
   while (shared < sharedLimit && displayed[shared] === target[shared]) shared += 1
   const start = shared === displayed.length ? displayed.length : shared
-  return target.slice(0, start + Math.max(1, maxCharacters))
+  // Catch up after provider bursts instead of adding seconds of fake latency.
+  // Explicit limits remain useful for callers that need a fixed reveal size.
+  const step = maxCharacters ?? Math.max(18, Math.ceil((target.length - start) / 4))
+  let end = start + Math.max(1, step)
+  // Never split a UTF-16 surrogate pair (emoji and many non-Latin characters).
+  if (end < target.length && /[\uD800-\uDBFF]/.test(target[end - 1])) end += 1
+  return target.slice(0, end)
 }

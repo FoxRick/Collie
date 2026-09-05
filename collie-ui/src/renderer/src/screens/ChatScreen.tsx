@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { startTransition, useCallback, useEffect, useRef, useState } from 'react'
 import {
   collieClient,
   type AttachmentDraft,
@@ -29,7 +29,7 @@ import SkillsScreen from './SkillsScreen'
 import RoutinesScreen from './RoutinesScreen'
 import ConnectorsScreen from './ConnectorsScreen'
 import type { AppView } from '../lib/navigation'
-import { mergeStreamDelta, nextStreamReveal, shouldResetStreamDisplay, visibleStreamText } from '../lib/stream'
+import { mergeStreamDelta, nextStreamReveal, visibleStreamText } from '../lib/stream'
 import ApprovalSheet from '../components/approvals/ApprovalSheet'
 import { isTaskTerminal } from '../components/tasks/TaskProgress'
 import {
@@ -173,8 +173,6 @@ export default function ChatScreen({
   const streamRef = useRef('')
   const streamDisplayRef = useRef('')
   const streamTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const pendingAssistantRef = useRef<CollieMessage | null>(null)
-  const finalizePendingRef = useRef<(() => void) | null>(null)
   const loadTokenRef = useRef(0)
   const taskSnapshotGenerationRef = useRef<Record<string, number>>({})
   activeIdRef.current = activeId
@@ -192,24 +190,12 @@ export default function ChatScreen({
     const reveal = () => {
       const next = nextStreamReveal(streamDisplayRef.current, streamRef.current)
       streamDisplayRef.current = next
-      const pending = pendingAssistantRef.current
-      if (pending && activeIdRef.current === pending.conversation_id) {
-        // Once the terminal event arrives, its place in the transcript is
-        // fixed. Continue revealing into that reserved bubble so a later user
-        // event cannot jump ahead of the paced assistant response.
-        setMessages((previous) =>
-          previous.map((item) => item.id === pending.id ? { ...item, content: next } : item)
-        )
-        setStreamText('')
-      } else {
-        setStreamText(next)
-      }
+      startTransition(() => setStreamText(next))
 
       if (next !== visibleStreamText(streamRef.current)) {
         streamTimerRef.current = setTimeout(reveal, 32)
       } else {
         streamTimerRef.current = null
-        finalizePendingRef.current?.()
       }
     }
 
@@ -272,34 +258,6 @@ export default function ChatScreen({
     }
   }, [])
 
-  const finalizePendingAssistant = useCallback(() => {
-    const msg = pendingAssistantRef.current
-    if (!msg || activeIdRef.current !== msg.conversation_id) return
-    pendingAssistantRef.current = null
-    setMessages((previous) => {
-      const existing = previous.findIndex((item) => item.id === msg.id)
-      if (existing === -1) return [...previous, msg]
-      const next = [...previous]
-      next[existing] = msg
-      return next
-    })
-    streamRef.current = ''
-    streamDisplayRef.current = ''
-    setStreamText('')
-    setCardPreview(null)
-    setPortraitThinking({
-      state: 'done',
-      phrase: 'Done — that was a good one.',
-      pet_animation: 'happy'
-    })
-    if (!document.hasFocus()) {
-      void window.collie?.petCommand('status:happy|Finished. Your result is ready in Collie.')
-    }
-    void refreshRuntimeStatus()
-    void refreshCommandCatalog()
-  }, [refreshCommandCatalog, refreshRuntimeStatus])
-  finalizePendingRef.current = finalizePendingAssistant
-
   const rememberProject = useCallback((path: string) => {
     setCurrentProject(path)
     if (!path) return
@@ -327,7 +285,6 @@ export default function ChatScreen({
     setThingsUnseen(new Set())
     streamRef.current = ''
     streamDisplayRef.current = ''
-    pendingAssistantRef.current = null
     stopStreamReveal()
     if (projectPath !== undefined) rememberProject(projectPath || '')
     if (!id) {
@@ -412,8 +369,6 @@ export default function ChatScreen({
 
   useEffect(() => () => {
     stopStreamReveal()
-    pendingAssistantRef.current = null
-    finalizePendingRef.current = null
   }, [stopStreamReveal])
 
   useEffect(() => {
@@ -456,6 +411,12 @@ export default function ChatScreen({
           void refreshApprovalPreset()
           setThinkingMap({})
           setStreaming(false)
+          stopStreamReveal()
+          streamRef.current = ''
+          streamDisplayRef.current = ''
+          setStreamText('')
+          setCardPreview(null)
+          setPortraitThinking(null)
           if (current) {
             collieClient
               .getMessages(current)
@@ -604,36 +565,23 @@ export default function ChatScreen({
             })
           }
           if (msg.role === 'assistant' && isCurrentConversationEvent(msg.conversation_id, current)) {
-            pendingAssistantRef.current = msg
-            // The turn's final text is reserved and revealed in the
-            // transcript — the live stream card hands over to it.
+            // The delivered message is authoritative: never queue a completed
+            // answer behind the presentation timer.
+            stopStreamReveal()
+            streamRef.current = ''
+            streamDisplayRef.current = ''
+            setStreamText('')
             setStreaming(false)
-            // A mid-turn steer delivers the superseded answer as its own
-            // message; the follow-up response then covers only the tail of
-            // the accumulated stream. Reveal that bubble from scratch instead
-            // of rewinding the already-delivered text.
-            if (shouldResetStreamDisplay(streamRef.current, msg.content)) {
-              streamDisplayRef.current = ''
-            }
-            // Reserve the assistant turn as soon as it is complete. The
-            // reveal timer replaces this provisional content in place, rather
-            // than appending after newer user turns.
-            const displayedContent = streamDisplayRef.current
+            setCardPreview(null)
             setMessages((previous) => {
               const existing = previous.findIndex((item) => item.id === msg.id)
-              const reserved = { ...msg, content: displayedContent }
-              if (existing === -1) return [...previous, reserved]
+              if (existing === -1) return [...previous, msg]
               const next = [...previous]
-              next[existing] = reserved
+              next[existing] = msg
               return next
             })
-            setStreamText('')
-            if (streamRef.current || streamDisplayRef.current) {
-              streamRef.current = msg.content
-              scheduleStreamReveal()
-            } else {
-              finalizePendingAssistant()
-            }
+            void refreshRuntimeStatus()
+            void refreshCommandCatalog()
             void refreshConversations()
             break
           }
@@ -675,11 +623,6 @@ export default function ChatScreen({
             streamRef.current = ''
             streamDisplayRef.current = ''
             setStreaming(false)
-            const pending = pendingAssistantRef.current
-            pendingAssistantRef.current = null
-            if (pending) {
-              setMessages((previous) => previous.filter((item) => item.id !== pending.id))
-            }
             setErrorText(event.message)
             setStreamText('')
             setCardPreview(null)
@@ -712,7 +655,7 @@ export default function ChatScreen({
       }
     })
     return off
-  }, [applyTaskSnapshot, finalizePendingAssistant, hydrateActiveTask, onNavigate, refreshApprovalPreset, refreshCommandCatalog, refreshConversations, refreshRuntimeStatus, scheduleStreamReveal, stopStreamReveal])
+  }, [applyTaskSnapshot, hydrateActiveTask, onNavigate, refreshApprovalPreset, refreshCommandCatalog, refreshConversations, refreshRuntimeStatus, scheduleStreamReveal, stopStreamReveal])
 
   const activeThinking: ThinkingState | null = activeId
     ? (thinkingMap[activeId] ?? null)
@@ -726,7 +669,7 @@ export default function ChatScreen({
   const activeTiming = activeId ? taskTimings[activeId] : undefined
   const activeTask = activeId ? tasksByConversation[activeId] : undefined
   const taskIsActive = activeTask ? !isTaskTerminal(activeTask) : false
-  const isWorkActive = activeThinking !== null || activeAgents.length > 0 || taskIsActive
+  const isWorkActive = streaming || activeThinking !== null || activeAgents.length > 0 || taskIsActive
   const activeAgentsCount = runtimeStatus.active_agents?.length ?? 0
   const thinkingCount = Object.keys(thinkingMap).length
 
@@ -780,6 +723,10 @@ export default function ChatScreen({
         phrase: 'Thinking through your task…',
         pet_animation: 'working'
       })
+      stopStreamReveal()
+      streamRef.current = ''
+      streamDisplayRef.current = ''
+      setStreamText('')
       setStreaming(true)
       try {
         const { conversation_id, command_handled } = await collieClient.chat(
@@ -825,7 +772,8 @@ export default function ChatScreen({
       isWorkActive,
       openConversation,
       refreshCommandCatalog,
-      refreshConversations
+      refreshConversations,
+      stopStreamReveal
     ]
   )
 
@@ -1001,6 +949,12 @@ export default function ChatScreen({
     if (!conversationId) return
     try {
       const result = await collieClient.stopConversation(conversationId)
+      if (activeIdRef.current !== conversationId) return
+      stopStreamReveal()
+      streamRef.current = ''
+      streamDisplayRef.current = ''
+      setStreaming(false)
+      setCardPreview(null)
       setRuntimeStatus((previous) => ({
         ...previous,
         active_agents: (previous.active_agents || []).filter(
@@ -1033,7 +987,7 @@ export default function ChatScreen({
     } catch {
       setErrorText('I could not stop that response cleanly.')
     }
-  }, [])
+  }, [stopStreamReveal])
 
   useEffect(() => {
     if (!isWorkActive) return
@@ -1122,7 +1076,7 @@ export default function ChatScreen({
         </header>
         <div className={`workspace-body flex min-h-0 flex-1 ${thingsOpen && things.length > 0 ? 'has-things' : ''}`}>
         <div className="conversation-panel">
-          <MessageList messages={messages} streamText={streamText} streaming={streaming} cardPreview={cardPreview} />
+          <MessageList key={activeId} messages={messages} streamText={streamText} streaming={streaming} cardPreview={cardPreview} activityLabel={streaming ? (activeThinking?.phrase || "Collie is thinking…") : undefined} />
         {errorText && (
           <div className="mx-4 mb-2 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
             style={{ borderColor: 'var(--collie-snoot)' }}>
