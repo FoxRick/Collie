@@ -32,6 +32,7 @@ import {
 } from './core-client'
 import { startKeychainServer, stopKeychainServer } from './keychain-server'
 import { getAccountState, signOut, startAccountSignIn } from './account-auth'
+import { submitFeedback } from './feedback'
 import {
   enableSync,
   getSyncStatus,
@@ -388,6 +389,7 @@ function registerIpc(): void {
   // process (core-client.ts); decrypted secrets never cross into the renderer.
   handle('collie:stored-secret-count', () => listSecretProviders().length)
   handle('account:start-sign-in', () => startAccountSignIn())
+  handle('collie:submit-feedback', (submission: unknown) => submitFeedback(submission))
   handle('account:get-state', () => getAccountState())
   handle('account:sign-out', () => signOut())
   // Account cloud sync (account-cloud-sync.md): per-device snapshots,

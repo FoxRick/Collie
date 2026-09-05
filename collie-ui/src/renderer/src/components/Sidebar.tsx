@@ -28,6 +28,7 @@ import {
   type AppView
 } from '../lib/navigation'
 import CollieFace from './CollieFace'
+import FeedbackDialog from './FeedbackDialog'
 
 interface Props {
   conversations: Conversation[]
@@ -59,6 +60,7 @@ export default function Sidebar({
   onAddProject
 }: Props): React.JSX.Element {
   const [query, setQuery] = useState('')
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [collapsed, setCollapsed] = useState<boolean>(() =>
     typeof localStorage === 'undefined' ? false : readSidebarCollapsed(localStorage)
@@ -416,6 +418,12 @@ export default function Sidebar({
       </nav>
 
       <div className="sidebar-footer">
+        <button type="button" onClick={() => setFeedbackOpen(true)}
+          className="sidebar-footer-row mx-4 mb-2 flex items-center gap-2 px-3 py-2.5 text-sm transition"
+          title="Submit Feedback" aria-label="Submit Feedback" aria-haspopup="dialog">
+          <MessageCircle size={16} aria-hidden="true" />
+          <span>Submit Feedback</span>
+        </button>
         <button
           type="button"
           onClick={toggleCollapsed}
@@ -436,6 +444,7 @@ export default function Sidebar({
           <span>{t('sidebar.settings')}</span>
         </button>
       </div>
+      {feedbackOpen && <FeedbackDialog onClose={() => setFeedbackOpen(false)} />}
     </aside>
   )
 }

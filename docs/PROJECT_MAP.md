@@ -74,6 +74,14 @@ are not part of this public source tree.
 - `scripts/` contains staging, packaging, smoke, and release verification.
 - `electron-builder.yml` defines Windows artifact composition.
 
+### Feedback intake: `tools/feedback/`
+
+The desktop's guarded feedback IPC sends only the user's message and a random
+submission ID to a dedicated Cloudflare Worker. The Worker stores feedback in
+the existing Supabase project and notifies the team through Resend; server
+credentials remain in Worker secrets. See [in-app feedback](product/feedback.md)
+for deployment ownership and the live verification gate.
+
 ## Primary data flow
 
 ```text

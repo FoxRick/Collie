@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { FeedbackResult, FeedbackSubmission } from '../shared/feedback'
 
 export type UpdatePhase =
   | 'idle'
@@ -105,6 +106,8 @@ const api = {
     ipcRenderer.invoke('collie:pick-file-access-folders'),
   openExternal: (url: string): Promise<void> =>
     ipcRenderer.invoke('collie:open-external', url),
+  submitFeedback: (submission: FeedbackSubmission): Promise<FeedbackResult> =>
+    ipcRenderer.invoke('collie:submit-feedback', submission),
   thingRead: (conversationId: string, thingId: string): Promise<{ kind: 'text' | 'image'; text?: string; dataUrl?: string }> =>
     ipcRenderer.invoke('collie:thing-read', conversationId, thingId),
   thingOpen: (conversationId: string, thingId: string): Promise<string> =>

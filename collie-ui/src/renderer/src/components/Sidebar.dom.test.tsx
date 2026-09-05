@@ -109,6 +109,7 @@ function renderSidebar(options: SidebarTestOptions = {}): HTMLElement {
 }
 
 beforeAll(() => {
+  HTMLDialogElement.prototype.showModal = function (): void { this.setAttribute('open', '') }
   ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
     .IS_REACT_ACT_ENVIRONMENT = true
 })
@@ -117,6 +118,19 @@ beforeEach(() => {
   localStorage.clear()
   searchMessages.mockReset()
   searchMessages.mockResolvedValue({ results: [] })
+})
+
+it('opens feedback from the collapsed sidebar and returns focus on cancel', () => {
+  localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, '1')
+  const container = renderSidebar()
+  const button = container.querySelector<HTMLButtonElement>('[aria-label="Submit Feedback"]')!
+  expect(container.querySelector('aside')!.classList.contains('is-collapsed')).toBe(true)
+  act(() => { button.focus(); button.click() })
+  expect(document.querySelector('dialog[open]')).not.toBeNull()
+  const cancel = Array.from(document.querySelectorAll('dialog button')).find((item) => item.textContent === 'Cancel') as HTMLButtonElement
+  act(() => cancel.click())
+  expect(document.querySelector('dialog')).toBeNull()
+  expect(document.activeElement).toBe(button)
 })
 
 afterEach(() => {
