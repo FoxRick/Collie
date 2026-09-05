@@ -22,6 +22,25 @@ announcements, feedback, and support. This is a contact and consent record,
 not an application identity system. Collect the minimum useful information:
 email, optional use case, clear consent, and a one-click unsubscribe route.
 
+## Desktop account welcome
+
+Before model-provider setup on a new installation, offer **Sign in or create
+an account** using the same browser flow as Settings → Account, alongside
+**Continue as a guest**. An existing signed-in session skips this step.
+Remember either choice locally so restarting unfinished model setup does not
+repeat the account prompt. If local preferences cannot be saved, continuing
+still works for the current session.
+
+Account failures never block guest setup. Users with an already configured
+model, and users replaying model onboarding from Settings, go directly to
+their existing flow. Guests can sign in later in Settings → Account without
+replacing local data. Signing in does not enable cloud backup or restore a
+snapshot; those remain explicit choices in Settings.
+
+The [account system specification](../../engineering/architecture/account-system-spec.md)
+supersedes the earlier email-only website identity decision above. A Collie
+account remains separate from model-provider credentials.
+
 ## Distribution
 
 - The public website is the friendly entry point and should lead with a
