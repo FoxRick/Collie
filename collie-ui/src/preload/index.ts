@@ -67,6 +67,18 @@ export interface InstallResult {
 const api = {
   coreState: (): Promise<{ state: string; port: number; token: string; error: string }> =>
     ipcRenderer.invoke('collie:core-state'),
+  // #122: renderer -> main -> core command relay. The renderer builds a
+  // { type, id, ...payload } frame; main authenticates it against the
+  // per-boot token (which stays in main) and returns the core's reply.
+  coreSend: (frame: Record<string, unknown>): Promise<unknown> =>
+    ipcRenderer.invoke('collie:core-send', frame),
+  // #122: main forwards core-pushed events to the renderer (the renderer no
+  // longer opens its own socket). Returns an unsubscribe.
+  onCoreEvent: (listener: (event: unknown) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, event: unknown): void => listener(event)
+    ipcRenderer.on('collie:core-event', handler)
+    return () => ipcRenderer.removeListener('collie:core-event', handler)
+  },
   secureStorageStatus: (): Promise<{ available: boolean; platform: string }> =>
     ipcRenderer.invoke('collie:secure-storage-status'),
   saveSecret: (provider: string, key: string): Promise<boolean> =>

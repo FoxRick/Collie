@@ -20,6 +20,26 @@ Security fixes are assessed for the current Collie alpha release. Alpha builds
 are unsigned while the release program is being established; download them only
 from the Collie GitHub Releases page and verify the published checksum.
 
+### Update signature verification (Windows)
+
+Windows update signing + publisher verification is wired (issue #59): the
+packaged installer is Authenticode-signed and electron-updater verifies an
+available update's signature against the publisher name written into the
+installed app's `app-update.yml` (derived from the certificate's subject)
+**when the build was produced with a code-signing certificate**. The
+certificate is injected at
+release time from the `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD` repo secrets
+(see `.github/workflows/release.yml`). Until that secret is provisioned by a
+maintainer:
+
+- Windows installers ship **unsigned** (SmartScreen may warn), and
+- electron-updater performs **no** signature check — updates are trusted via
+  the HTTPS feed's SHA256 hashes.
+
+Once the certificate is provisioned, published Windows updates are
+Authenticode-signed and publisher-verified before install. The certificate
+itself is an ops secret and is never committed to the repository.
+
 ## Keeping Collie data safe
 
 - Collie stores its local database under the user's Collie data directory.
@@ -46,4 +66,4 @@ Collie includes adapted code from
 vendored `nanobot` Python namespace remains for compatibility. See `LICENSE`
 and `THIRD_PARTY_NOTICES.md` for the applicable notices.
 
-**Last updated:** 2026-07-29
+**Last updated:** 2026-08-27

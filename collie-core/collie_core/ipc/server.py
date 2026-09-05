@@ -83,6 +83,8 @@ from nanobot.webui.skills_api import webui_skill_detail_payload, webui_skills_pa
 __all__ = ["CollieIPCServer"]
 
 _MAX_FRAME_BYTES = DEFAULT_WEBUI_INGRESS_POLICY.minimum_full_policy_frame_bytes()
+_GENERIC_ERROR_MESSAGE = "Uh oh. That didn't go as planned. Try again?"
+_MAX_LIST_LIMIT = 500
 
 _MAX_PREVIEW_BYTES = 256 * 1024
 _SAFE_PREVIEW_MIMES = frozenset({"image/png", "image/jpeg", "image/webp", "image/gif"})
@@ -127,6 +129,33 @@ _ALLOWED_ORIGIN_HOSTS = {"localhost", "127.0.0.1", "::1"}
 _PERSON_FIELDS = frozenset(
     {"relationship", "birthday", "allergies", "preferences", "gift_ideas", "notes"}
 )
+
+
+def _public_error_message(
+    error: object,
+    *,
+    fallback: str = _GENERIC_ERROR_MESSAGE,
+) -> str:
+    """Return only exception text that is explicitly safe for the renderer."""
+    if isinstance(error, (ValueError, VoiceInputError)):
+        return str(error)
+    return fallback
+
+
+def _bounded_list_limit(
+    value: Any,
+    *,
+    default: int | None,
+    maximum: int = _MAX_LIST_LIMIT,
+) -> int | None:
+    """Parse a renderer list limit without allowing unbounded SQLite LIMITs."""
+    if value is None:
+        return default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default if default is not None else maximum
+    return max(1, min(parsed, maximum))
 
 
 @dataclass
@@ -467,11 +496,7 @@ class CollieIPCServer:
             # Never include frame locals in diagnostics: secret-bearing commands
             # carry API keys, OAuth credentials, or Telegram bot tokens.
             logger.error("IPC command failed: {} ({})", kind, type(e).__name__)
-            safe_message = (
-                str(e)
-                if isinstance(e, (ValueError, VoiceInputError))
-                else "Uh oh. That didn't go as planned. Try again?"
-            )
+            safe_message = _public_error_message(e)
             await self._send(
                 connection,
                 {
@@ -649,12 +674,12 @@ class CollieIPCServer:
 
     async def _cmd_get_messages(self, connection: ServerConnection, frame: dict) -> dict:
         conv_id = str(frame.get("conversation_id") or "")
-        limit = frame.get("limit")
+        limit = _bounded_list_limit(frame.get("limit"), default=None)
         # Off the event loop: a long conversation loads asynchronously.
         messages = await asyncio.to_thread(
             self.db.get_messages,
             conv_id,
-            int(limit) if limit is not None else None,
+            limit,
         )
         return {"messages": messages}
 
@@ -663,13 +688,13 @@ class CollieIPCServer:
         conv_id = str(frame.get("conversation_id") or "") or None
         session_key = str(frame.get("session_key") or "") or None
         since = str(frame.get("since") or "") or None
-        limit = frame.get("limit")
+        limit = _bounded_list_limit(frame.get("limit"), default=200)
         turns = await asyncio.to_thread(
             self.db.list_turn_events,
             conversation_id=conv_id,
             session_key=session_key,
             since=since,
-            limit=int(limit) if limit is not None else 200,
+            limit=limit,
         )
         return {"turns": turns}
 
@@ -677,12 +702,12 @@ class CollieIPCServer:
         """List tool events (most recent first) — read-only telemetry."""
         turn_id = str(frame.get("turn_id") or "") or None
         tool_name = str(frame.get("tool_name") or "") or None
-        limit = frame.get("limit")
+        limit = _bounded_list_limit(frame.get("limit"), default=500)
         events = await asyncio.to_thread(
             self.db.list_tool_events,
             turn_id=turn_id,
             tool_name=tool_name,
-            limit=int(limit) if limit is not None else 500,
+            limit=limit,
         )
         return {"tool_events": events}
 
@@ -1359,13 +1384,19 @@ class CollieIPCServer:
     async def _cmd_apply_dream_proposal(self, connection: ServerConnection, frame: dict) -> dict:
         """Approve the pending Dream proposal: re-validate, write, version."""
         from collie_core.memory.dream import apply_dream_proposal
-        from collie_core.versions import VersionStore
+        from collie_core.versions import VersionStore, artifact_lock
 
-        return await asyncio.to_thread(
-            apply_dream_proposal,
-            workspace=collie_home() / "workspace",
-            version_store=VersionStore(self.db),
-        )
+        def _apply() -> dict:
+            # Same-artifact serialization as the rollback path (memory_dream /
+            # MEMORY.md). Lock held on the worker thread; no await inside the
+            # lock, so a concurrent rollback can't clobber the write.
+            with artifact_lock("memory_dream", "MEMORY.md"):
+                return apply_dream_proposal(
+                    workspace=collie_home() / "workspace",
+                    version_store=VersionStore(self.db),
+                )
+
+        return await asyncio.to_thread(_apply)
 
     async def _cmd_dismiss_dream_proposal(self, connection: ServerConnection, frame: dict) -> dict:
         """Dismiss the pending Dream proposal without applying it."""
@@ -1387,21 +1418,33 @@ class CollieIPCServer:
         self, connection: ServerConnection, frame: dict
     ) -> dict:
         """Approve one suggestion: re-validate, apply, version (undoable)."""
-        from collie_core.gardener.propose import ProposalValidationError
+        from collie_core.gardener.propose import ProposalValidationError, validate_suggestion
         from collie_core.gardener.runner import apply_suggestion
-        from collie_core.versions import VersionStore
+        from collie_core.versions import VersionStore, artifact_lock
 
         suggestion = frame.get("suggestion")
         if not isinstance(suggestion, dict):
             raise ValueError("A suggestion is required to approve.")
         try:
-            result = await asyncio.to_thread(
-                apply_suggestion,
-                workspace=collie_home() / "workspace",
-                suggestion=suggestion,
-                version_store=VersionStore(self.db),
-                subagent_loader=self._subagent_loader,
-            )
+            cleaned = validate_suggestion(suggestion)
+        except ProposalValidationError as exc:
+            raise ValueError(str(exc)) from exc
+
+        def _apply() -> dict:
+            # Hold the artifact lock across the read-modify-write so a
+            # concurrent rollback (or another apply) on the same artifact
+            # can't clobber this edit. Lock + apply run on the worker thread —
+            # no await inside the lock, so the event loop never blocks on it.
+            with artifact_lock(cleaned["artifact_type"], cleaned["artifact_key"]):
+                return apply_suggestion(
+                    workspace=collie_home() / "workspace",
+                    suggestion=cleaned,
+                    version_store=VersionStore(self.db),
+                    subagent_loader=self._subagent_loader,
+                )
+
+        try:
+            result = await asyncio.to_thread(_apply)
         except ProposalValidationError as exc:
             raise ValueError(str(exc)) from exc
         return result
@@ -1697,24 +1740,34 @@ class CollieIPCServer:
     async def _cmd_write_file(self, connection: ServerConnection, frame: dict) -> dict:
         file_path = self._resolve_workspace_path(str(frame.get("path") or ""))
         content = str(frame.get("content") or "")
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        before = file_path.read_text(encoding="utf-8") if file_path.exists() else ""
         artifact = self._classify_workspace_artifact(file_path)
-        version_id: str | None = None
-        diff_text: str | None = None
-        if artifact is not None and before != content:
-            from collie_core.versions import VersionStore, make_diff
+        if artifact is not None:
+            # Serialize with any concurrent rollback/apply on this artifact.
+            from collie_core.versions import VersionStore, artifact_lock, make_diff
 
-            version_id = VersionStore(self.db).snapshot(
-                artifact[0], artifact[1], before, content, source="user"
-            )
-            if version_id is not None:
-                diff_text = make_diff(before, content, artifact[1])
+            with artifact_lock(artifact[0], artifact[1]):
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+                before = file_path.read_text(encoding="utf-8") if file_path.exists() else ""
+                version_id: str | None = None
+                diff_text: str | None = None
+                if before != content:
+                    version_id = VersionStore(self.db).snapshot(
+                        artifact[0], artifact[1], before, content, source="user"
+                    )
+                    if version_id is not None:
+                        diff_text = make_diff(before, content, artifact[1])
+                file_path.write_text(content, encoding="utf-8")
+                return {
+                    "saved": True,
+                    "version_id": version_id,
+                    "diff_text": diff_text,
+                }
+        file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content, encoding="utf-8")
         return {
             "saved": True,
-            "version_id": version_id,
-            "diff_text": diff_text,
+            "version_id": None,
+            "diff_text": None,
         }
 
     def _classify_workspace_artifact(self, file_path: Path) -> tuple[str, str] | None:
@@ -1773,7 +1826,7 @@ class CollieIPCServer:
 
     async def _cmd_rollback_artifact(self, connection: ServerConnection, frame: dict) -> dict:
         """Undo one artifact version (no-clobber guarded) and re-sync state."""
-        from collie_core.versions import VersionConflictError, VersionStore
+        from collie_core.versions import VersionConflictError, VersionStore, artifact_lock
 
         version_id = str(frame.get("version_id") or "")
         row = self.db.get_artifact_version(version_id)
@@ -1782,24 +1835,32 @@ class CollieIPCServer:
         artifact_type = str(row["artifact_type"])
         key = str(row["artifact_key"])
         target = self._artifact_target(artifact_type, key)
-        current = target.read_text(encoding="utf-8") if target.exists() else ""
-        try:
-            result = VersionStore(self.db).rollback(
-                artifact_type,
-                key,
-                to_version=int(row["version"]),
-                current_text=current,
-            )
-        except VersionConflictError as exc:
-            raise ValueError(str(exc)) from exc
-        restored = result["restored_text"]
-        if restored:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(restored, encoding="utf-8")
-        elif target.exists():
-            target.unlink()
+        # Serialize with any concurrent Gardener/Dream apply on the same
+        # artifact. Read -> validate -> write -> mark must be atomic against a
+        # concurrent apply, otherwise a newer edit could be clobbered between
+        # the read and the write. The mark is covered too so a failed write
+        # leaves the row applied (artifact unchanged) — never desynced.
+        with artifact_lock(artifact_type, key):
+            current = target.read_text(encoding="utf-8") if target.exists() else ""
+            try:
+                result = VersionStore(self.db).rollback(
+                    artifact_type,
+                    key,
+                    to_version=int(row["version"]),
+                    current_text=current,
+                )
+            except VersionConflictError as exc:
+                raise ValueError(str(exc)) from exc
+            restored = result["restored_text"]
+            if restored:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(restored, encoding="utf-8")
+            elif target.exists():
+                target.unlink()
+            VersionStore(self.db).mark_rolled_back(result["version_id"])
         # A subagent rollback also restores the database row (or renames it
-        # back): the loader reconciles disk -> DB.
+        # back): the loader reconciles disk -> DB. Done outside the lock — it
+        # only reads the file we just wrote and reconciles the DB mirror.
         if artifact_type == "subagent" and self._subagent_loader is not None:
             await asyncio.to_thread(self._subagent_loader.sync)
         return {
@@ -2000,10 +2061,11 @@ class CollieIPCServer:
         }
 
     async def _cmd_list_routine_runs(self, connection: ServerConnection, frame: dict) -> dict:
+        limit = _bounded_list_limit(frame.get("limit"), default=100)
         return {
             "runs": self.db.list_runs(
                 routine_id=str(frame.get("routine_id") or ""),
-                limit=int(frame.get("limit") or 100),
+                limit=limit,
             )
         }
 
@@ -2472,7 +2534,8 @@ class CollieIPCServer:
     async def _cmd_remove_connector(self, connection: ServerConnection, frame: dict) -> dict:
         if self._service_manager is None:
             raise ValueError("connectors aren't available yet")
-        result = self._service_manager.remove(
+        result = await asyncio.to_thread(
+            self._service_manager.remove,
             str(frame.get("connection_id") or ""),
             origin=str(frame.get("origin") or "connectors_ui"),
         )
@@ -2507,7 +2570,7 @@ class CollieIPCServer:
         if self._service_manager is None:
             raise ValueError("services aren't available yet")
         service_id = str(frame.get("service_id") or "")
-        result = self._service_manager.disconnect(service_id)
+        result = await asyncio.to_thread(self._service_manager.disconnect, service_id)
         result["reconfigured"] = await self._reconfigure_quietly()
         return result
 
@@ -3208,7 +3271,9 @@ class CollieIPCServer:
                         run_id,
                         str(current["step_key"]),
                         status="failed",
-                        error_message=str(event.get("error") or "Tool execution failed")[:500],
+                        error_message=_public_error_message(
+                            event.get("error"), fallback="Tool execution failed."
+                        ),
                     )
                     failed_step = next(
                         (
@@ -3326,6 +3391,7 @@ class CollieIPCServer:
             )
             return
         except Exception as e:
+            safe_error = _public_error_message(e)
             if run_id:
                 self._active_material_runs.pop(run_id, None)
             terminal_task: dict[str, Any] | None = None
@@ -3342,7 +3408,7 @@ class CollieIPCServer:
                             run_id,
                             str(current["step_key"]),
                             status="failed",
-                            error_message=str(e)[:500] or "Task execution failed.",
+                            error_message=safe_error,
                         )
                         failed_step = next(
                             (
@@ -3356,8 +3422,8 @@ class CollieIPCServer:
                     self.db.transition_run(
                         run_id,
                         "failed",
-                        error_code=type(e).__name__,
-                        error_message=str(e)[:1000],
+                        error_code="chat_turn_failed",
+                        error_message=safe_error,
                     )
                     await self.broadcast({"type": "run_failed", "run": self.db.get_run(run_id)})
                     terminal_task = self.db.get_run_task(run_id)
@@ -3379,7 +3445,7 @@ class CollieIPCServer:
                             expected_revision=int(active["revision"]),
                             step_key=str(failing),
                             status="failed",
-                            error_message=str(e)[:500] or "Task execution failed.",
+                            error_message=safe_error,
                         )
                         await self._broadcast_task_state(terminal_task)
                     else:
@@ -3437,8 +3503,8 @@ class CollieIPCServer:
                 {
                     "type": "error",
                     "conversation_id": conv_id,
-                    "message": "Uh oh. That didn't go as planned. Try again?",
-                    "detail": str(e),
+                    "message": safe_error,
+                    "detail": safe_error,
                 }
             )
             return

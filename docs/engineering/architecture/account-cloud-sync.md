@@ -61,7 +61,13 @@ create table if not exists public.user_sync_snapshots (
   device_id text not null,            -- stable random id, generated per install
   device_name text not null,          -- user-readable, e.g. "Rick's laptop"
   payload jsonb not null,             -- §3 shape
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- Maker liveness columns (see §4b): PATCHed by the heartbeat, never in the
+  -- snapshot payload. `payload` stays NOT NULL with no default — the heartbeat
+  -- therefore PATCHes, it does NOT merge-upsert (a partial upsert would 400).
+  last_seen timestamptz,              -- last heartbeat ("live" = within ~10m)
+  version text,                       -- app version at heartbeat
+  platform text                       -- process.platform (win32/darwin/linux)
 );
 create index if not exists user_sync_snapshots_user_idx
   on public.user_sync_snapshots (user_id, created_at desc);
@@ -74,6 +80,14 @@ create policy "own rows only"
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 ```
+
+### §4b. Maker liveness view (owner-only, not client-facing)
+
+Install presence is now independent of cloud sync and accounts. See
+[install heartbeat](install-heartbeat.md) for the anonymous write API,
+count definitions, privacy disclosure, and deployment order. Older clients
+PATCH the legacy presence columns on their existing snapshot; that only
+covers signed-in users with sync enabled and is not an installation count.
 
 - One row per (user, device): the app **upserts** on `(user_id, device_id)`.
 - RLS: every operation scoped to `auth.uid()`; anon key only, no service role
@@ -97,8 +111,11 @@ create policy "own rows only"
 3. Confirm dialog states what will be replaced, in plain language.
 
 **Toggle:** stored locally (`settings` key `account.sync_enabled`, default
-off). Turning it on does the first upload immediately. Turning it off stops
-uploads; online copies remain until account deletion.
+off). Turning it on uploads the first snapshot before the enabled state is
+stored, so a failed baseline leaves sync off. Toggle transitions are ordered,
+and a newer request supersedes an in-flight older one before it can persist
+stale state. Turning it off stops uploads; online copies remain until account
+deletion.
 
 **Device identity:** `device_id` = random UUID persisted in userData on first
 run; `device_name` = `<username>'s <os>` at first upload, editable later (v2).
@@ -117,6 +134,9 @@ run; `device_name` = `<username>'s <os>` at first upload, editable later (v2).
 ## 7. Verification matrix
 
 - Toggle on with no account → toggle disabled, plain-language hint
+- Baseline upload fails → toggle remains off and a later toggle still works
+- Toggle off during the baseline upload → the completed upload cannot persist
+  a stale enabled state
 - Sign in → (if enabled) snapshot appears in Supabase with device name
 - Back up twice → still one row per device (upsert, not accumulate)
 - Second device sign-in → sees first device's snapshot, restores, content

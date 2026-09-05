@@ -158,12 +158,15 @@ def test_rollback_restores_before_text(db: CollieDB) -> None:
     result = store.rollback("subagent", "researcher.md", current_text="v2")
     assert result["version"] == 2
     assert result["restored_text"] == "v1"
+    # The caller writes the file *and then* marks the row rolled_back.
+    store.mark_rolled_back(result["version_id"])
     assert db.get_artifact_version(result["version_id"])["status"] == "rolled_back"
 
     # Next rollback targets the remaining applied version.
     result = store.rollback("subagent", "researcher.md", current_text="v1")
     assert result["version"] == 1
     assert result["restored_text"] == ""
+    store.mark_rolled_back(result["version_id"])
 
     with pytest.raises(VersionConflictError):
         store.rollback("subagent", "researcher.md", current_text="anything")
@@ -195,12 +198,38 @@ def test_rollback_targets_specific_version(db: CollieDB) -> None:
     result = store.rollback("agents", "AGENTS.md", current_text="c")
     assert result["version"] == 3
     assert result["restored_text"] == "b"
+    store.mark_rolled_back(result["version_id"])
     result = store.rollback("agents", "AGENTS.md", to_version=2, current_text="b")
     assert result["version"] == 2
     assert result["restored_text"] == "a"
+    store.mark_rolled_back(result["version_id"])
     # Undoing an already-rolled-back version is refused.
     with pytest.raises(VersionConflictError):
         store.rollback("agents", "AGENTS.md", to_version=2, current_text="a")
+
+
+def test_rollback_normalizes_trailing_newlines(db: CollieDB) -> None:
+    store = VersionStore(db)
+    store.snapshot("agents", "AGENTS.md", "old", "new\n")
+    # The apply path (gardener/runner) always appends a trailing "\n" to the
+    # snapshot, but a manual edit may leave a different trailing-newline count.
+    # A whitespace-only trailing-newline difference must not permanently refuse
+    # the rollback (issue #123).
+    result = store.rollback("agents", "AGENTS.md", current_text="new")
+    assert result["version"] == 1
+    assert result["restored_text"] == "old"
+    store.mark_rolled_back(result["version_id"])
+
+    # CRLF in the snapshotted after_text is normalized away too.
+    store.snapshot("agents", "AGENTS.md", "old2", "line one\r\nline two\r\n")
+    result = store.rollback("agents", "AGENTS.md", current_text="line one\nline two\n")
+    assert result["version"] == 2
+    assert result["restored_text"] == "old2"
+
+    # A real content difference is still refused (guard intact).
+    store.snapshot("agents", "AGENTS.md", "old3", "newer")
+    with pytest.raises(VersionConflictError):
+        store.rollback("agents", "AGENTS.md", current_text="something else")
 
 
 # -- subagent loader wiring ------------------------------------------------------
@@ -228,6 +257,7 @@ def test_subagent_edit_versions_and_rollback_restores_file_and_db(
     current = target.read_text(encoding="utf-8")
     result = VersionStore(db).rollback("subagent", filename, current_text=current)
     target.write_text(result["restored_text"], encoding="utf-8")
+    VersionStore(db).mark_rolled_back(result["version_id"])
     loader.sync()
     row = loader.find("Researcher")
     assert row is not None
@@ -240,6 +270,7 @@ def test_subagent_edit_versions_and_rollback_restores_file_and_db(
     assert versions[0]["after_text"] == ""
     result = VersionStore(db).rollback("subagent", filename, current_text="")
     target.write_text(result["restored_text"], encoding="utf-8")
+    VersionStore(db).mark_rolled_back(result["version_id"])
     loader.sync()
     assert target.exists()
     assert loader.find("Researcher") is not None
@@ -274,6 +305,7 @@ def test_profile_edit_versions_memory_md(tmp_path: Path, db: CollieDB) -> None:
         "memory_profile", "MEMORY.md", current_text=versions[0]["after_text"]
     )
     (workspace / "MEMORY.md").write_text(result["restored_text"], encoding="utf-8")
+    VersionStore(db).mark_rolled_back(result["version_id"])
     assert "vegan" not in (workspace / "MEMORY.md").read_text(encoding="utf-8")
 
 
@@ -377,5 +409,49 @@ async def test_ipc_write_file_versions_suggest_apply_path(tmp_path: Path, monkey
         # Non-artifact files are written but not versioned.
         result = await srv._cmd_write_file(conn, {"path": "notes.txt", "content": "hello"})
         assert result["saved"] is True and result["version_id"] is None
+    finally:
+        db.close()
+
+
+async def test_ipc_rollback_write_failure_does_not_mark(tmp_path: Path, monkeypatch) -> None:
+    """If the artifact write raises, the version row stays applied and the file is untouched.
+
+    This proves the mark-after-write ordering: the version row is only marked
+    ``rolled_back`` *after* the restored text lands on disk. A write failure
+    must leave the row applied and the artifact text unchanged (consistent,
+    never desynced) — the issue-#123 desync bug.
+    """
+    monkeypatch.setenv("COLLIE_HOME", str(tmp_path))
+    db = CollieDB(tmp_path / "collie.db")
+    srv = _make_server(tmp_path, db)
+    try:
+        loader: SubagentLoader = srv._test_loader  # type: ignore[attr-defined]
+        created = loader.create("Researcher", "researches", "You research things.")
+        filename = created["filename"]
+        loader.update(created["id"], system_prompt="You research very carefully.")
+        target = tmp_path / "workspace" / "subagents" / filename
+        current = target.read_text(encoding="utf-8")
+        assert "very carefully" in current
+
+        version_id = str(
+            db.list_artifact_versions(artifact_type="subagent", artifact_key=filename, limit=1)[0][
+                "id"
+            ]
+        )
+
+        def boom(*args: Any, **kwargs: Any) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(Path, "write_text", boom)
+
+        conn = _FakeConn()
+        with pytest.raises(OSError, match="disk full"):
+            await srv._cmd_rollback_artifact(conn, {"version_id": version_id})
+
+        # The row is NOT marked rolled_back, and the file still holds the newer
+        # edit — nothing was clobbered or desynced.
+        assert db.get_artifact_version(version_id)["status"] == "applied"
+        assert "very carefully" in target.read_text(encoding="utf-8")
+        assert "You research things." not in target.read_text(encoding="utf-8")
     finally:
         db.close()

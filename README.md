@@ -12,7 +12,7 @@ No prompt engineering. No forced subscription.
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow" alt="License: MIT"></a>
   <a href="https://github.com/FoxRick/Collie/releases"><img src="https://img.shields.io/badge/Platform-Windows%2011%20x64-0078d6" alt="Platform: Windows 11 x64"></a>
-  <a href="https://github.com/FoxRick/Collie/tree/v0.1.0-alpha.7.1"><img src="https://img.shields.io/badge/Alpha-v0.1.0--alpha.7.1-purple" alt="Alpha: v0.1.0-alpha.7.1"></a>
+  <a href="https://github.com/FoxRick/Collie/tree/v0.1.0-alpha.7.3"><img src="https://img.shields.io/badge/Alpha-v0.1.0--alpha.7.3-purple" alt="Alpha: v0.1.0-alpha.7.3"></a>
   <a href="https://github.com/FoxRick/Collie/actions/workflows/ci.yml"><img src="https://github.com/FoxRick/Collie/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
   <a href="https://heycollie.com"><img src="https://img.shields.io/badge/Website-heycollie.com-2ea44f" alt="heycollie.com"></a>
   <a href="https://github.com/FoxRick/Collie"><img src="https://img.shields.io/github/stars/FoxRick/Collie" alt="GitHub stars"></a>
@@ -203,7 +203,7 @@ runs from source on Linux for development; macOS is not supported). You need
 Python 3.12, Node.js, and npm:
 
 > Versioning note: the repo carries two versions that move independently —
-> the desktop app (`collie-ui/package.json`, e.g. `0.1.0-alpha.7.1`) and the
+> the desktop app (`collie-ui/package.json`, e.g. `0.1.0-alpha.7.3`) and the
 > Python core (`collie-core/pyproject.toml`, e.g. `0.2.2`). A release tag
 > tracks the app version.
 

@@ -23,6 +23,25 @@ win:
       arch:
         - x64
   artifactName: Collie-Setup-${version}.exe
+  # Authenticode update signing + publisher verification (issue #59).
+  # When a code-signing certificate is present on the build (CSC_LINK /
+  # WIN_CSC_LINK, injected by the CI workflow from a repo secret),
+  # electron-builder signs the NSIS installer AND writes the certificate's
+  # subject/common name into the installed app's update config
+  # (app-update.yml) as the publisherName that electron-updater uses to
+  # verify an available update's Authenticode signature before applying it.
+  # With NO certificate on the build nothing is signed, no publisherName
+  # lands in app-update.yml, and electron-updater relies on HTTPS + the
+  # feed's SHA256 hashes — unsigned alpha builds remain installable.
+  # NOTE: the certificate's Subject common name is what becomes the verified
+  # publisher, so it should carry the identity users trust (e.g. the org
+  # name). `publisherName` must NOT be set as a `win` key here — the schema
+  # is strict (additionalProperties: false) and it would fail the build.
+  # Explicit (matches the electron-builder default): verify an available
+  # update's Authenticode signature against the publisher before installing.
+  # Only effective when the build is actually signed (cert present);
+  # otherwise it is a no-op, so unsigned alpha builds are NOT blocked.
+  verifyUpdateCodeSignature: true
 nsis:
   # Friendly assisted wizard for nontechnical users: Welcome -> Install mode
   # (per-user recommended, no admin prompt) -> Location (custom only) ->

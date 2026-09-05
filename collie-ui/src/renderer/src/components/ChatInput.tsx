@@ -241,7 +241,7 @@ export async function buildImagePreviews(
 }
 
 interface Props {
-  onSend: (text: string, attachments: AttachmentDraft[]) => void
+  onSend: (text: string, attachments: AttachmentDraft[]) => Promise<boolean>
   onStop: () => void
   busy: boolean
   steering?: boolean
@@ -304,10 +304,13 @@ export default function ChatInput({
   const [promptIndex, setPromptIndex] = useState(0)
   const [promptLength, setPromptLength] = useState(0)
   const [deletingPrompt, setDeletingPrompt] = useState(false)
+  const textRef = useRef(text)
+  const submittingRef = useRef(false)
   const recorderRef = useRef<LocalDictationRecorder | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const footerRef = useRef<HTMLDivElement>(null)
   const onTypingChangeRef = useRef(onTypingChange)
+  textRef.current = text
   onTypingChangeRef.current = onTypingChange
   const t = useT()
   const activeProvider = providers.find((item) => item.is_default === 1)
@@ -430,22 +433,35 @@ export default function ChatInput({
     setCommandIndex(0)
   }, [text])
 
-    const submit = (): void => {
-      const trimmed = text.trim()
-      if (!trimmed && attachments.length === 0) return
-      if (steering && attachments.length > 0) {
-        // Mid-turn steering cannot carry files — never drop them silently.
-        setAttachmentError(
-          'Attachments only go with a new message. Finish or stop the current task first.'
-        )
-        return
-      }
-      onSend(trimmed, attachments)
+  const submit = async (): Promise<void> => {
+    if (submittingRef.current) return
+    const trimmed = text.trim()
+    if (!trimmed && attachments.length === 0) return
+    if (steering && attachments.length > 0) {
+      // Mid-turn steering cannot carry files — never drop them silently.
+      setAttachmentError(
+        'Attachments only go with a new message. Finish or stop the current task first.'
+      )
+      return
+    }
+    const submittedText = text
+    const submittedAttachments = attachments
+    submittingRef.current = true
+    let accepted = false
+    try {
+      accepted = await onSend(trimmed, submittedAttachments)
+    } finally {
+      submittingRef.current = false
+    }
+    if (!accepted) return
+    if (textRef.current === submittedText) {
       setText('')
       onTypingChange?.(false)
-      setAttachments([])
-      setAttachmentError('')
     }
+    const submittedIdentities = new Set(submittedAttachments)
+    setAttachments((current) => current.filter((item) => !submittedIdentities.has(item)))
+    setAttachmentError('')
+  }
 
   const pickAttachments = async (): Promise<void> => {
     setAttachmentError('')
@@ -698,7 +714,7 @@ export default function ChatInput({
             }
             if (event.key === 'Enter' && !event.shiftKey) {
               event.preventDefault()
-              submit()
+              void submit()
             }
           }}
           className="flex-1 resize-none bg-transparent px-1 py-1.5 outline-none"
@@ -735,7 +751,7 @@ export default function ChatInput({
         ) : null}
         <button
           type="button"
-          onClick={submit}
+          onClick={() => void submit()}
           disabled={!text.trim() && attachments.length === 0}
           title={steering ? 'Add instructions to this task' : t('chat.send')}
           aria-label={steering ? 'Add instructions to this task' : t('chat.send')}

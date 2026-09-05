@@ -8,8 +8,14 @@ name: Release
 # release checks).
 #
 # Signing notes (alpha):
-#  - Windows: the installer is unsigned (no code-signing cert); SmartScreen
-#    may warn. Signing with an EV/OV cert is a follow-up.
+#  - Windows: Authenticode update signing is wired (win.verifyUpdateCodeSignature
+#    in collie-ui/electron-builder.yml; electron-builder derives the
+#    publisherName electron-updater verifies against from the signing cert) and
+#    activates when a code-signing certificate is injected via the
+#    WIN_CSC_LINK / WIN_CSC_KEY_PASSWORD repo secrets (see the
+#    "Expose Windows code-signing certificate" step). Until those secrets are
+#    provisioned the NSIS installer ships unsigned and SmartScreen may warn.
+#    The certificate itself is an ops secret — it is never committed.
 #  - macOS: Developer ID codesign + notarization are SKIPPED for alpha — no
 #    Apple Developer certificate yet (CSC_IDENTITY_AUTO_DISCOVERY=false
 #    below). The app is ad-hoc signed (scripts/adhoc-sign-mac.cjs) so it
@@ -18,9 +24,11 @@ name: Release
 #    $99/yr Apple Developer account + notarytool secrets (APPLE_ID /
 #    APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID) are the follow-up.
 #
-# Secrets: only the automatic secrets.GITHUB_TOKEN is used. No real secrets
-# are referenced or committed; APPLE_* / signing certs are placeholders for
-# future work.
+# Secrets: the automatic secrets.GITHUB_TOKEN is always used. The Windows
+# Authenticode signing cert secret (WIN_CSC_LINK / WIN_CSC_KEY_PASSWORD) is
+# OPTIONAL — read only to sign the Windows installer, and it is never
+# committed. APPLE_* / notarization secrets remain placeholders for future
+# work.
 
 on:
   push:
@@ -126,6 +134,18 @@ jobs:
       # GitHub Release creation. (GITHUB_TOKEN is present on Actions, so
       # electron-builder would otherwise publish from the build jobs.)
       CSC_IDENTITY_AUTO_DISCOVERY: "false" # macOS: unsigned alpha builds
+      # Windows Authenticode signing (issue #59): electron-builder signs the
+      # NSIS installer automatically when the certificate env vars are present.
+      # We promote the repo secrets into job-level env so that (a) a step can
+      # gate on them (GitHub Actions does not allow `secrets` in `if:`) and
+      # (b) electron-builder picks them up on the Windows leg. These are
+      # Windows-SPECIFIC vars: the macOS build reads CSC_LINK only and the
+      # Linux AppImage target uses no code-signing cert, so setting WIN_* here
+      # does NOT activate signing on the other matrix legs. If the secret is
+      # not provisioned the value is an empty string, which electron-builder
+      # treats as "no certificate" -> the artifact stays unsigned (alpha safe).
+      WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+      WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
     defaults:
       run:
         working-directory: collie-ui
@@ -232,6 +252,19 @@ jobs:
           done
           iconutil -c icns icon.iconset -o icon.icns
           rm -rf icon.iconset
+
+      - name: Expose Windows code-signing certificate (Authenticode)
+        # GitHub Actions does not allow `secrets` in `if:` conditions, so the
+        # WIN_CSC_LINK / WIN_CSC_KEY_PASSWORD secrets are promoted to
+        # job-level env above and gated on here. Signing activates once the
+        # certificate secret is added to the repo (Settings -> Secrets and
+        # variables -> Actions); until then this step is skipped and the
+        # Windows installer ships unsigned — alpha updates keep working via
+        # HTTPS + SHA256 (electron-updater skips signature checks without a
+        # publisherName in app-update.yml).
+        if: runner.os == 'Windows' && env.WIN_CSC_LINK != ''
+        run: |
+          echo "Windows code-signing certificate detected — Authenticode signing will activate for the NSIS installer."
 
       - name: Package installer (${{ matrix.flags }})
         run: npx electron-builder ${{ matrix.flags }} --publish never
@@ -343,7 +376,10 @@ jobs:
               Privacy & Security. Notarization needs a $99/yr Apple Developer
               account (APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD /
               APPLE_TEAM_ID secrets) — a follow-up.
-            - **Windows is unsigned**; SmartScreen may warn.
+            - **Windows Authenticode signing is wired** but only activates
+              when the `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD` code-signing
+              certificate secret is provisioned for the repo. Until then the
+              installer is unsigned and SmartScreen may warn.
             - Asset provenance is **recorded**: branded art is
               owner-created for Collie (excluded from MIT reuse) and
               third-party marks are nominative-use only, per

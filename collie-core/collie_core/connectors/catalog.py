@@ -8,14 +8,16 @@ with its pending packaged-app verification — it is not a release claim.
 
 from __future__ import annotations
 
-import sys
-
 from collie_core.connectors.models import ConnectorDefinition, ConnectorDriverKind
+from collie_core.services.credentials import secure_keychain_available
 
 # OAuth connectors persist their tokens in CredentialStore, which is
-# Windows-DPAPI-only for now. On macOS/Linux they surface as coming-soon
-# instead of failing at connect time.
-_OAUTH_AVAILABLE = sys.platform == "win32"
+# encrypted with Windows DPAPI on Windows and the Electron safeStorage
+# keychain bridge (macOS Keychain / Linux libsecret) elsewhere. The bridge is
+# published to the core only when the shell actually obtained a real keyring
+# backend — without it the routes surface as coming-soon instead of failing at
+# connect time or persisting a token in plaintext.
+_OAUTH_AVAILABLE = secure_keychain_available()
 
 __all__ = ["CONNECTOR_CATALOG", "connector_def"]
 

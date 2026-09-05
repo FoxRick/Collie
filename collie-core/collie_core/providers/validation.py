@@ -164,6 +164,7 @@ async def probe_api_key(
     api_base: str | None = None,
     protocol: str = "openai",
     model: str | None = None,
+    explicit_model: bool = False,
     catalogue: CatalogueStore | None = None,
 ) -> dict[str, Any]:
     """Validate a key with a read-only request. Never logs the key.
@@ -192,11 +193,33 @@ async def probe_api_key(
         return {"ok": False, "error": "auth", "detail": f"models endpoint {status}"}
     if status == 200:
         ids = _parse_model_ids(protocol, body)
-        chosen = model if model in ids else (ids[0] if ids else model)
-        label = catalogue.model_label(provider_id, chosen) or chosen
+        if model in ids:
+            label = catalogue.model_label(provider_id, model) or model
+            return {
+                "ok": True,
+                "model": model,
+                "model_label": label,
+                "models": ids,
+            }
+        # A specific model was explicitly requested but the provider does not
+        # advertise it. That is a definitive "model not found" — do NOT paper
+        # over it by substituting the first entry in the list, or Collie would
+        # silently switch to a model the user never picked (and one that may not
+        # even answer). Hand the advertised list back so the caller can offer it
+        # to the user and roll back to the working model instead.
+        if explicit_model and ids:
+            return {
+                "ok": False,
+                "error": "model",
+                "detail": f"requested model {model!r} is not offered (advertised: {', '.join(ids[:8])})",
+                "models": ids,
+            }
+        # No explicit model (Collie's curated default) or the provider does not
+        # advertise a list: keep the requested model — the caller decides.
+        label = catalogue.model_label(provider_id, model) or model
         return {
             "ok": True,
-            "model": chosen,
+            "model": model,
             "model_label": label,
             "models": ids,
         }

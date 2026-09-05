@@ -326,7 +326,8 @@ function buildAuthorizeUrl(
   baseUrl: string,
   anonKey: string,
   challenge: string,
-  callbackUrl: string
+  callbackUrl: string,
+  state: string
 ): string {
   const url = new URL(`${baseUrl}/auth/v1/authorize`)
   url.searchParams.set('aud', 'authenticated')
@@ -335,14 +336,20 @@ function buildAuthorizeUrl(
   url.searchParams.set('code_challenge', challenge)
   url.searchParams.set('code_challenge_method', 'S256')
   url.searchParams.set('client_id', anonKey)
+  url.searchParams.set('state', state)
   return url.toString()
 }
 
 /**
  * Single-use callback wait: resolve with the `code` from the browser's
- * redirect, close the server, or reject after `timeoutMs`.
+ * redirect, close the server, or reject after `timeoutMs`. The callback is
+ * bound to the flow that initiated it through the `expectedState` nonce.
  */
-function waitForCallbackCode(server: Server, timeoutMs: number): Promise<string> {
+function waitForCallbackCode(
+  server: Server,
+  timeoutMs: number,
+  expectedState: string
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       server.close()
@@ -358,8 +365,10 @@ function waitForCallbackCode(server: Server, timeoutMs: number): Promise<string>
       // fixed, well-known port while the browser flow is in flight. Requiring
       // the exact Host blocks common DNS-rebinding delivery, and rejecting an
       // Origin blocks common cross-site fetch/XHR delivery (a top-level
-      // browser redirect normally sends no Origin). These checks do not bind
-      // the callback to the flow that initiated it, so issue #106 remains open.
+      // browser redirect normally sends no Origin). The per-attempt OAuth
+      // `state` nonce additionally binds the callback to THIS sign-in flow, so
+      // a code minted for a different (or none) attempt is rejected before it
+      // is exchanged — closing the login-CSRF / account-hijack surface.
       const host = (req.headers.host ?? '').toLowerCase()
       if (host !== `${CALLBACK_HOST}:${CALLBACK_PORT}`) {
         res.writeHead(404).end('Not found')
@@ -396,6 +405,14 @@ function waitForCallbackCode(server: Server, timeoutMs: number): Promise<string>
       const code = url.searchParams.get('code')
       if (!code) {
         res.writeHead(400).end('Missing code')
+        return
+      }
+      // Bind the callback to this flow: the browser must echo back the state
+      // nonce we placed on the authorize URL. A missing or mismatched state
+      // means this code was minted for a different (or no) sign-in attempt, so
+      // reject it and keep waiting rather than exchange it into a session.
+      if (url.searchParams.get('state') !== expectedState) {
+        res.writeHead(400).end('Bad request')
         return
       }
       clearTimeout(timer)
@@ -436,6 +453,9 @@ export async function startAccountSignIn(
   }
   const timeoutMs = options.timeoutMs ?? SIGN_IN_TIMEOUT_MS
   const { verifier, challenge } = createPkcePair()
+  // Per-attempt OAuth `state` nonce (issue #106): binds the callback to THIS
+  // sign-in flow so a code minted for a different attempt is never exchanged.
+  const state = base64UrlEncode(randomBytes(32))
 
   const server = createServer()
   const port = await new Promise<number>((resolve, reject) => {
@@ -458,13 +478,13 @@ export async function startAccountSignIn(
 
   const callbackUrl = `http://${CALLBACK_HOST}:${port}/callback`
   try {
-    await shell.openExternal(buildAuthorizeUrl(baseUrl, anonKey, challenge, callbackUrl))
+    await shell.openExternal(buildAuthorizeUrl(baseUrl, anonKey, challenge, callbackUrl, state))
   } catch (error) {
     closeServer(server)
     throw error
   }
 
-  const code = await waitForCallbackCode(server, timeoutMs)
+  const code = await waitForCallbackCode(server, timeoutMs, state)
 
   const response = await fetch(`${baseUrl}/auth/v1/token?grant_type=pkce`, {
     method: 'POST',

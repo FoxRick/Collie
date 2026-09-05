@@ -138,6 +138,18 @@ def test_structured_weekdays_and_monthly_schedules() -> None:
     assert occurrence.astimezone().tzinfo is not None
 
 
+@pytest.mark.parametrize(
+    "description",
+    [
+        "run this every month at 7:30am",
+        "monthly at 9 pm",
+    ],
+)
+def test_monthly_schedule_does_not_treat_clock_hour_as_day(description: str) -> None:
+    with pytest.raises(ValueError, match="Which numbered day of the month"):
+        parse_schedule(description)
+
+
 def test_plan_versions_invalidate_old_approval(tmp_path: Path) -> None:
     db = CollieDB(tmp_path / "db.sqlite")
     raw = {

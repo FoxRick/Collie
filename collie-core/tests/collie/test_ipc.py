@@ -6,11 +6,13 @@ import asyncio
 import json
 import socket
 import threading
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import pytest
 import websockets
+from loguru import logger
 
 from collie_core.db import CollieDB
 from collie_core.ipc.server import CollieIPCServer
@@ -818,11 +820,15 @@ async def test_chat_without_runner_reports_friendly_error(tmp_path: Path) -> Non
 
 @pytest.mark.asyncio
 async def test_chat_runner_exception_is_friendly(tmp_path: Path) -> None:
+    private_detail = "C:\\Users\\alice\\.collie\\provider-secret.txt"
+
     async def broken_runner(content, *, conversation_id, on_stream, on_progress):
-        raise RuntimeError("boom")
+        raise RuntimeError(private_detail)
 
     db = CollieDB(tmp_path / "c.db")
     srv = CollieIPCServer(db, port=_free_port(), chat_runner=broken_runner)
+    logged: list[str] = []
+    sink_id = logger.add(logged.append, format="{message}\n{exception}")
     await srv.start()
     try:
         ws = await _connect(srv)
@@ -830,8 +836,12 @@ async def test_chat_runner_exception_is_friendly(tmp_path: Path) -> None:
         await _recv_until(ws, "ok")
         err = await _recv_until(ws, "error")
         assert "didn't go as planned" in err["message"]
+        assert err["detail"] == err["message"]
+        assert private_detail not in json.dumps(err)
+        assert private_detail in "".join(logged)
         await ws.close()
     finally:
+        logger.remove(sink_id)
         await srv.stop()
         db.close()
 
@@ -882,6 +892,102 @@ async def test_service_commands_roundtrip(tmp_path: Path) -> None:
         services = (await _recv_until(ws, "ok"))["data"]["services"]
         by_id = {s["id"]: s for s in services}
         assert by_id["todoist"]["status"] == "coming_soon"
+        await ws.close()
+    finally:
+        await srv.stop()
+        db.close()
+
+
+@pytest.mark.asyncio
+async def test_connector_removal_ipc_runs_revocation_off_loop_and_reports_safe_outcomes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from collie_core.connectors import catalog
+    from collie_core.connectors import manager as connector_manager
+    from collie_core.connectors.catalog import connector_def
+    from collie_core.connectors.manager import ConnectorManager
+    from collie_core.connectors.models import ProbeResult, RemoteRevocationStatus
+    from collie_core.services.credentials import CredentialStore
+
+    definition = connector_def("notion")
+    assert definition is not None
+    monkeypatch.setitem(
+        catalog._BY_ID,
+        "notion",
+        replace(definition, available=True, release_status="alpha", note=""),
+    )
+    monkeypatch.setattr(connector_manager, "connector_def", catalog.connector_def)
+
+    store = CredentialStore(
+        tmp_path / "credentials",
+        protect=lambda value: value[::-1],
+        unprotect=lambda value: value[::-1],
+    )
+    revocation_outcomes: list[Exception | RemoteRevocationStatus] = [
+        RuntimeError("provider detail must-not-leak access_token=secret"),
+        RemoteRevocationStatus.UNSUPPORTED,
+    ]
+    revoke_threads: list[int] = []
+
+    class ThreadCheckingDriver:
+        def connect_and_probe(self, definition, connection_id: str) -> ProbeResult:
+            store.save(
+                f"connector:{connection_id}",
+                {"tokens": {"access_token": "secret-access-token"}},
+            )
+            return ProbeResult(
+                tools=[
+                    {
+                        "name": "search_pages",
+                        "schema_hash": "read-hash",
+                        "annotations": {"readOnlyHint": True},
+                        "risk": "read",
+                    }
+                ]
+            )
+
+        def revoke(self, definition, connection_id: str) -> RemoteRevocationStatus:
+            # This would raise if the IPC handler called remove() directly on
+            # its running event loop, reproducing issue #114.
+            asyncio.run(asyncio.sleep(0))
+            revoke_threads.append(threading.get_ident())
+            outcome = revocation_outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+    driver = ThreadCheckingDriver()
+    db = CollieDB(tmp_path / "collie.db")
+    manager = ConnectorManager(
+        db,
+        credentials=store,
+        driver_factory=lambda definition: driver,
+    )
+    srv = CollieIPCServer(db, port=_free_port(), service_manager=manager)
+    await srv.start()
+    event_loop_thread = threading.get_ident()
+    try:
+        ws = await _connect(srv)
+
+        first_id = (await asyncio.to_thread(manager.connect, "notion"))["connection_id"]
+        await _send(ws, type="remove_connector", id="remove-1", connection_id=first_id)
+        first = (await _recv_until(ws, "ok"))["data"]
+        assert first["remote_revocation"] == "failed"
+        assert "must-not-leak" not in repr(first)
+        assert "secret" not in repr(first)
+        assert store.load(f"connector:{first_id}") is None
+        assert manager.get_connection(first_id) is None
+
+        second_id = (await asyncio.to_thread(manager.connect, "notion"))["connection_id"]
+        await _send(ws, type="disconnect_service", id="remove-2", service_id="notion")
+        second = (await _recv_until(ws, "ok"))["data"]
+        assert second["connection_id"] == second_id
+        assert second["remote_revocation"] == "unsupported"
+        assert store.load(f"connector:{second_id}") is None
+        assert manager.get_connection(second_id) is None
+
+        assert len(revoke_threads) == 2
+        assert all(thread_id != event_loop_thread for thread_id in revoke_threads)
         await ws.close()
     finally:
         await srv.stop()
@@ -1332,6 +1438,109 @@ async def test_approve_plan_is_idempotent(tmp_path: Path) -> None:
 
 
 # -- C5: message limits -----------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("command", "database_method", "default_limit"),
+    [
+        ("get_messages", "get_messages", None),
+        ("get_run_records", "list_turn_events", 200),
+        ("get_tool_events", "list_tool_events", 500),
+        ("list_routine_runs", "list_runs", 100),
+    ],
+)
+@pytest.mark.parametrize(
+    ("raw_limit", "bounded_limit"),
+    [(-1, 1), (0, 1), (10**9, 500)],
+)
+async def test_renderer_list_limits_are_bounded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+    database_method: str,
+    default_limit: int | None,
+    raw_limit: int,
+    bounded_limit: int,
+) -> None:
+    db = CollieDB(tmp_path / f"{command}-{raw_limit}.db")
+    captured: list[int | None] = []
+
+    if command == "get_messages":
+
+        def capture_messages(_conversation_id: str, limit: int | None) -> list[dict]:
+            captured.append(limit)
+            return []
+
+        replacement = capture_messages
+    else:
+
+        def capture_rows(**kwargs: Any) -> list[dict]:
+            captured.append(kwargs["limit"])
+            return []
+
+        replacement = capture_rows
+
+    monkeypatch.setattr(db, database_method, replacement)
+    srv = CollieIPCServer(db)
+    frame = {"limit": raw_limit, "conversation_id": "conv", "routine_id": "routine"}
+    try:
+        result = await getattr(srv, f"_cmd_{command}")(None, frame)
+        assert result
+        assert captured == [bounded_limit]
+        default_frame = {"conversation_id": "conv", "routine_id": "routine"}
+        await getattr(srv, f"_cmd_{command}")(None, default_frame)
+        assert captured == [bounded_limit, default_limit]
+    finally:
+        await srv.stop()
+        db.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("command", "database_method", "expected_limit"),
+    [
+        ("get_messages", "get_messages", 500),
+        ("get_run_records", "list_turn_events", 200),
+        ("get_tool_events", "list_tool_events", 500),
+        ("list_routine_runs", "list_runs", 100),
+    ],
+)
+async def test_renderer_list_limits_use_safe_fallbacks_for_invalid_values(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+    database_method: str,
+    expected_limit: int,
+) -> None:
+    db = CollieDB(tmp_path / f"{command}-invalid.db")
+    captured: list[int | None] = []
+
+    if command == "get_messages":
+
+        def capture_messages(_conversation_id: str, limit: int | None) -> list[dict]:
+            captured.append(limit)
+            return []
+
+        replacement = capture_messages
+    else:
+
+        def capture_rows(**kwargs: Any) -> list[dict]:
+            captured.append(kwargs["limit"])
+            return []
+
+        replacement = capture_rows
+
+    monkeypatch.setattr(db, database_method, replacement)
+    srv = CollieIPCServer(db)
+    frame = {"limit": "not-a-number", "conversation_id": "conv", "routine_id": "routine"}
+    try:
+        result = await getattr(srv, f"_cmd_{command}")(None, frame)
+        assert result
+        assert captured == [expected_limit]
+    finally:
+        await srv.stop()
+        db.close()
 
 
 def test_get_messages_limit_semantics(tmp_path: Path) -> None:

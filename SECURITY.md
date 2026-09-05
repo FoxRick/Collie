@@ -58,12 +58,13 @@ not warrant the same priority.
 
 ## Limits and known alpha risks
 
-Collie is pre-release software. It currently has no enabled external OAuth
-connectors and no public installer. The application sends a request's relevant
-content to the model provider a user chooses; provider data handling is an
-external trust boundary. Windows release signing, a clean-account installation
-rehearsal, release artifact validation, and support/security routing are
-tracked release gates, not completed assurances.
+Collie is pre-release software. Its connectors and the optional Collie account
+sign-in (hosted by Supabase, identity only) are live in alpha but provided on a
+best-effort basis, and there is no public installer yet. The application sends
+a request's relevant content to the model provider a user chooses; provider
+data handling is an external trust boundary. Windows release signing, a
+clean-account installation rehearsal, release artifact validation, and
+support/security routing are tracked release gates, not completed assurances.
 
 ## Security development expectations
 

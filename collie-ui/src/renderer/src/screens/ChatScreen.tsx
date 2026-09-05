@@ -753,7 +753,7 @@ export default function ChatScreen({
   ) : undefined
 
   const send = useCallback(
-    async (text: string, attachments: AttachmentDraft[]) => {
+    async (text: string, attachments: AttachmentDraft[]): Promise<boolean> => {
       setErrorText('')
       const conversationId = activeIdRef.current
       if (isWorkActive && conversationId) {
@@ -765,8 +765,9 @@ export default function ChatScreen({
               ? error.message
               : 'I could not add those instructions to the active task.'
           )
+          return false
         }
-        return
+        return true
       }
       if (conversationId) {
         setTaskTimings((previous) => ({
@@ -798,13 +799,23 @@ export default function ChatScreen({
         }
         if (command_handled) void refreshCommandCatalog()
         void refreshConversations()
+        return true
       } catch (e) {
+        setStreaming(false)
+        if (conversationId) {
+          setTaskTimings((previous) => {
+            const next = { ...previous }
+            delete next[conversationId]
+            return next
+          })
+        }
         setErrorText(e instanceof Error ? e.message : String(e))
         setPortraitThinking({
           state: 'error',
           phrase: 'I could not start that response.',
           pet_animation: 'concerned'
         })
+        return false
       }
     },
     [
@@ -1161,7 +1172,7 @@ export default function ChatScreen({
               recentAgents={recentAgents}
             />
             <ChatInput
-              onSend={(text, attachments) => void send(text, attachments)}
+              onSend={send}
               onStop={() => void stop()}
               busy={isWorkActive}
               steering={isWorkActive}

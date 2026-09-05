@@ -7,15 +7,15 @@
 | Component | Path | Version |
 | --- | --- | --- |
 | Python core | `collie-core/` | `0.2.2` |
-| Electron desktop | `collie-ui/` | `0.1.0-alpha.7.2` |
+| Electron desktop | `collie-ui/` | `0.1.0-alpha.7.3` |
 
 ## Source inventory
 
-- Core Python files: **519**
-- Core Python test files: **236**
-- Desktop TypeScript/TSX files: **177**
-- Desktop test files: **64**
-- Active Markdown docs: **33**
+- Core Python files: **522**
+- Core Python test files: **238**
+- Desktop TypeScript/TSX files: **181**
+- Desktop test files: **66**
+- Active Markdown docs: **35**
 - Archived Markdown docs: **0**
 
 ## Collie-owned core module groups

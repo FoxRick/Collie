@@ -8,7 +8,11 @@ from typing import Any
 import httpx
 
 from collie_core.connectors.auth import build_oauth_provider
-from collie_core.connectors.models import ConnectorDefinition, ProbeResult
+from collie_core.connectors.models import (
+    ConnectorDefinition,
+    ProbeResult,
+    RemoteRevocationStatus,
+)
 from collie_core.connectors.policy import cached_tool
 from collie_core.services.credentials import CredentialStore
 
@@ -71,7 +75,7 @@ class OfficialMcpDriver:
                 granted = str(actual).split()
         return ProbeResult(tools=tools, granted_scopes=granted)
 
-    def revoke(self, definition: ConnectorDefinition, connection_id: str) -> None:
+    def revoke(self, definition: ConnectorDefinition, connection_id: str) -> RemoteRevocationStatus:
         # MCP OAuth does not expose a universal revocation endpoint. Local token
         # deletion is immediate; provider-side revocation remains provider-specific.
-        return
+        return RemoteRevocationStatus.UNSUPPORTED

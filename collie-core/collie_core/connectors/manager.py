@@ -17,6 +17,7 @@ from collie_core.connectors.models import (
     ConnectorDefinition,
     ConnectorDriverKind,
     ProbeResult,
+    RemoteRevocationStatus,
 )
 from collie_core.db import CollieDB, utc_now
 from collie_core.services.credentials import CredentialStore
@@ -446,7 +447,11 @@ class ConnectorManager:
     def remove(self, connection_id: str, *, origin: str = "connectors_ui") -> dict[str, Any]:
         row = self.db.get_connector_connection(connection_id)
         if row is None:
-            return {"connection_id": connection_id, "status": "disconnected"}
+            return {
+                "connection_id": connection_id,
+                "status": "disconnected",
+                "remote_revocation": RemoteRevocationStatus.NOT_APPLICABLE.value,
+            }
         definition = connector_def(str(row["provider_id"]))
         with self._lock:
             # A concurrent connect() must not resurrect this connection.
@@ -458,11 +463,12 @@ class ConnectorManager:
                 auth_type=str(row["auth_type"]),
                 status=ConnectionStatus.REVOKING.value,
             )
+        remote_revocation = RemoteRevocationStatus.UNSUPPORTED
         if definition is not None:
             try:
                 import asyncio
 
-                asyncio.run(
+                outcome = asyncio.run(
                     asyncio.wait_for(
                         asyncio.to_thread(
                             self._driver_factory(definition).revoke,
@@ -472,7 +478,11 @@ class ConnectorManager:
                         timeout=10,
                     )
                 )
+                remote_revocation = RemoteRevocationStatus(
+                    outcome or RemoteRevocationStatus.REVOKED
+                )
             except Exception:
+                remote_revocation = RemoteRevocationStatus.FAILED
                 logger.warning("Remote connector revocation unavailable: {}", definition.id)
         with self._lock:
             self._cancelled.discard(connection_id)
@@ -484,6 +494,7 @@ class ConnectorManager:
             "provider_id": row["provider_id"],
             "status": "disconnected",
             "origin": origin,
+            "remote_revocation": remote_revocation.value,
         }
 
     # -- runtime and legacy facade ------------------------------------------
@@ -529,12 +540,17 @@ class ConnectorManager:
     def disconnect(self, provider_id: str) -> dict[str, Any]:
         row = next(iter(self.db.list_connector_connections(provider_id)), None)
         if row is None:
-            return {"service_id": provider_id, "status": "disconnected"}
+            return {
+                "service_id": provider_id,
+                "status": "disconnected",
+                "remote_revocation": RemoteRevocationStatus.NOT_APPLICABLE.value,
+            }
         result = self.remove(str(row["id"]))
         return {
             "service_id": provider_id,
             "connection_id": result["connection_id"],
             "status": result["status"],
+            "remote_revocation": result["remote_revocation"],
         }
 
     @staticmethod

@@ -25,6 +25,15 @@ class ConnectorDriverKind(StrEnum):
     CUSTOM_MCP = "custom_mcp"
 
 
+class RemoteRevocationStatus(StrEnum):
+    """Safe, user-facing result of a best-effort provider revocation."""
+
+    REVOKED = "revoked"
+    UNSUPPORTED = "unsupported"
+    FAILED = "failed"
+    NOT_APPLICABLE = "not_applicable"
+
+
 @dataclass(frozen=True, slots=True)
 class ConnectorDefinition:
     id: str

@@ -33,7 +33,7 @@ _TIME_RE = re.compile(
     re.IGNORECASE,
 )
 _MONTH_DAY_RE = re.compile(
-    r"\b(?:on\s+)?(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?(?:\s+day)?\b",
+    r"\b(?:on\s+)?(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)(?:\s+day)?\b",
     re.IGNORECASE,
 )
 _ISO_DATE_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
