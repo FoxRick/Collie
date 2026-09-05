@@ -27,25 +27,6 @@ import { commandWithCore } from './core-client'
 /** Settings key (local SQLite via the core) for the opt-in toggle. */
 const SYNC_TOGGLE_KEY = 'account.sync_enabled'
 
-/**
- * Maker liveness heartbeat — piggybacks on the opt-in sync toggle. When the
- * user is signed in AND sync is on, the Electron main process PATCHes this
- * device's row in `user_sync_snapshots` with `last_seen` (+ version/platform)
- * every HEARTBEAT_INTERVAL_MS while the app runs.
- *
- * PATCH (not a merge-upsert POST): the row is created once by the baseline
- * `uploadSnapshot` (run before the toggle turns on), so here we update it in
- * place. An UPDATE only overwrites the columns supplied, so `payload` (NOT
- * NULL, must NEVER be re-uploaded) and `created_at` are preserved, and one row
- * per device is guaranteed by the row already existing. A partial merge-upsert
- * POST would 400 (`payload` is NOT NULL with no default) — that's exactly why
- * this is a PATCH.
- * Privacy: reports a device id + version + platform — no content, no
- * conversations, no PII beyond the device name the user already chose. That's
- * why it lives inside the same opt-in toggle as cloud sync.
- */
-export const HEARTBEAT_INTERVAL_MS = 4 * 60_000
-
 /** REST timeout — bounded so a hanging network never hangs the UI. */
 const HTTP_TIMEOUT_MS = 15_000
 
@@ -337,77 +318,6 @@ async function supabaseFetch(
     headers,
     signal: AbortSignal.timeout(HTTP_TIMEOUT_MS)
   })
-}
-
-/* ------------------------------------------------------------------ *
- * Maker liveness heartbeat (starts/stops from main/index.ts)
- * ------------------------------------------------------------------ */
-
-let heartbeatTimer: ReturnType<typeof setInterval> | null = null
-
-/**
- * Send one presence ping for THIS device. Requires a signed-in session (the
- * same one cloud sync uses). PATCHes the device's existing row (created by the
- * baseline upload) with only the presence columns, so the snapshot payload is
- * preserved. The caller gates on the sync toggle; this function does the I/O.
- */
-export async function sendHeartbeat(): Promise<{ lastSeen: string }> {
-  const session = requireSession()
-  const { deviceId, deviceName } = loadDeviceIdentity()
-  const userId = decodeUserId(session.access_token)
-  const path =
-    '/rest/v1/user_sync_snapshots' +
-    `?user_id=eq.${encodeURIComponent(userId)}` +
-    `&device_id=eq.${encodeURIComponent(deviceId)}`
-  const response = await supabaseFetch(path, {
-    method: 'PATCH',
-    session,
-    headers: {
-      Prefer: 'return=representation'
-    },
-    body: JSON.stringify({
-      device_name: deviceName,
-      last_seen: new Date().toISOString(),
-      version: app.getVersion(),
-      platform: process.platform
-    })
-  })
-  if (!response.ok) {
-    throw new Error(`heartbeat failed (${response.status})`)
-  }
-  const rows = (await response.json().catch(() => [])) as Array<{ last_seen?: string }>
-  return { lastSeen: rows?.[0]?.last_seen ?? new Date().toISOString() }
-}
-
-/**
- * Start the background liveness pings. No-ops if already running. Each tick
- * first checks the SAME opt-in gate cloud sync uses (signed in + sync on) and
- * stays completely silent on any failure — telemetry must never surface a
- * spinner, an error, or a network hang in the UI.
- */
-export function startHeartbeat(): void {
-  if (heartbeatTimer) return
-  const tick = (): void => {
-    getSyncStatus()
-      .then((status) => {
-        if (!status.enabled || !status.signedIn) return
-        return sendHeartbeat().catch(() => undefined)
-      })
-      .catch(() => undefined)
-  }
-  // First ping shortly after launch (once the core is up to read the toggle),
-  // then on the steady interval.
-  tick()
-  heartbeatTimer = setInterval(tick, HEARTBEAT_INTERVAL_MS)
-  heartbeatTimer.unref?.()
-}
-
-/** Stop the liveness pings (called on quit; no-op if never started). */
-export function stopHeartbeat(): void {
-  if (heartbeatTimer) {
-    clearInterval(heartbeatTimer)
-    heartbeatTimer = null
-  }
 }
 
 /* ------------------------------------------------------------------ *
