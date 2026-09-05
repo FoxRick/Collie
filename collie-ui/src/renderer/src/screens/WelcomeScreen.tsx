@@ -89,7 +89,6 @@ export default function WelcomeScreen({ onDone, onCancel }: Props): React.JSX.El
   const [secureStoragePlatform, setSecureStoragePlatform] = useState<string | null>(null)
   const [secureStorageBlocked, setSecureStorageBlocked] = useState(false)
   const [sessionOnlyBusy, setSessionOnlyBusy] = useState(false)
-  const [wsConnected, setWsConnected] = useState(false)
   const mountedRef = useRef(true)
   const oauthAttemptRef = useRef(0)
   const pickerRef = useRef<HTMLDivElement>(null)
@@ -102,11 +101,6 @@ export default function WelcomeScreen({ onDone, onCancel }: Props): React.JSX.El
 
   useEffect(() => {
     mountedRef.current = true
-    const off = collieClient.on((event) => {
-      if (!mountedRef.current) return
-      if (event.type === 'ready') setWsConnected(true)
-    })
-    setWsConnected(collieClient.connected)
     void collieClient
       .getProviderCatalogue()
       .then((data) => {
@@ -133,7 +127,6 @@ export default function WelcomeScreen({ onDone, onCancel }: Props): React.JSX.El
       .catch(() => undefined)
     return () => {
       mountedRef.current = false
-      off()
     }
   }, [])
 
@@ -387,7 +380,7 @@ export default function WelcomeScreen({ onDone, onCancel }: Props): React.JSX.El
     setError('')
     setSuccess('')
     try {
-      const result = await configureWelcomeApiKey({
+      await configureWelcomeApiKey({
         provider: CUSTOM_PROVIDER_ID,
         displayName: 'Local model (Ollama)',
         protocol: 'openai',

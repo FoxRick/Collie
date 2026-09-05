@@ -46,8 +46,6 @@ const SYNC_TOGGLE_KEY = 'account.sync_enabled'
  */
 export const HEARTBEAT_INTERVAL_MS = 4 * 60_000
 
-const SYNCED_FILES = ['AGENTS.md', 'VISION.md'] as const
-
 /** REST timeout — bounded so a hanging network never hangs the UI. */
 const HTTP_TIMEOUT_MS = 15_000
 

@@ -1,5 +1,4 @@
 import { File, FileText, Globe, Image as ImageIcon, Table } from 'lucide-react'
-import type { Thing } from '../../lib/ipc'
 
 const KIND_LABEL_KEY: Record<string, string> = {
   image: 'things.kind.image',

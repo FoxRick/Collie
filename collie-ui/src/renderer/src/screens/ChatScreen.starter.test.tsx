@@ -1,14 +1,8 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AttachmentDraft, CollieEvent, Conversation, TaskState } from '../lib/ipc'
-
-interface ChatInputProps {
-  onSend: (text: string, attachments: AttachmentDraft[]) => Promise<boolean>
-  onProjectChange: (path: string) => void
-  taskProgress?: TaskState | null
-}
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { CollieEvent, Conversation } from '../lib/ipc'
 
 const hooks = vi.hoisted(() => {
   let listener: ((event: CollieEvent) => void) | undefined
