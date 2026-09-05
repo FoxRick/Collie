@@ -38,10 +38,9 @@ import {
   getSyncStatus,
   listSnapshots,
   restoreFromDevice,
-  startHeartbeat,
-  stopHeartbeat,
   uploadSnapshot
 } from './cloud-sync'
+import { startHeartbeat, stopHeartbeat } from './install-heartbeat'
 import { autoUpdater } from 'electron-updater'
 import {
   ActiveWorkTracker,
@@ -591,6 +590,8 @@ function isActiveWorkSnapshot(value: unknown): value is ActiveWorkSnapshot {
 }
 
 app.whenReady().then(async () => {
+  // Count launched installs even if onboarding or core startup fails.
+  startHeartbeat()
   // Windows toasts (OS notifications) require an App User Model ID before
   // any notification is created, or they are silently dropped.
   if (process.platform === 'win32') {
@@ -641,11 +642,6 @@ app.whenReady().then(async () => {
       void updates.check()
     }
   }, 15_000)
-
-  // Maker liveness heartbeat: while signed in + sync on, report this device's
-  // presence (id + version + platform) so the founder can see live/active
-  // users. Gated internally on the same opt-in sync toggle; silent on failure.
-  startHeartbeat()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
