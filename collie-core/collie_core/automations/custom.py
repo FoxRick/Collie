@@ -55,9 +55,6 @@ _TIME_RE = re.compile(
     re.IGNORECASE,
 )
 _MONTHDAY_RE = re.compile(r"\b(?:on\s+)?the\s+(\d{1,2})(?:st|nd|rd|th)\b")
-_DAILY_RE = re.compile(
-    r"\b(?:every\s+day|daily|each\s+day|every\s+(?:morning|afternoon|evening|night))\b"
-)
 _MONTHLY_RE = re.compile(r"\b(?:every\s+month|monthly|each\s+month)\b")
 
 
@@ -115,24 +112,13 @@ def parse_schedule(description: str) -> str | None:
         day = min(28, max(1, int(monthday.group(1))))
         return f"{day:02d} {time or '09:00'}"
 
-    if _DAILY_RE.search(text) or time:
-        return time or None
-
-    return None
+    return time
 
 
-def create_custom_automation(
-    db: CollieDB,
-    description: str,
-    *,
-    name: str | None = None,
-    timezone_name: str = "UTC",
+def _custom_automation_fields(
+    description: str, name: str | None, timezone_name: str
 ) -> dict[str, Any]:
-    """Create an automation row from a plain-English description."""
-    description = (description or "").strip()
-    if not description:
-        raise ValueError("Tell me what you'd like me to do, and when!")
-
+    """Build the fields shared by routine creation and rewording."""
     try:
         structured = parse_structured_schedule(description, timezone_name)
     except ValueError as exc:
@@ -155,17 +141,34 @@ def create_custom_automation(
         "reminders, news, web search). Speak in Collie's voice: warm, "
         "playful, first person, never corporate."
     )
+    return {
+        "name": label,
+        "description": description,
+        "schedule": schedule,
+        "action_config": {"kind": "custom", "prompt": prompt},
+        "schedule_json": structured.to_dict(),
+        "next_run_at": next_run.isoformat(timespec="seconds") if next_run else None,
+    }
+
+
+def create_custom_automation(
+    db: CollieDB,
+    description: str,
+    *,
+    name: str | None = None,
+    timezone_name: str = "UTC",
+) -> dict[str, Any]:
+    """Create an automation row from a plain-English description."""
+    description = (description or "").strip()
+    if not description:
+        raise ValueError("Tell me what you'd like me to do, and when!")
+
     return db.add_automation(
-        label,
-        description=description,
-        schedule=schedule,
+        **_custom_automation_fields(description, name, timezone_name),
         action_type="custom",
-        action_config={"kind": "custom", "prompt": prompt},
         enabled=True,
         delivery_channels=["in_app"],
         timezone_name=timezone_name,
-        schedule_json=structured.to_dict(),
-        next_run_at=next_run.isoformat(timespec="seconds") if next_run else None,
     )
 
 
@@ -192,28 +195,7 @@ def update_custom_automation(
     if str(current.get("action_type") or "") != "custom":
         raise ValueError("Built-in routines can't be reworded — pause them or make your own.")
 
-    try:
-        structured = parse_structured_schedule(description, timezone_name)
-    except ValueError as exc:
-        raise ValueError(
-            "I couldn't work out a clear schedule. Try 'weekdays at 8am', "
-            "'every Friday at 5pm', or 'the first day of every month at 9am'. "
-            f"{exc}"
-        ) from exc
-    schedule = parse_schedule(description) or structured.time.strftime("%H:%M")
-    next_run = next_occurrence(structured, datetime.now(UTC))
-
-    label = (name or "").strip()
-    if not label:
-        label = re.sub(r"\s+", " ", description)
-        label = (label[:47] + "…") if len(label) > 48 else label
-
-    prompt = (
-        f"Scheduled task from the user: {description}\n\n"
-        "Carry this out now. Use whatever tools help (weather, calendar, "
-        "reminders, news, web search). Speak in Collie's voice: warm, "
-        "playful, first person, never corporate."
-    )
+    fields = _custom_automation_fields(description, name, timezone_name)
 
     current_config = current.get("action_config")
     if isinstance(current_config, str):
@@ -223,21 +205,12 @@ def update_custom_automation(
             current_config = {}
     if not isinstance(current_config, dict):
         current_config = {}
-    new_config = {
-        **current_config,
-        "kind": "custom",
-        "prompt": prompt,
-    }
+    fields["action_config"] = {**current_config, **fields["action_config"]}
 
     row = db.update_automation(
         automation_id,
-        name=label,
-        description=description,
-        schedule=schedule,
+        **fields,
         timezone=timezone_name,
-        schedule_json=structured.to_dict(),
-        next_run_at=next_run.isoformat(timespec="seconds") if next_run else None,
-        action_config=new_config,
     )
-    row["action_config"] = new_config
+    row["action_config"] = fields["action_config"]
     return row

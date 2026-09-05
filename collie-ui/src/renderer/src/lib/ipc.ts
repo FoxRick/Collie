@@ -549,25 +549,18 @@ export class CollieClient {
   private pending = new Map<string, PendingRequest>()
   private seq = 0
   private closed = false
-  private port = 3818
   private coreEventsUnsub: (() => void) | null = null
   connected = false
 
+  /** Legacy transport arguments remain accepted; main now owns the connection. */
   constructor(
-    port = 3818,
+    _port = 3818,
     _token?: string | null,
-    private readonly _random: () => number = Math.random
-  ) {
-    this.port = port
-  }
+    _random: () => number = Math.random
+  ) {}
 
-  /**
-   * Re-point at the core's actual port. The token argument is deliberately
-   * dropped — the renderer never learns it (it lives in main only).
-   */
-  applyEndpoint(port: number): void {
-    if (typeof port === 'number' && Number.isFinite(port)) this.port = port
-  }
+  /** Compatibility hook; endpoint selection belongs to the main-process broker. */
+  applyEndpoint(_port: number): void {}
 
   /** Make the bridge the renderer's transport. Idempotent; no socket to open. */
   connect(): void {

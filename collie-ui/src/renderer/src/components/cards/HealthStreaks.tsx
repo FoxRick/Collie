@@ -7,10 +7,6 @@ interface HabitRow {
   days: Array<number | null>
 }
 
-interface Props {
-  data: Record<string, unknown>
-}
-
 function parseDays(value: unknown): Array<number | null> {
   if (!Array.isArray(value)) return []
   return value.slice(0, 7).map((entry) =>
