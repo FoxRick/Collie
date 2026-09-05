@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useLayoutEffect, useRef, useState } from 'react'
 import type { CollieMessage } from '../lib/ipc'
 import { useT } from '../lib/i18n'
 import MessageBubble from './MessageBubble'
@@ -8,33 +8,27 @@ interface Props {
   messages: CollieMessage[]
   streamText: string
   streaming?: boolean
+  activityLabel?: string
   cardPreview?: { card_type: string; card_data: Record<string, unknown> } | null
 }
 
 // Long conversations render in windows so the DOM stays light (Step 49).
 const WINDOW_SIZE = 100
 
-export default function MessageList({ messages, streamText, streaming = false, cardPreview }: Props): React.JSX.Element {
+function MessageList({ messages, streamText, streaming = false, activityLabel, cardPreview }: Props): React.JSX.Element {
   const endRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const shouldFollowRef = useRef(true)
   const [visibleCount, setVisibleCount] = useState(WINDOW_SIZE)
+  const [following, setFollowing] = useState(true)
   const lastId = messages.length > 0 ? messages[messages.length - 1].id : ''
   const t = useT()
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (shouldFollowRef.current) {
-      endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-    }
-  }, [lastId])
-
-  useEffect(() => {
-    // Repeated smooth-scroll animations fight each other while text streams.
-    // Following the paced reveal directly keeps the viewport visually stable.
-    if (streamText && shouldFollowRef.current) {
       endRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' })
     }
-  }, [streamText])
+  }, [lastId, messages, streamText, streaming, cardPreview])
 
   const visibleStream = stableMarkdownStreamText(visibleStreamText(streamText))
   const hidden = Math.max(0, messages.length - visibleCount)
@@ -43,12 +37,28 @@ export default function MessageList({ messages, streamText, streaming = false, c
   return (
     <div
       ref={scrollRef}
-      className="flex-1 overflow-y-auto px-4 py-4"
+      className="chat-transcript flex-1 overflow-y-auto px-4 py-4"
+      tabIndex={0}
+      aria-label="Chat history"
+      onWheel={(event) => {
+        // Pause before the next text paint, not after its resulting scroll event.
+        if (event.deltaY < 0) {
+          shouldFollowRef.current = false
+          setFollowing(false)
+        }
+      }}
+      onKeyDown={(event) => {
+        if (['ArrowUp', 'PageUp', 'Home'].includes(event.key)) {
+          shouldFollowRef.current = false
+          setFollowing(false)
+        }
+      }}
       onScroll={() => {
         const element = scrollRef.current
         if (!element) return
         shouldFollowRef.current =
-          element.scrollHeight - element.scrollTop - element.clientHeight < 96
+          element.scrollHeight - element.scrollTop - element.clientHeight <= 1
+        setFollowing(shouldFollowRef.current)
       }}
     >
       <div
@@ -77,7 +87,7 @@ export default function MessageList({ messages, streamText, streaming = false, c
             taskState={msg.task_state}
           />
         ))}
-        {(visibleStream || streaming) && (
+        {(visibleStream || cardPreview) && (
           <MessageBubble
             role="assistant"
             content={visibleStream}
@@ -87,8 +97,23 @@ export default function MessageList({ messages, streamText, streaming = false, c
             cardData={cardPreview?.card_data ?? null}
           />
         )}
+        {streaming && !visibleStream && (
+          <div className="chat-activity collie-thinking" role="status">
+            <span className="collie-thinking-dots" aria-hidden="true"><i /><i /><i /></span>
+            <span>{activityLabel || t('chat.thinking')}</span>
+          </div>
+        )}
         <div ref={endRef} />
       </div>
+      {!following && (
+        <button type="button" className="chat-jump-latest" onClick={() => {
+          shouldFollowRef.current = true
+          setFollowing(true)
+          endRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' })
+        }}>↓ Jump to latest</button>
+      )}
     </div>
   )
 }
+
+export default memo(MessageList)

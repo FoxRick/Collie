@@ -127,6 +127,17 @@ describe('stableMarkdownStreamText', () => {
 })
 
 describe('nextStreamReveal', () => {
+  it('catches up with a large burst in under one second of display ticks', () => {
+    const content = 'A large provider burst. '.repeat(400)
+    let displayed = ''
+    for (let frame = 0; frame < 30; frame += 1) displayed = nextStreamReveal(displayed, content)
+    expect(displayed).toBe(content)
+  })
+
+  it('never cuts an emoji in half at the reveal boundary', () => {
+    expect(nextStreamReveal('', 'Hi 🐶 there', 4)).toBe('Hi 🐶')
+  })
+
   it('reveals ordinary text at a bounded cadence without losing content', () => {
     const content = 'A smooth complete response'
     let displayed = ''
