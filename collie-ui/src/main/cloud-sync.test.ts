@@ -106,9 +106,6 @@ import {
   listSnapshots,
   restoreFromDevice,
   restoreSnapshot,
-  sendHeartbeat,
-  startHeartbeat,
-  stopHeartbeat,
   uploadSnapshot
 } from './cloud-sync'
 import { clearAccountSession, saveAccountSession } from './account-auth'
@@ -448,57 +445,5 @@ describe('supabase REST', () => {
   it('surfaces a friendly error when nothing is there', async () => {
     testState.nextFetchResponse = new Response('[]', { status: 200 })
     await expect(restoreFromDevice('dev-none')).rejects.toThrow(/backup/)
-  })
-})
-
-describe('maker liveness heartbeat', () => {
-  it('PATCHes only presence columns (last_seen, version, platform) when signed in', async () => {
-    signInAs('user-42')
-    const token = makeJwt('user-42')
-    await sendHeartbeat() // loadDeviceIdentity creates sync-device.json on first run
-    const { deviceId } = JSON.parse(
-      readFileSync(join(testState.userData, 'sync-device.json'), 'utf-8')
-    ) as { deviceId: string }
-    const patch = testState.fetches.find((f) => f.init.method === 'PATCH')
-    expect(patch).toBeDefined()
-    const headers = patch!.init.headers as Record<string, string>
-    expect(headers.Authorization).toBe(`Bearer ${token}`)
-    expect(headers.apikey).toBe('test-anon-key')
-    expect(headers.Prefer).toBe('return=representation')
-    expect(patch!.url).toContain(`user_id=eq.user-42`)
-    expect(patch!.url).toContain(`device_id=eq.${deviceId}`)
-    const body = JSON.parse(String(patch!.init.body)) as Record<string, unknown>
-    expect(typeof body.last_seen).toBe('string')
-    expect(body.version).toBe('0.1.0-alpha.7.2')
-    expect(body.platform).toBe(process.platform)
-    expect(typeof body.device_name).toBe('string')
-    // Presence only — the heartbeat never re-sends the snapshot payload, and
-    // the row is identified by the URL filter, not the body.
-    expect(body.payload).toBeUndefined()
-    expect(body.user_id).toBeUndefined()
-    expect(body.device_id).toBeUndefined()
-  })
-
-  it('refuses to heartbeat while signed out', async () => {
-    await expect(sendHeartbeat()).rejects.toThrow(/Sign in/)
-  })
-
-  it('stays quiet on start when sync is OFF', async () => {
-    signInAs('user-42')
-    startHeartbeat()
-    // Give the first async tick time to (should-not) reach the network.
-    await new Promise((resolve) => setTimeout(resolve, 80))
-    expect(testState.fetches.filter((f) => f.init.method === 'PATCH')).toHaveLength(0)
-    stopHeartbeat()
-  })
-
-  it('pings once on start when sync is ON (the opt-in gate)', async () => {
-    signInAs('user-42')
-    testState.toggleValue = true
-    startHeartbeat()
-    await vi.waitFor(() => {
-      expect(testState.fetches.some((f) => f.init.method === 'PATCH')).toBe(true)
-    })
-    stopHeartbeat()
   })
 })

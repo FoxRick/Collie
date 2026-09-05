@@ -2,15 +2,10 @@
 """
 Collie — maker-side device liveness view.
 
-Who is using Collie, and are they live right now? This is the FOUNDER's
-ops tool (not a product feature). It reads the `user_sync_snapshots` table —
-the same opt-in cloud-sync rows the app owns — and reports presence from the
-`last_seen` / `version` / `platform` columns the client heartbeats.
-
-Privacy note: only devices whose user signed in AND turned on sync appear here.
-The heartbeat carries a device id + version + platform only (no content, no
-conversations). This whole view is data the users already volunteered to send
-by enabling sync — there is no covert telemetry.
+Counts launched installations, including signed-out users. Reads only random
+install IDs, version, platform, and server-recorded last_seen timestamps from
+install_heartbeats. These are installations, not unique people. Older builds
+and installations that never launch or cannot reach the service are absent.
 
 Usage:
     python3 tools/device_liveness.py                # reads ~/.collie-supabase.env
@@ -54,20 +49,27 @@ def load_config():
 
 def fetch_devices(url, key):
     """Pull the presence columns for every device row (service key = admin)."""
-    params = (
-        "device_name,version,platform,last_seen"
-        "&order=last_seen.desc.nullsfirst&limit=10000"
-    )
-    req = urllib.request.Request(
-        f"{url}/rest/v1/user_sync_snapshots?select={params}",
-        headers={"apikey": key, "Authorization": f"Bearer {key}",
-                 "Accept": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            return json.loads(resp.read().decode())
-    except urllib.error.HTTPError as err:
-        sys.exit(f"Supabase error {err.code}: {err.read().decode()[:300]}")
+    rows = []
+    after = None
+    while True:
+        params = "install_id,version,platform,last_seen&order=install_id.asc&limit=500"
+        if after:
+            params += f"&install_id=gt.{after}"
+        req = urllib.request.Request(
+            f"{url}/rest/v1/install_heartbeats?select={params}",
+            headers={"apikey": key, "Authorization": f"Bearer {key}",
+                     "Accept": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                page = json.loads(resp.read().decode())
+        except urllib.error.HTTPError as err:
+            sys.exit(f"Supabase error {err.code}: {err.read().decode()[:300]}")
+        if not page:
+            return rows
+        rows.extend(page)
+        # Continue even with a short page: the server may cap below our limit.
+        after = page[-1]["install_id"]
 
 
 def parse(ts):
@@ -93,23 +95,23 @@ def main():
         total += 1
         if seen and (now - seen).total_seconds() <= LIVE_WINDOW_MIN * 60:
             live += 1
-            live_rows.append((row.get("device_name") or "Unknown", row.get("version"),
+            live_rows.append((row.get("install_id", "Unknown")[:8], row.get("version"),
                               row.get("platform"), seen))
         if seen and (now - seen).total_seconds() <= ACTIVE_WINDOW_HRS * 3600:
             active += 1
-            active_rows.append((row.get("device_name") or "Unknown", row.get("version"),
+            active_rows.append((row.get("install_id", "Unknown")[:8], row.get("version"),
                                 row.get("platform"), seen))
             key = (row.get("version") or "unknown", row.get("platform") or "unknown")
             spread[key] = spread.get(key, 0) + 1
 
     has_rows = total > 0
-    print("COLLIE DEVICE LIVENESS")
+    print("COLLIE INSTALL LIVENESS")
     print("=" * 52)
-    print(f"devices on record (sync-opted-in): {total}")
+    print(f"launched installs on record: {total}")
     print(f"live right now (last_seen <= {LIVE_WINDOW_MIN}m): {live}")
     print(f"active last {ACTIVE_WINDOW_HRS}h:               {active}")
     if not has_rows:
-        print("\n(nothing yet — devices appear once a signed-in + syncing user")
+        print("\n(nothing yet — devices appear once a user")
         print(" runs a build with the heartbeat wired in and it pings.)")
         return
 

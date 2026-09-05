@@ -293,7 +293,7 @@ export default function AccountTab(): React.JSX.Element {
         <>
           <p className="settings-lead">
             One click with your email — a browser window opens, you tap the
-            link, and you're back. No password to remember, and no data leaves
+            link, and you're back. No password to remember. Your chats stay on
             this computer. Don't have an account yet? This creates one and
             holds your spot on the early-access list.
           </p>
@@ -307,6 +307,12 @@ export default function AccountTab(): React.JSX.Element {
           </button>
         </>
       )}
+      <p className="settings-lead">
+        To count active installs, Collie sends a random install ID, app version,
+        and operating system at launch and every four minutes while running,
+        even when signed out or backup is off. This contains no chats, files,
+        email address, or API keys.
+      </p>
       {(error || notice) && (
         <p className="inline-notice" role="status">
           {error || notice}
