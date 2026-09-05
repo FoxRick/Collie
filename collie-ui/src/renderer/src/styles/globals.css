@@ -1893,21 +1893,28 @@ button {
   color: #fff;
 }
 
-/* Streaming answer frame: while the first tokens are on their way the
-   assistant card shows a quiet skeleton (placeholder lines). The frame
-   stays once text arrives — the stream fills the same card and the
-   placeholder lines fade out beneath it. */
-.message-row--assistant .message-bubble--writing {
-  position: relative;
-  min-width: 176px;
-  min-height: 104px;
-  overflow: hidden;
+.chat-transcript { position: relative; overscroll-behavior: contain; }
+.chat-activity { padding: 10px 4px; min-height: 38px; }
+.chat-jump-latest {
+  position: sticky;
+  z-index: 2;
+  bottom: 4px;
+  display: block;
+  margin: 12px auto 0;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--collie-bg);
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+  font-size: 12px;
+  cursor: pointer;
+}
+.message-row--assistant .message-bubble {
+  width: 100%;
+  max-width: 100%;
 }
 
-/* Thinking cue: shown inside the answer bubble while Collie is still
-   forming the reply (before the first streamed token lands). It gives the
-   frame real content — without it the bubble collapsed to a 34px-wide
-   strip while the absolutely-positioned skeleton lines had no width. */
 .collie-thinking {
   position: relative;
   z-index: 1;
@@ -1966,57 +1973,9 @@ button {
   min-width: 0;
 }
 
-.collie-skeleton {
-  position: absolute;
-  z-index: 0;
-  top: 12px;
-  right: 16px;
-  left: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  opacity: 0;
-  transition: opacity var(--motion-smooth) ease-out;
-  pointer-events: none;
-}
 
-.collie-skeleton--active {
-  opacity: 1;
-}
 
-/* When the thinking cue is above, drop the placeholder lines below it
-   instead of drawing over the dots/label. */
-.collie-skeleton--below-thinking {
-  top: 42px;
-}
-
-.collie-skeleton-line {
-  height: 12px;
-  border-radius: 6px;
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--line) 62%, transparent) 25%,
-    color-mix(in srgb, var(--line) 34%, transparent) 50%,
-    color-mix(in srgb, var(--line) 62%, transparent) 75%
-  );
-  background-size: 200% 100%;
-  animation: collie-skeleton-shimmer 1.8s linear infinite;
-}
-
-.collie-skeleton-line:nth-child(1) { width: 92%; }
-.collie-skeleton-line:nth-child(2) { width: 100%; }
-.collie-skeleton-line:nth-child(3) { width: 58%; }
-
-@keyframes collie-skeleton-shimmer {
-  from { background-position: 200% 0; }
-  to { background-position: -200% 0; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .collie-skeleton-line { animation: none; }
-}
-
-.message-markdown { min-width: 0; overflow-wrap: anywhere; }
+.message-markdown { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
 .message-markdown > :first-child { margin-top: 0; }
 .message-markdown > :last-child { margin-bottom: 0; }
 .message-markdown p { margin: 0 0 0.72em; }
@@ -2036,7 +1995,7 @@ button {
 .message-markdown blockquote { margin: 0.7em 0; border-left: 3px solid var(--grass); padding-left: 0.85em; color: var(--muted); }
 .message-markdown code { border-radius: 5px; background: var(--bone); padding: 0.12em 0.35em; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.9em; }
 .message-markdown pre { max-width: 100%; margin: 0.75em 0; overflow-x: auto; border-radius: 10px; background: #171819; padding: 12px; color: #f4f4f1; }
-.message-markdown pre code { background: transparent; padding: 0; color: inherit; }
+.message-markdown pre code { background: transparent; padding: 0; color: inherit; white-space: pre; }
 .message-markdown table { display: block; max-width: 100%; margin: 0.75em 0; overflow-x: auto; border-collapse: collapse; }
 .message-markdown th,
 .message-markdown td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; }

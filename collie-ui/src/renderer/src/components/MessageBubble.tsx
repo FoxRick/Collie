@@ -22,12 +22,6 @@ interface Props {
   taskState?: TaskState | null
 }
 
-// While an answer is streaming, the assistant card shows a quiet skeleton
-// frame (placeholder lines) so the chat never looks stalled. As soon as the
-// streamed text crosses this length the placeholder lines fade out and the
-// stream keeps filling the same card — the frame itself never disappears.
-const STREAM_SKELETON_MAX_CHARS = 48
-
 const PREVIEWABLE_IMAGE_TYPES = new Set([
   'image/png',
   'image/jpeg',
@@ -48,9 +42,8 @@ function MessageBubble({ role, content, streaming, settled = true, cardType, car
   const returnFocusRef = useRef<HTMLButtonElement | null>(null)
   const isUser = role === 'user'
   const visibleContent = isUser ? content : visibleStreamText(content)
-  const takeaway = useMemo(() => buildTakeawayDigest(content), [content])
+  const takeaway = useMemo(() => settled && !streaming ? buildTakeawayDigest(content) : null, [content, settled, streaming])
   const writing = Boolean(streaming && !isUser)
-  const skeletonActive = writing && visibleContent.trim().length < STREAM_SKELETON_MAX_CHARS
   // Before the first streamed token lands, the bubble shows a clear
   // "Collie is thinking…" cue (animated dots + label) so the frame is never
   // an empty, shapeless strip.
@@ -128,16 +121,6 @@ function MessageBubble({ role, content, streaming, settled = true, cardType, car
                 <i />
               </span>
               <span>{t('chat.thinking')}</span>
-            </div>
-          )}
-          {writing && (
-            <div
-              className={`collie-skeleton ${skeletonActive ? 'collie-skeleton--active' : 'collie-skeleton--settled'} ${thinking ? 'collie-skeleton--below-thinking' : ''}`}
-              aria-hidden="true"
-            >
-              <span className="collie-skeleton-line" />
-              <span className="collie-skeleton-line" />
-              <span className="collie-skeleton-line" />
             </div>
           )}
         </div>

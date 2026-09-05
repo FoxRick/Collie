@@ -25,27 +25,23 @@ afterEach(() => {
   document.body.replaceChildren()
 })
 
-describe('MessageBubble streaming skeleton frame', () => {
-  it('shows placeholder lines while the first tokens are still on their way', () => {
+describe('MessageBubble streaming presentation', () => {
+  it('keeps an accessible busy state without animated placeholder lines', () => {
     const container = render(<MessageBubble role="assistant" content="" streaming />)
     const skeleton = container.querySelector('.collie-skeleton')
-    expect(skeleton).not.toBeNull()
-    expect(skeleton?.classList.contains('collie-skeleton--active')).toBe(true)
-    expect(skeleton?.querySelectorAll('.collie-skeleton-line')).toHaveLength(3)
-    expect(skeleton?.getAttribute('aria-hidden')).toBe('true')
+    expect(skeleton).toBeNull()
     expect(container.querySelector('.message-bubble')?.getAttribute('aria-busy')).toBe('true')
   })
 
-  it('keeps a short streamed answer inside the same active frame', () => {
+  it('renders short answers without overlapping placeholders', () => {
     const container = render(<MessageBubble role="assistant" content="Sure — on it." streaming />)
     const skeleton = container.querySelector('.collie-skeleton')
-    expect(skeleton).not.toBeNull()
-    expect(skeleton?.classList.contains('collie-skeleton--active')).toBe(true)
+    expect(skeleton).toBeNull()
     expect(container.textContent).toContain('Sure — on it.')
     expect(container.querySelector('.message-bubble')?.getAttribute('aria-busy')).toBe('true')
   })
 
-  it('fades the placeholder lines once real text fills the card', () => {
+  it('renders long answers without placeholder animations', () => {
     const container = render(
       <MessageBubble
         role="assistant"
@@ -54,9 +50,7 @@ describe('MessageBubble streaming skeleton frame', () => {
       />
     )
     const skeleton = container.querySelector('.collie-skeleton')
-    expect(skeleton).not.toBeNull()
-    expect(skeleton?.classList.contains('collie-skeleton--settled')).toBe(true)
-    expect(skeleton?.classList.contains('collie-skeleton--active')).toBe(false)
+    expect(skeleton).toBeNull()
   })
 
   it('streams markdown into the same card while the frame is up', () => {
