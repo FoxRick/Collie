@@ -145,6 +145,9 @@ jobs:
       - name: Unit tests (vitest)
         run: npx vitest run
 
+      - name: Feedback Worker tests
+        run: node --test ../tools/feedback/worker.test.mjs
+
       - name: Build (electron-vite)
         run: npm run build
 
@@ -175,6 +178,9 @@ jobs:
 
       - name: Unit tests (vitest)
         run: npx vitest run
+
+      - name: Feedback Worker tests
+        run: node --test ../tools/feedback/worker.test.mjs
 
       - name: Build (electron-vite)
         run: npm run build

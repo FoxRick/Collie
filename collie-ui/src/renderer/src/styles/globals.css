@@ -942,6 +942,9 @@ button {
 .form-field textarea:focus { border-color: #8f928d; }
 .dialog-hint { margin: 10px 0 0; color: var(--muted); font-size: var(--collie-min-font-size); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+.feedback-dialog { margin: auto; max-height: calc(100vh - 48px); overflow-y: auto; color: var(--ink); }
+.feedback-dialog::backdrop { background: rgba(10, 11, 12, 0.45); backdrop-filter: blur(5px); }
+.feedback-dialog textarea { resize: vertical; min-height: 120px; }
 
 @media (max-width: 900px) {
   .detail-grid { grid-template-columns: 1fr; }
