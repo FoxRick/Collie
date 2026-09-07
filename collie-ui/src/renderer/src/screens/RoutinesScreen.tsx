@@ -1,3 +1,5 @@
+import { ui } from "../lib/i18n"
+import { routineScheduleLabel } from '../lib/routineSchedule'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Clock3,
@@ -28,33 +30,14 @@ const LOOP_STARTERS = [
 /** Built-in system-maintenance routines shown in their own quiet group. */
 const SYSTEM_IDS = new Set(['collie-memory-maintenance', 'collie-gardener-suggestions'])
 
-function friendlySchedule(schedule: string | undefined): string {
-  const raw = (schedule || '').trim()
-  if (!raw) return ''
-  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-  const parts = raw.split(/\s+/)
-  const clock = (t: string): string => {
-    const [h, m] = t.split(':').map((n) => parseInt(n, 10))
-    if (Number.isNaN(h)) return t
-    const suffix = h < 12 ? 'am' : 'pm'
-    const hour = h % 12 === 0 ? 12 : h % 12
-    return m ? `${hour}:${String(m).padStart(2, '0')} ${suffix}` : `${hour} ${suffix}`
-  }
-  if (parts.length === 1) return `Every day at ${clock(parts[0])}`
-  if (parts.length === 2 && /^\d+$/.test(parts[0])) return `Day ${parseInt(parts[0], 10)} of the month at ${clock(parts[1])}`
-  if (parts.length === 2 && days.includes(parts[0])) return `${dayName(parts[0])}s at ${clock(parts[1])}`
-  return raw
-}
-
-function dayName(code: string): string {
-  return ({ Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday', Sun: 'Sunday' } as Record<string, string>)[code] || code
-}
-
 export default function RoutinesScreen(): React.JSX.Element {
   const [loops, setLoops] = useState<LoopItem[]>([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [description, setDescription] = useState('')
+  const [timezone, setTimezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone)
+  const [editTimezone, setEditTimezone] = useState('UTC')
+  const zones = useMemo(() => Array.from(new Set(['UTC', timezone, editTimezone, ...Intl.supportedValuesOf('timeZone')])), [timezone, editTimezone])
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const [history, setHistory] = useState<Record<string, CollieRun[]>>({})
@@ -131,7 +114,7 @@ export default function RoutinesScreen(): React.JSX.Element {
       const result = await collieClient.createAutomation(
         description.trim(),
         undefined,
-        Intl.DateTimeFormat().resolvedOptions().timeZone
+        timezone
       )
       setDescription('')
       setCreating(false)
@@ -166,6 +149,7 @@ export default function RoutinesScreen(): React.JSX.Element {
   const startEdit = (loop: LoopItem): void => {
     setEditingId(loop.id)
     setEditText(loop.description || '')
+    setEditTimezone(loop.timezone || 'UTC')
   }
 
   const saveEdit = async (): Promise<void> => {
@@ -176,7 +160,7 @@ export default function RoutinesScreen(): React.JSX.Element {
         editingId,
         editText.trim(),
         undefined,
-        Intl.DateTimeFormat().resolvedOptions().timeZone
+        editTimezone
       )
       setEditingId(null)
       setEditText('')
@@ -261,7 +245,7 @@ export default function RoutinesScreen(): React.JSX.Element {
             setHistory((current) => ({ ...current, [loop.id]: data.runs }))
           })()}
         >
-          <RotateCcw size={11} /> Retry
+          <RotateCcw size={11} /> {ui("Retry")}
         </button>
       ) : null}
     </div>
@@ -269,6 +253,17 @@ export default function RoutinesScreen(): React.JSX.Element {
 
   const userLoops = useMemo(() => loops.filter((loop) => !SYSTEM_IDS.has(loop.id)), [loops])
   const systemLoops = useMemo(() => loops.filter((loop) => SYSTEM_IDS.has(loop.id)), [loops])
+
+  const changeTimezone = async (loop: LoopItem, zone: string): Promise<void> => {
+    setBusy(true)
+    try {
+      const { routine } = await collieClient.updateRoutineTimezone(loop.id, zone)
+      setLoops(current => current.map(item => item.id === loop.id ? routine : item))
+      setNotice('Time zone updated. Future runs use this time zone.')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'I could not update the time zone.')
+    } finally { setBusy(false) }
+  }
 
   const renderCard = (loop: LoopItem): React.JSX.Element => (
     <article key={loop.id} className={`loop-card ${loop.enabled === 1 ? '' : 'is-paused'}`}>
@@ -283,7 +278,14 @@ export default function RoutinesScreen(): React.JSX.Element {
           </span>
         </div>
         {loop.description && <p>{loop.description}</p>}
-        <div className="loop-schedule"><Clock3 size={13} /> {friendlySchedule(loop.schedule) || 'Schedule set by Collie'}</div>
+        <div className="loop-schedule"><Clock3 size={13} /> {routineScheduleLabel(loop)}</div>
+        <label className="routine-timezone">
+          <span>{ui("Time zone")}</span>
+          <select aria-label={`Time zone for ${loop.name}`} value={loop.timezone || 'UTC'} disabled={busy}
+            onChange={(event) => void changeTimezone(loop, event.target.value)}>
+            {Array.from(new Set([loop.timezone || 'UTC', ...zones])).map(zone => <option key={zone} value={zone}>{zone.replaceAll('_', ' ')}</option>)}
+          </select>
+        </label>
         <div className="routine-facts">
           <span>Next: {nextRunLabel(loop)}</span>
           <span>Last success: {loop.last_success_at ? new Date(loop.last_success_at).toLocaleString() : 'Never'}</span>
@@ -292,7 +294,7 @@ export default function RoutinesScreen(): React.JSX.Element {
         </div>
         {history[loop.id] ? (
           <div className="routine-history">
-            {history[loop.id].length ? history[loop.id].slice(0, 5).map((run) => runLine(loop, run)) : <span>No runs yet.</span>}
+            {history[loop.id].length ? history[loop.id].slice(0, 5).map((run) => runLine(loop, run)) : <span>{ui("No runs yet.")}</span>}
           </div>
         ) : null}
       </div>
@@ -303,7 +305,7 @@ export default function RoutinesScreen(): React.JSX.Element {
           onClick={() => void runNow(loop)}
           disabled={busy || (loop.action_type === 'approved_plan' && !loop.plan_version)}
         >
-          <Rocket size={14} /> Run now
+          <Rocket size={14} /> {ui("Run now")}
         </button>
         <button
           type="button"
@@ -311,7 +313,7 @@ export default function RoutinesScreen(): React.JSX.Element {
           onClick={() => void toggleHistory(loop)}
           disabled={busy}
         >
-          <History size={14} /> History
+          <History size={14} /> {ui("History")}
         </button>
         <button
           type="button"
@@ -355,11 +357,11 @@ export default function RoutinesScreen(): React.JSX.Element {
     <main className="section-workspace flex min-w-0 flex-1 flex-col overflow-hidden">
       <header className="section-header">
         <div>
-          <h1>Routines</h1>
-          <p>Put tasks on repeat — see what ran and fix misses.</p>
+          <h1>{ui("Routines")}</h1>
+          <p>{ui("Put tasks on repeat — see what ran and fix misses.")}</p>
         </div>
         <button type="button" className="primary-button" onClick={() => setCreating(true)}>
-          <Plus size={16} /> Create routine
+          <Plus size={16} /> {ui("Create routine")}
         </button>
       </header>
 
@@ -371,7 +373,7 @@ export default function RoutinesScreen(): React.JSX.Element {
               Collie will repeat: <strong>{justCreated.name}</strong>
             </span>
             <button type="button" className="secondary-button routine-undo" onClick={() => void undoCreate()} disabled={busy}>
-              <Undo2 size={13} /> Undo
+              <Undo2 size={13} /> {ui("Undo")}
             </button>
           </div>
         )}
@@ -439,9 +441,15 @@ export default function RoutinesScreen(): React.JSX.Element {
                 autoFocus
               />
             </label>
+            <label className="form-field">
+              <span>{ui("Time zone")}</span>
+              <select aria-label="Routine time zone" value={timezone} onChange={event => setTimezone(event.target.value)}>
+                {zones.map(zone => <option key={zone} value={zone}>{zone.replaceAll('_', ' ')}</option>)}
+              </select>
+            </label>
             <p className="dialog-hint">Include both what you want and when it should happen.</p>
             <div className="dialog-actions">
-              <button type="button" className="secondary-button" onClick={() => setCreating(false)}>Cancel</button>
+              <button type="button" className="secondary-button" onClick={() => setCreating(false)}>{ui("Cancel")}</button>
               <button
                 type="button"
                 className="primary-button"
@@ -490,6 +498,12 @@ export default function RoutinesScreen(): React.JSX.Element {
                 autoFocus
               />
             </label>
+            <label className="form-field">
+              <span>{ui("Time zone")}</span>
+              <select aria-label="Routine time zone" value={editTimezone} onChange={event => setEditTimezone(event.target.value)}>
+                {zones.map(zone => <option key={zone} value={zone}>{zone.replaceAll('_', ' ')}</option>)}
+              </select>
+            </label>
             <p className="dialog-hint">
               Reword it freely — its history and pause state stay put.
             </p>
@@ -502,7 +516,7 @@ export default function RoutinesScreen(): React.JSX.Element {
                   setEditText('')
                 }}
               >
-                Cancel
+                {ui("Cancel")}
               </button>
               <button
                 type="button"

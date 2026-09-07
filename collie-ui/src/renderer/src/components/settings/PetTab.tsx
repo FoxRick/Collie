@@ -1,3 +1,4 @@
+import { ui } from "../../lib/i18n"
 /**
  * Desktop pet settings (F070, F078).
  *
@@ -18,7 +19,7 @@ export default function PetTab({ onNotice }: Props): React.JSX.Element {
     <div>
       <section className="settings-card">
         <h3>
-          Desktop pet
+          {ui("Desktop pet")}
           <span
             className="rounded-full px-2 py-0.5 text-xs font-medium"
             style={{ background: 'var(--collie-amber)', color: '#fff' }}

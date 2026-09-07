@@ -20,6 +20,7 @@ from loguru import logger
 from collie_core.db import CollieDB, utc_now
 from collie_core.routines.models import Schedule
 from collie_core.routines.schedule import next_occurrence
+from collie_core.routines.timezone import local_timezone
 
 __all__ = [
     "AutomationScheduler",
@@ -136,6 +137,7 @@ def seed_builtin_automations(db: CollieDB) -> None:
             action_config=auto["action_config"],
             enabled=bool(auto.get("enabled", False)),
             delivery_channels=auto["delivery_channels"],
+            timezone_name=local_timezone(),
         )
         logger.info("Seeded automation: {}", auto["name"])
     db.set_setting("automations.builtins_seeded", True)
@@ -192,6 +194,7 @@ def seed_gardener_automations(db: CollieDB) -> None:
             action_config=auto["action_config"],
             enabled=bool(auto.get("enabled", False)),
             delivery_channels=auto["delivery_channels"],
+            timezone_name=local_timezone(),
         )
         logger.info("Seeded automation: {}", auto["name"])
     db.set_setting("automations.gardener_seeded", True)
@@ -355,7 +358,6 @@ class AutomationScheduler:
                     error_code=type(exc).__name__,
                     error_message=str(exc)[:1000],
                 )
-                self.db.mark_routine_result(str(auto["id"]), success=False, error=str(exc))
                 steps = self.db.list_run_steps(run_id)
                 current = self.db.get_current_run_step(run_id)
                 target = current or next(
@@ -389,7 +391,6 @@ class AutomationScheduler:
                     output_summary="Not reached during this run.",
                 )
             self.db.transition_run(run_id, "completed")
-            self.db.mark_routine_result(str(auto["id"]), success=True)
             await self._emit({"type": "run_completed", "run": self.db.get_run(run_id)})
 
     async def _fire(self, auto: dict[str, Any], *, mark_result: bool = True) -> None:

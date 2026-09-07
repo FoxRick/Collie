@@ -357,3 +357,14 @@ async def test_probe_model_not_found_rolls_back_with_warm_model_copy(
     assert runtime.db.get_provider("api-deepseek") is None
     assert collie_settings.get_api_key("deepseek") is None
     assert collie_settings.get_api_key("old-provider") == "old-secret"
+
+
+def test_keyless_custom_provider_must_be_loopback(runtime: CollieRuntime) -> None:
+    # A keyless custom endpoint (no API key) is only trusted on this machine.
+    # A remote host is rejected server-side, mirroring the renderer rule.
+    base = _candidate("keyless", model="llama3", api_base="https://example.com/v1")
+    base["api_key"] = None  # keyless (auth_type stays "api-key"; validator allows no key)
+    with pytest.raises(ValueError, match="must run on this computer"):
+        runtime._validated_provider_candidate(base)
+    ok = runtime._validated_provider_candidate({**base, "api_base": "http://127.0.0.1:11434/v1"})
+    assert ok["api_base"] == "http://127.0.0.1:11434/v1"

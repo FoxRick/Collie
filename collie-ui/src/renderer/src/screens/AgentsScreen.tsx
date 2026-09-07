@@ -1,3 +1,4 @@
+import { ui } from "../lib/i18n"
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, Bot, Eye, History, Plus, Shapes, Sparkles, Trash2, Undo2, Zap, X } from 'lucide-react'
 import { collieClient, type ActiveAgent, type ArtifactVersion, type CollieSkill, type Subagent, type SubagentStarter } from '../lib/ipc'
@@ -41,6 +42,7 @@ export default function AgentsScreen(): React.JSX.Element {
   const [skills, setSkills] = useState<CollieSkill[]>([])
   const [category, setCategory] = useState<AgentCategory>('All')
   const [versions, setVersions] = useState<ArtifactVersion[]>([])
+  const [versionRevision, setVersionRevision] = useState(0)
   const [undoingId, setUndoingId] = useState<string | null>(null)
   const [activeAgents, setActiveAgents] = useState<ActiveAgent[]>([])
   const [recentAgents, setRecentAgents] = useState<ActiveAgent[]>([])
@@ -140,7 +142,7 @@ export default function AgentsScreen(): React.JSX.Element {
         if (!cancelled) setVersions([])
       })
     return () => { cancelled = true }
-  }, [selected?.filename])
+  }, [selected?.filename, versionRevision])
 
   const undoVersion = async (versionId: string): Promise<void> => {
     setUndoingId(versionId)
@@ -198,6 +200,7 @@ export default function AgentsScreen(): React.JSX.Element {
         execution_posture: executionPosture
       })
       await refresh()
+      setVersionRevision((current) => current + 1)
       setNotice(`${selected.name} is up to date.`)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'I could not save those changes.')
@@ -227,10 +230,10 @@ export default function AgentsScreen(): React.JSX.Element {
         <header className="section-header section-header--detail">
           <div>
             <button className="section-back" type="button" onClick={() => setSelectedId(null)}>
-              <ArrowLeft size={15} /> All agents
+              <ArrowLeft size={15} /> {ui("All agents")}
             </button>
             <div className="agent-profile-title">
-              <AgentAvatar identity={selected.id} name={selected.name} size={64} />
+              <AgentAvatar name={selected.name} size={64} />
               <div>
                 <div className="workspace-eyebrow">AGENT PROFILE</div>
                 <h1>{selected.name}</h1>
@@ -329,15 +332,15 @@ export default function AgentsScreen(): React.JSX.Element {
                       executionPosture === selected.execution_posture)
                   }
                 >
-                  Save changes
+                  {ui("Save changes")}
                 </button>
               </div>
             </section>
             <section className="detail-card detail-card--wide">
               <div className="detail-card-heading">
                 <div>
-                  <span className="detail-label">History</span>
-                  <h2>Past versions</h2>
+                  <span className="detail-label">{ui("History")}</span>
+                  <h2>{ui("Past versions")}</h2>
                 </div>
                 <History size={18} />
               </div>
@@ -393,8 +396,8 @@ export default function AgentsScreen(): React.JSX.Element {
     <main className="section-workspace flex min-w-0 flex-1 flex-col overflow-hidden">
       <header className="section-header">
         <div>
-          <h1>Agents</h1>
-          <p>Focused helpers with their own instructions and access to Collie's skills.</p>
+          <h1>{ui("Agents")}</h1>
+          <p>{ui("Focused helpers with their own instructions and access to Collie's skills.")}</p>
         </div>
         <button
           type="button"
@@ -404,7 +407,7 @@ export default function AgentsScreen(): React.JSX.Element {
             setCreating(true)
           }}
         >
-          <Plus size={16} /> New agent
+          <Plus size={16} /> {ui("New agent")}
         </button>
       </header>
 
@@ -435,7 +438,7 @@ export default function AgentsScreen(): React.JSX.Element {
                 className="agent-card"
                 onClick={() => setSelectedId(agent.id)}
               >
-                <AgentAvatar identity={agent.id} name={agent.name} size={54} />
+                <AgentAvatar name={agent.name} size={54} />
                 <span className="agent-card-copy" title={agent.description || undefined}>
                   <b>{agent.name}</b>
                   <span>{summarizeDescription(agent.description)}</span>
@@ -464,7 +467,7 @@ export default function AgentsScreen(): React.JSX.Element {
             <div className="starter-heading">
               <div>
                 <span className="detail-label">QUICK START</span>
-                <h2>Ready-made teammates</h2>
+                <h2>{ui("Ready-made teammates")}</h2>
               </div>
               <Sparkles size={18} />
             </div>
@@ -484,7 +487,7 @@ export default function AgentsScreen(): React.JSX.Element {
                     )
                   }
                 >
-                  <AgentAvatar identity={starter.name} name={starter.name} size={42} />
+                  <AgentAvatar name={starter.name} size={42} />
                   <b>{starter.name}</b>
                   <span>{starter.description}</span>
                   <small><Plus size={12} /> Add to team</small>
@@ -555,7 +558,7 @@ export default function AgentsScreen(): React.JSX.Element {
             </fieldset>
             <p className="dialog-hint">Collie will write the detailed instructions. You can refine them afterward.</p>
             <div className="dialog-actions">
-              <button type="button" className="secondary-button" onClick={() => setCreating(false)}>Cancel</button>
+              <button type="button" className="secondary-button" onClick={() => setCreating(false)}>{ui("Cancel")}</button>
               <button
                 type="button"
                 className="primary-button"

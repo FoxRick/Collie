@@ -1,3 +1,4 @@
+import { ui } from "../../lib/i18n"
 import { CloudUpload, History, LogIn, LogOut, RotateCcw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
@@ -196,7 +197,7 @@ export default function AccountTab(): React.JSX.Element {
   return (
     <section className="settings-card">
       <h3>
-        <LogIn size={16} /> Collie account
+        <LogIn size={16} /> {ui("Collie account")}
       </h3>
       {state.signedIn ? (
         <>
@@ -286,7 +287,7 @@ export default function AccountTab(): React.JSX.Element {
             onClick={handleSignOut}
             disabled={busy}
           >
-            <LogOut size={14} /> Sign out
+            <LogOut size={14} /> {ui("Sign out")}
           </button>
         </>
       ) : (

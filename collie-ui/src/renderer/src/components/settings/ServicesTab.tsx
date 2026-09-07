@@ -1,3 +1,4 @@
+import { ui } from "../../lib/i18n"
 import { ArrowRight, Plug } from 'lucide-react'
 
 export default function ServicesTab({
@@ -22,7 +23,7 @@ export default function ServicesTab({
         className="settings-button is-primary flex items-center gap-1.5"
         onClick={onOpenConnectors}
       >
-        Open Connections <ArrowRight size={14} />
+        {ui("Open Connections")} <ArrowRight size={14} />
       </button>
     </section>
   )

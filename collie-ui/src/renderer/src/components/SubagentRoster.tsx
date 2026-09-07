@@ -36,7 +36,7 @@ function RosterRow({
       title={agent.task_description || undefined}
     >
       <span className="roster-row-avatar">
-        <AgentAvatar identity={agent.id || agent.name} name={agent.name} size={34} />
+        <AgentAvatar name={agent.name} size={34} />
         {!settled && <span className="agent-live-dot" aria-hidden />}
       </span>
       <span className="roster-row-copy">

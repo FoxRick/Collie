@@ -1,3 +1,4 @@
+import { ui } from "../lib/i18n"
 import { useEffect, useRef, useState } from 'react'
 import {
   Bot,
@@ -338,7 +339,7 @@ export default function Sidebar({
           aria-current={!workspace && activeView === 'chat' ? 'page' : undefined}
         >
           <MessageCircle size={15} />
-          <span>General Chat</span>
+          <span>{ui("General Chat")}</span>
         </button>
       </div>
 
@@ -350,14 +351,14 @@ export default function Sidebar({
         )}
         {pinnedConversations.length > 0 ? (
           <section className="sidebar-chat-group" aria-labelledby="sidebar-pinned-label">
-            <div id="sidebar-pinned-label" className="sidebar-nested-label">Pinned</div>
+            <div id="sidebar-pinned-label" className="sidebar-nested-label">{ui("Pinned")}</div>
             <div className="sidebar-nested-conversations">
               {conversationRows(pinnedConversations)}
             </div>
           </section>
         ) : null}
         <section className="sidebar-chat-group">
-          <div className="sidebar-nested-label">Recent chats</div>
+          <div className="sidebar-nested-label">{ui("Recent chats")}</div>
           <div className="sidebar-nested-conversations">
             {conversationRows(generalConversations)}
             {conversations.length === 0 ? (
@@ -368,9 +369,9 @@ export default function Sidebar({
 
         <section className="sidebar-project">
           <div className="sidebar-project-heading">
-            <div className="sidebar-section-label">Projects</div>
+            <div className="sidebar-section-label">{ui("Projects")}</div>
             <button type="button" onClick={onAddProject}>
-              <FolderPlus size={12} /> New project
+              <FolderPlus size={12} /> {ui("New project")}
             </button>
           </div>
           <div className="sidebar-project-list">
@@ -420,9 +421,9 @@ export default function Sidebar({
       <div className="sidebar-footer">
         <button type="button" onClick={() => setFeedbackOpen(true)}
           className="sidebar-footer-row mx-4 mb-2 flex items-center gap-2 px-3 py-2.5 text-sm transition"
-          title="Submit Feedback" aria-label="Submit Feedback" aria-haspopup="dialog">
+          title={ui("Submit Feedback")} aria-label={ui("Submit Feedback")} aria-haspopup="dialog">
           <MessageCircle size={16} aria-hidden="true" />
-          <span>Submit Feedback</span>
+          <span>{ui("Submit Feedback")}</span>
         </button>
         <button
           type="button"

@@ -49,6 +49,25 @@ from collie_core.tools.reminders import bind_reminders_db
 from collie_core.tools.suggest_profile import bind_suggest_workspace
 from collie_core.tools.task_checklists import bind_task_checklists_db
 
+# A "keyless" custom endpoint (no API key) is only trusted on this machine.
+# A remote host that needs no key would let anyone use it, and a keyless remote
+# that does need a key silently breaks — so enforce loopback here. This is the
+# server-side authority; the renderer has the same rule.
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def _is_loopback_host(host: str | None) -> bool:
+    if not host:
+        return False
+    host = host.strip().lower()
+    return (
+        host in _LOOPBACK_HOSTS
+        or host.startswith("127.")
+        or host == "[::1]"
+        or host.endswith("localhost")
+    )
+
+
 __all__ = ["CollieRuntime", "main"]
 
 
@@ -510,6 +529,15 @@ class CollieRuntime:
             runtime_name = "anthropic" if protocol == "anthropic" else "custom"
             if model is None:
                 raise ValueError("A custom endpoint requires a model ID.")
+            if (
+                runtime_name == "custom"
+                and not (candidate.get("api_key") or "").strip()
+                and not _is_loopback_host(parsed.hostname)
+            ):
+                raise ValueError(
+                    "A custom endpoint without an API key must run on this computer "
+                    "(localhost); add a key to use a remote host."
+                )
 
         api_key = candidate.get("api_key")
         if api_key is not None:
