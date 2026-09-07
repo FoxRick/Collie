@@ -562,6 +562,16 @@ CREATE INDEX IF NOT EXISTS idx_artifact_versions_type
   ON artifact_versions(artifact_type, artifact_key, version DESC);
 """
 
+_SCHEMA_V15 = """
+CREATE TABLE product_metrics_source (id TEXT PRIMARY KEY);
+CREATE TABLE product_metrics_daily (
+  day TEXT PRIMARY KEY,
+  runs INTEGER NOT NULL DEFAULT 0,
+  interactive_runs INTEGER NOT NULL DEFAULT 0,
+  tool_calls INTEGER NOT NULL DEFAULT 0
+);
+"""
+
 # Ordered migrations: index 0 == schema version 1, etc.
 _MIGRATIONS: list[str] = [
     _SCHEMA_V1,
@@ -578,6 +588,7 @@ _MIGRATIONS: list[str] = [
     _SCHEMA_V12,
     _SCHEMA_V13,
     _SCHEMA_V14,
+    _SCHEMA_V15,
 ]
 
 

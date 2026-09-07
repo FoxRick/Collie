@@ -25,7 +25,7 @@ def test_message_attachments_roundtrip(tmp_path: Path) -> None:
 
     assert created["attachments"] == attachments
     assert stored["attachments"] == attachments
-    assert db.schema_version == 14
+    assert db.schema_version == 15
 
 
 @pytest.mark.asyncio
