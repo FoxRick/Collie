@@ -71,6 +71,33 @@ begin
   exception when insufficient_privilege then null; end;
 end $$;
 reset role;
+-- Source cap: a device reports one random source; a 9th distinct source for
+-- the same (day, install) is refused, so a spammer pumping fresh UUIDs can't
+-- inflate counters or grow the table.
+do $$
+declare
+  cap_install uuid := 'd9a7b61c-23e9-4c66-8c0b-57fbe7a1d001';
+  cap_source uuid;
+  i int;
+  rows_at_end bigint;
+  cap_day date := (now() at time zone 'UTC')::date;
+begin
+  for i in 1..8 loop
+    cap_source := gen_random_uuid();
+    perform public.record_install_metrics(cap_install, cap_source,
+      jsonb_build_array(jsonb_build_object('day', cap_day, 'runs', 1,
+        'interactive_runs', 0, 'tool_calls', 0)));
+  end loop;
+  cap_source := gen_random_uuid();
+  perform public.record_install_metrics(cap_install, cap_source,
+    jsonb_build_array(jsonb_build_object('day', cap_day, 'runs', 1,
+      'interactive_runs', 0, 'tool_calls', 0)));
+  select count(*) into rows_at_end from public.install_metrics_daily
+    where day = cap_day and install_id = cap_install;
+  if rows_at_end <> 8 then
+    raise exception 'Source cap failed: % rows (expected 8)', rows_at_end;
+  end if;
+end $$;
 do $$ begin
   assert (select count(*) = 1 from public.install_activity_daily
     where install_id = 'b9d4991a-47cb-4eb4-9556-cf5b324aa076');

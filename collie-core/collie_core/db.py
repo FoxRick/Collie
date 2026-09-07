@@ -3235,8 +3235,13 @@ class CollieDB:
         return {"messages": int(row["messages"]), "tokens": int(row["tokens"])}
 
     def _increment_product_metrics(
-        self, conn: sqlite3.Connection, started_at: str | None,
-        *, runs: int = 0, interactive_runs: int = 0, tool_calls: int = 0,
+        self,
+        conn: sqlite3.Connection,
+        started_at: str | None,
+        *,
+        runs: int = 0,
+        interactive_runs: int = 0,
+        tool_calls: int = 0,
     ) -> None:
         if not self._product_metrics_enabled:
             return
@@ -3267,10 +3272,14 @@ class CollieDB:
             if not row:
                 conn.execute("INSERT INTO product_metrics_source VALUES (?)", (source,))
             conn.execute("DELETE FROM product_metrics_daily WHERE day < ?", (cutoff,))
-            days = [dict(row) for row in conn.execute(
-                "SELECT day, runs, interactive_runs, tool_calls FROM product_metrics_daily "
-                "WHERE day >= ? AND day <= ? ORDER BY day", (cutoff, today.isoformat()),
-            )]
+            days = [
+                dict(row)
+                for row in conn.execute(
+                    "SELECT day, runs, interactive_runs, tool_calls FROM product_metrics_daily "
+                    "WHERE day >= ? AND day <= ? ORDER BY day",
+                    (cutoff, today.isoformat()),
+                )
+            ]
         return {"source_id": source, "days": days}
 
     # -- run records (telemetry) ----------------------------------------------------------------
@@ -3379,7 +3388,9 @@ class CollieDB:
 
                 if started_at is not None and (turn_kind or "chat") != "subagent":
                     self._increment_product_metrics(
-                        conn, started_at, runs=1,
+                        conn,
+                        started_at,
+                        runs=1,
                         interactive_runs=int((turn_kind or "chat") in {"chat", "plan"}),
                     )
 

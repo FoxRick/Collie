@@ -48,6 +48,8 @@ declare
   item jsonb;
   metric_day date;
   today date := (now() at time zone 'UTC')::date;
+  src_count bigint;
+  is_new boolean;
 begin
   if p_install_id is null or p_source_id is null or p_days is null
      or jsonb_typeof(p_days) <> 'array' then
@@ -73,6 +75,23 @@ begin
     metric_day := (item->>'day')::date;
     if metric_day < today - 34 or metric_day > today then
       raise exception 'Metric day outside retry window' using errcode = '22023';
+    end if;
+    -- Cap distinct sources per (day, install). A real device reports one
+    -- random source, so a spammer pumping fresh UUIDs can inflate counters
+    -- and grow rows. Refuse a NEW source when 8 already exist for the
+    -- day/install; the idempotent same-source replays are unaffected.
+    select exists (
+      select 1 from public.install_metrics_daily
+        where day = metric_day and install_id = p_install_id
+          and source_id = p_source_id
+    ) into is_new;
+    if not is_new then
+      select count(*) into src_count
+        from public.install_metrics_daily
+        where day = metric_day and install_id = p_install_id;
+      if src_count >= 8 then
+        continue;
+      end if;
     end if;
     insert into public.install_metrics_daily
       (day, install_id, source_id, runs, interactive_runs, tool_calls)

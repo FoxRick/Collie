@@ -60,9 +60,7 @@ _SERVER_ONLY_ALLOWLIST: dict[str, str] = {
 _SERVER_RE = re.compile(r"^    async def _cmd_(\w+)\(", re.MULTILINE)
 # Renderer .command / main-process commandWithCore — kind may sit on the next line and be
 # single- or double-quoted (see create_subagent / begin_connector_auth).
-_COMMAND_RE = re.compile(
-    r"(?:\.command|\bcommandWithCore)(?:<[^>]*>)?\(\s*['\"]([^'\"]+)['\"]"
-)
+_COMMAND_RE = re.compile(r"(?:\.command|\bcommandWithCore)(?:<[^>]*>)?\(\s*['\"]([^'\"]+)['\"]")
 
 
 def _server_command_kinds() -> set[str]:
