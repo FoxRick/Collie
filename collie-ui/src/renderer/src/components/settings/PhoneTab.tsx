@@ -1,3 +1,4 @@
+import { ui } from "../../lib/i18n"
 import { useCallback, useEffect, useState } from 'react'
 import { ExternalLink, ShieldCheck } from 'lucide-react'
 import { collieClient, type CollieEvent, type MessengerInfo } from '../../lib/ipc'
@@ -128,7 +129,7 @@ export default function PhoneTab({ onNotice }: Props): React.JSX.Element {
             void refresh()
           }}
         >
-          Try again
+          {ui("Try again")}
         </button>
       </section>
     )
@@ -274,7 +275,7 @@ export default function PhoneTab({ onNotice }: Props): React.JSX.Element {
               className="rounded-lg border px-3 py-1.5 text-xs font-medium"
               style={{ borderColor: 'var(--collie-border)' }}
             >
-              Disconnect Telegram
+              {ui("Disconnect Telegram")}
             </button>
           </div>
         )}

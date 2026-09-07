@@ -1,3 +1,4 @@
+import { ui } from "../lib/i18n"
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, CheckCircle2, Search, TriangleAlert } from 'lucide-react'
 import { collieClient, type CollieSkill } from '../lib/ipc'
@@ -62,7 +63,7 @@ export default function SkillsScreen(): React.JSX.Element {
         <header className="section-header section-header--detail">
           <div>
             <button type="button" className="section-back" onClick={() => setSelected(null)}>
-              <ArrowLeft size={15} /> All skills
+              <ArrowLeft size={15} /> {ui("All skills")}
             </button>
             <div className="workspace-eyebrow">SKILL PROFILE</div>
             <h1>{selected.name.replace(/-/g, ' ')}</h1>
@@ -110,8 +111,8 @@ export default function SkillsScreen(): React.JSX.Element {
     <main className="section-workspace flex min-w-0 flex-1 flex-col overflow-hidden">
       <header className="section-header">
         <div>
-          <h1>Skills</h1>
-          <p>Explore the things Collie and every agent know how to do.</p>
+          <h1>{ui("Skills")}</h1>
+          <p>{ui("Explore the things Collie and every agent know how to do.")}</p>
         </div>
         <div className="catalog-search">
           <Search size={14} />

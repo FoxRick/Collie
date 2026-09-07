@@ -1,3 +1,4 @@
+import { ui } from "../../lib/i18n"
 import { useCallback, useEffect, useState } from 'react'
 import { Check, History, Pencil, Plus, Sparkles, Trash2, Undo2, X } from 'lucide-react'
 import { collieClient, type ArtifactVersion } from '../../lib/ipc'
@@ -266,7 +267,7 @@ export default function MemoryTab({ onNotice }: Props): React.JSX.Element {
             void loadAll()
           }}
         >
-          Try again
+          {ui("Try again")}
         </button>
       </section>
     )
@@ -464,7 +465,7 @@ export default function MemoryTab({ onNotice }: Props): React.JSX.Element {
               disabled={saving || !addIsValid}
               onClick={saveNewMemory}
             >
-              <Check size={14} /> Save memory
+              <Check size={14} /> {ui("Save memory")}
             </button>
           </div>
         </section>
@@ -479,7 +480,7 @@ export default function MemoryTab({ onNotice }: Props): React.JSX.Element {
         <>
           {profileEntries.length > 0 && (
             <section className="memory-section">
-              <h3>About you</h3>
+              <h3>{ui("About you")}</h3>
               <div className="memory-list">
                 {profileEntries.map(([key, value]) => {
                   const isEditing = editing?.kind === 'profile' && editing.id === key
@@ -501,7 +502,7 @@ export default function MemoryTab({ onNotice }: Props): React.JSX.Element {
                         {isEditing ? (
                           <>
                             <button
-                              aria-label="Save memory"
+                              aria-label={ui("Save memory")}
                               disabled={saving}
                               onClick={() =>
                                 void runChange(
@@ -544,7 +545,7 @@ export default function MemoryTab({ onNotice }: Props): React.JSX.Element {
 
           {people.length > 0 && (
             <section className="memory-section">
-              <h3>People</h3>
+              <h3>{ui("People")}</h3>
               <div className="memory-card-list">
                 {people.map((person) => {
                   const isEditing = editing?.kind === 'person' && editing.id === person.id
@@ -607,9 +608,9 @@ export default function MemoryTab({ onNotice }: Props): React.JSX.Element {
                                   `${draft.name}'s memory updated.`
                                 )
                               }
-                            ><Check size={14} /> Save</button>
+                            ><Check size={14} /> {ui("Save")}</button>
                             <button className="settings-button" onClick={() => setEditing(null)}>
-                              Cancel
+                              {ui("Cancel")}
                             </button>
                           </>
                         ) : (
@@ -641,7 +642,7 @@ export default function MemoryTab({ onNotice }: Props): React.JSX.Element {
 
           {dates.length > 0 && (
             <section className="memory-section">
-              <h3>Important dates</h3>
+              <h3>{ui("Important dates")}</h3>
               <div className="memory-list">
                 {dates.map((dateEntry) => {
                   const isEditing = editing?.kind === 'date' && editing.id === dateEntry.id
@@ -799,7 +800,7 @@ export default function MemoryTab({ onNotice }: Props): React.JSX.Element {
       </section>
 
       <section className="memory-section">
-        <h3><History size={14} /> History</h3>
+        <h3><History size={14} /> {ui("History")}</h3>
         <p className="memory-note">
           Every memory change is snapshotted — edits, Collie's weekly memory reviews,
           and improvement suggestions — so anything can be undone.
@@ -816,7 +817,7 @@ export default function MemoryTab({ onNotice }: Props): React.JSX.Element {
         </div>
         {historyOpen && (
           versions.length === 0 ? (
-            <p className="memory-note">No changes recorded yet.</p>
+            <p className="memory-note">{ui("No changes recorded yet.")}</p>
           ) : (
             <div className="version-list">
               {versions.map((version) => (

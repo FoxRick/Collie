@@ -3,9 +3,9 @@
 
 Fails when the asset layout regresses:
 
-1. Agent avatar sheet (`agents/dog-portrait-sheet-30.png`): no cell may have
-   content touching the outer 4px (full-bleed art clips at the rounded
-   avatar corners). Fixed sheets keep content inside a uniform ~16% margin.
+1. Agent avatar sheet (`agents/dog-portrait-sheet-30.png`): each cell must be square, with headroom and side margins.
+   Head-and-shoulder portraits intentionally meet the bottom edge.
+   Visual QA is still required: geometry cannot detect incorrect artwork.
 2. Face-only portrait strips + stills (`portrait/*`): per-cell face content
    centers must stay close to the strip's median (transparent translation
    keeps the chat head centered on crossfade; drift = jump).
@@ -56,20 +56,11 @@ def content_bbox(img, min_alpha=16):
 
 
 def border_dominant(img):
-    """Most common color among the outer ring (the tile's frame/margin tone)."""
-    from collections import Counter
-    rgba = img.convert("RGBA")
-    w, h = rgba.size
-    cnt = Counter()
-    for x in range(w):
-        for y in (0, 1, h - 2, h - 1):
-            r, g, b, a = rgba.getpixel((x, y))
-            cnt[(r // 8 * 8, g // 8 * 8, b // 8 * 8, a // 16 * 16)] += 1
-    for y in range(h):
-        for x in (0, 1, w - 2, w - 1):
-            r, g, b, a = rgba.getpixel((x, y))
-            cnt[(r // 8 * 8, g // 8 * 8, b // 8 * 8, a // 16 * 16)] += 1
-    return cnt.most_common(1)[0][0]
+    """Sample the clear headroom, not the dog's shoulders at the bottom."""
+    from statistics import median
+    rgb = img.convert("RGB")
+    samples = [rgb.getpixel((x, 2)) for x in range(img.width // 4, 3 * img.width // 4)]
+    return tuple(int(median(pixel[channel] for pixel in samples)) for channel in range(3))
 
 
 def color_bbox(img, bg, tol=48):
@@ -98,21 +89,26 @@ def check_agent_sheet(root, verbose):
     w, h = img.size
     cols, rows = AGENT_CELLS
     cw, ch = w // cols, h // rows
+    if w % cols or h % rows or cw != ch or cw != 229:
+        return [("layout", "expected 229px square cells matching AgentAvatar", (w, h))]
     full_bleed = []
     for r in range(rows):
         for c in range(cols):
             cell = img.crop((c * cw, r * ch, (c + 1) * cw, (r + 1) * ch))
+            # Ignore the 2px source gutter and shoulders; inspect the head area.
+            cell = cell.crop((2, 2, cw - 2, int(ch * 0.75)))
             bg = border_dominant(cell)
-            bb = color_bbox(cell, bg)
+            bb = color_bbox(cell, bg, tol=64)
             if bb is None:
+                full_bleed.append((r, c, "missing portrait"))
                 continue
             l, t, rr, b = bb
             if (l <= AGENT_EDGE_TOLERANCE_PX or t <= AGENT_EDGE_TOLERANCE_PX or
-                    rr >= cw - AGENT_EDGE_TOLERANCE_PX or b >= ch - AGENT_EDGE_TOLERANCE_PX):
+                    rr >= cell.width - AGENT_EDGE_TOLERANCE_PX):
                 full_bleed.append((r, c, bb))
     if verbose:
         print(f"agent sheet: {len(full_bleed)}/30 cells with content within "
-              f"{AGENT_EDGE_TOLERANCE_PX}px of an edge")
+              f"{AGENT_EDGE_TOLERANCE_PX}px of a top/side edge")
     return full_bleed
 
 

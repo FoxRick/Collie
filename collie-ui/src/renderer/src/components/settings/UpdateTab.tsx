@@ -1,3 +1,4 @@
+import { ui } from "../../lib/i18n"
 import { useEffect, useState } from 'react'
 import { CheckCircle2, Download, RefreshCw, RotateCcw, TriangleAlert } from 'lucide-react'
 
@@ -97,7 +98,7 @@ export default function UpdateTab(): React.JSX.Element {
         )}
       </div>
       <div>
-        <h3>Collie updates</h3>
+        <h3>{ui("Collie updates")}</h3>
         {status.failedUpdate ? (
           <div className="update-failure-banner" role="alert">
             <TriangleAlert size={16} className="update-failure-banner-icon" />
@@ -130,7 +131,7 @@ export default function UpdateTab(): React.JSX.Element {
                 disabled={busy}
                 onClick={() => void run(() => window.collie.checkForUpdate())}
               >
-                <RefreshCw size={15} /> Check for updates
+                <RefreshCw size={15} /> {ui("Check for updates")}
               </button>
             )}
             {status.phase === 'available' && (
@@ -139,7 +140,7 @@ export default function UpdateTab(): React.JSX.Element {
                 disabled={busy}
                 onClick={() => void run(() => window.collie.downloadUpdate())}
               >
-                <Download size={15} /> Download update
+                <Download size={15} /> {ui("Download update")}
               </button>
             )}
             {status.phase === 'ready' && (
@@ -148,7 +149,7 @@ export default function UpdateTab(): React.JSX.Element {
                 disabled={busy}
                 onClick={() => void restart()}
               >
-                <RotateCcw size={15} /> Restart and install
+                <RotateCcw size={15} /> {ui("Restart and install")}
               </button>
             )}
           </>

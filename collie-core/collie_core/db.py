@@ -1395,19 +1395,22 @@ class CollieDB:
     ) -> None:
         now = utc_now()
         with self._write() as conn:
-            if success:
-                conn.execute(
-                    "UPDATE automations SET last_run = ?, last_success_at = ?, "
-                    "consecutive_failures = 0, updated_at = ? WHERE id = ?",
-                    (now, now, now, automation_id),
-                )
-            else:
-                conn.execute(
-                    "UPDATE automations SET last_failure_at = ?, "
-                    "consecutive_failures = consecutive_failures + 1, updated_at = ? "
-                    "WHERE id = ?",
-                    (now, now, automation_id),
-                )
+            self._mark_routine_result_with(conn, automation_id, success=success, now=now)
+
+    @staticmethod
+    def _mark_routine_result_with(conn, automation_id: str, *, success: bool, now: str) -> None:
+        if success:
+            conn.execute(
+                "UPDATE automations SET last_run = ?, last_success_at = ?, "
+                "consecutive_failures = 0, updated_at = ? WHERE id = ?",
+                (now, now, now, automation_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE automations SET last_failure_at = ?, "
+                "consecutive_failures = consecutive_failures + 1, updated_at = ? WHERE id = ?",
+                (now, now, automation_id),
+            )
 
     def get_automation(self, automation_id: str) -> dict[str, Any] | None:
         return self._row("SELECT * FROM automations WHERE id = ?", (automation_id,))
@@ -2586,6 +2589,9 @@ class CollieDB:
             else None
         )
         with self._write() as conn:
+            previous = conn.execute(
+                "SELECT status, routine_id FROM runs WHERE id = ?", (run_id,)
+            ).fetchone()
             cursor = conn.execute(
                 "UPDATE runs SET status = ?, started_at = COALESCE(started_at, ?), "
                 "finished_at = COALESCE(?, finished_at), heartbeat_at = ?, "
@@ -2594,6 +2600,15 @@ class CollieDB:
             )
             if cursor.rowcount:
                 self._bump_run_task_revision_with(conn, run_id, now=now)
+                if (
+                    previous is not None
+                    and previous["routine_id"]
+                    and previous["status"] != status
+                    and status in {"completed", "failed"}
+                ):
+                    self._mark_routine_result_with(
+                        conn, previous["routine_id"], success=status == "completed", now=now
+                    )
         return self.get_run(run_id)  # type: ignore[return-value]
 
     def recover_stale_runs(self, stale_before: str) -> int:

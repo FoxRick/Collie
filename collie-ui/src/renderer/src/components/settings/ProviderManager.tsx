@@ -1,3 +1,4 @@
+import { ui } from "../../lib/i18n"
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, Plus, Trash2 } from 'lucide-react'
 import {
@@ -321,7 +322,7 @@ export default function ProviderManager({
               <span>{item.model || 'Default model'} · {item.auth_type === 'api-key' ? 'API key' : 'Sign-in'}</span>
             </div>
             {item.is_default === 1 ? (
-              <span className="provider-active"><Check size={12} /> In use</span>
+              <span className="provider-active"><Check size={12} /> {ui("In use")}</span>
             ) : (
               <button
                 type="button"
@@ -455,7 +456,7 @@ export default function ProviderManager({
             disabled={!apiKey.trim() || busyAction === 'add-api'}
             onClick={() => void saveApiKey()}
           >
-            Connect
+            {ui("Connect")}
           </button>
           <span className="provider-or">or sign in</span>
           <div className="provider-signin-row">
@@ -474,7 +475,7 @@ export default function ProviderManager({
                 style={{ color: 'var(--collie-text-muted)' }}
                 onClick={() => cancelOAuth('chatgpt')}
               >
-                Cancel
+                {ui("Cancel")}
               </button>
             )}
             <button
@@ -492,7 +493,7 @@ export default function ProviderManager({
                 style={{ color: 'var(--collie-text-muted)' }}
                 onClick={() => cancelOAuth('claude')}
               >
-                Cancel
+                {ui("Cancel")}
               </button>
             )}
           </div>

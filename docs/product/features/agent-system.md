@@ -79,3 +79,28 @@ owner edits.
   behavioural, memory, instruction, setting, or permission change.
 - An owner can roll back an approved Gardener change in one action without
   overwriting subsequent owner changes or replaying external work.
+
+## Desktop identity, schedules, and preferences
+
+Agent portraits use the helper's normalized name consistently in starter cards,
+profiles, and live activity. A new task ID must not change that helper's portrait.
+The 30-cell portrait atlas has square 229-pixel cells; rendering excludes a
+2-pixel gutter to avoid neighboring artwork at fractional display scales.
+After saving instructions, the open profile immediately refreshes its version
+history so the new edit can be undone without reopening the profile.
+
+New routines default to the user's computer timezone, supplied by the desktop
+shell as an IANA timezone. Every routine displays its timezone and allows it to
+be changed. Changing zones preserves the local clock time and recurrence and
+recomputes the next run. Existing saved zones remain unchanged on upgrade or
+travel; users can explicitly choose another zone. Daylight-saving transitions
+follow that zone's rules, with one execution at the first occurrence of a
+repeated clock time. Routine labels use the structured schedule, including
+weekdays and selected days. Successful and failed runs update the routine
+summary for scheduled, manual, and retry triggers.
+
+Text-size preferences scale navigation, settings, and other interface text as
+well as chat. The interface language preference applies to navigation, settings
+headings, and translated shared controls; user-authored names and content remain
+unchanged. It does not force the language of chat replies. Untranslated copy
+continues to fall back to English.

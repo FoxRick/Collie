@@ -1,3 +1,4 @@
+import { ui } from "../../lib/i18n"
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 
 interface Props {
@@ -51,7 +52,7 @@ export default class TabErrorBoundary extends Component<Props, State> {
               className="settings-button"
               onClick={() => this.setState({ error: null })}
             >
-              Try again
+              {ui("Try again")}
             </button>
           </div>
         </section>

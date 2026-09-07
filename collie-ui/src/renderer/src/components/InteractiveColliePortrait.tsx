@@ -55,7 +55,7 @@ function AgentPopupRow({
       className={settled ? 'portrait-agent-row is-settled' : 'portrait-agent-row'}
       title={`${agent.name} · ${agentPhaseLabel(agent)}`}
     >
-      <AgentAvatar identity={agent.id || agent.name} name={agent.name} size={34} />
+      <AgentAvatar name={agent.name} size={34} />
       <b>
         {agent.name}
         <em className="portrait-agent-elapsed">{elapsedLabel}</em>

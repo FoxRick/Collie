@@ -131,6 +131,7 @@ export async function spawnCore(isDev: boolean): Promise<void> {
     env: {
       ...env,
       COLLIE_IPC_PORT: String(IPC_PORT),
+      COLLIE_TIMEZONE: Intl.DateTimeFormat().resolvedOptions().timeZone,
       COLLIE_IPC_TOKEN: ipcToken,
       COLLIE_PRODUCT_METRICS: isDev ? '0' : '1',
       COLLIE_MCP_RUNTIME_ROOT: bundledMcpRuntime(isDev),
