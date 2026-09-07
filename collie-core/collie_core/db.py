@@ -20,7 +20,7 @@ import threading
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -599,6 +599,9 @@ class CollieDB:
         self.path = db_path or (collie_home() / "collie.db")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        # Only the packaged desktop launcher enables collection. Development
+        # cores and standalone headless benchmarks cannot pollute these counts.
+        self._product_metrics_enabled = os.environ.get("COLLIE_PRODUCT_METRICS") == "1"
         self._conn = sqlite3.connect(str(self.path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
@@ -3231,6 +3234,45 @@ class CollieDB:
         row = rows[0] if rows else {"messages": 0, "tokens": 0}
         return {"messages": int(row["messages"]), "tokens": int(row["tokens"])}
 
+    def _increment_product_metrics(
+        self, conn: sqlite3.Connection, started_at: str | None,
+        *, runs: int = 0, interactive_runs: int = 0, tool_calls: int = 0,
+    ) -> None:
+        if not self._product_metrics_enabled:
+            return
+        day = datetime.fromisoformat(started_at or utc_now()).astimezone(UTC).date().isoformat()
+        conn.execute(
+            "INSERT INTO product_metrics_daily (day, runs, interactive_runs, tool_calls) "
+            "VALUES (?, ?, ?, ?) ON CONFLICT(day) DO UPDATE SET "
+            "runs = runs + excluded.runs, "
+            "interactive_runs = interactive_runs + excluded.interactive_runs, "
+            "tool_calls = tool_calls + excluded.tool_calls",
+            (day, runs, interactive_runs, tool_calls),
+        )
+
+    def product_metrics(self) -> dict[str, Any]:
+        """Bounded, content-free cumulative counters; never export raw run records.
+
+        Source identity and counters deliberately do not travel in cloud backups.
+        Clearing local data rotates the source so new counts do not collide with
+        high-water marks already accepted by the server.
+        """
+        if not self._product_metrics_enabled:
+            return {}
+        today = datetime.now(UTC).date()
+        cutoff = (today - timedelta(days=34)).isoformat()
+        with self._write_immediate() as conn:
+            row = conn.execute("SELECT id FROM product_metrics_source").fetchone()
+            source = row["id"] if row else str(uuid.uuid4())
+            if not row:
+                conn.execute("INSERT INTO product_metrics_source VALUES (?)", (source,))
+            conn.execute("DELETE FROM product_metrics_daily WHERE day < ?", (cutoff,))
+            days = [dict(row) for row in conn.execute(
+                "SELECT day, runs, interactive_runs, tool_calls FROM product_metrics_daily "
+                "WHERE day >= ? AND day <= ? ORDER BY day", (cutoff, today.isoformat()),
+            )]
+        return {"source_id": source, "days": days}
+
     # -- run records (telemetry) ----------------------------------------------------------------
 
     def record_turn_event(
@@ -3335,6 +3377,12 @@ class CollieDB:
                     ),
                 )
 
+                if started_at is not None and (turn_kind or "chat") != "subagent":
+                    self._increment_product_metrics(
+                        conn, started_at, runs=1,
+                        interactive_runs=int((turn_kind or "chat") in {"chat", "plan"}),
+                    )
+
     def record_tool_event(
         self,
         *,
@@ -3408,6 +3456,8 @@ class CollieDB:
                         finished_at,
                     ),
                 )
+
+                self._increment_product_metrics(conn, started_at, tool_calls=1)
 
     def list_turn_events(
         self,
@@ -3647,6 +3697,8 @@ class CollieDB:
             # messages (FK -> conversations), and plans/runs must go first so no
             # foreign-key violation aborts the wipe halfway.
             tables = [
+                "product_metrics_daily",
+                "product_metrics_source",
                 "task_checklist_steps",
                 "task_checklists",
                 "conversation_review_gates",
