@@ -1,3 +1,4 @@
+import { ui } from "../lib/i18n"
 import { useEffect, useState } from 'react'
 import {
   ArrowLeft,
@@ -245,15 +246,15 @@ export default function SettingsScreen({
                   </button>
                 ))}
               </div>
-              <h4 className="mb-2 mt-4 text-sm font-medium">Language</h4>
+              <h4 className="mb-2 mt-4 text-sm font-medium">{ui("App language")}</h4>
               <p className="mb-2 text-sm" style={{ color: 'var(--collie-text-muted)' }}>
-                Pick the language Collie speaks. “Automatic” follows your computer.
+                {ui("Choose the interface language. Chat replies follow your conversation.")}
               </p>
-              <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Language">
+              <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={ui("App language")}>
                 {(['system', ...LOCALES] as const).map((pref) => {
                   const label =
                     pref === 'system'
-                      ? `Automatic (${LOCALE_LABELS[resolveLocale()]})`
+                      ? `${ui('Automatic')} (${LOCALE_LABELS[resolveLocale('system')]})`
                       : LOCALE_LABELS[pref]
                   return (
                     <button
@@ -280,7 +281,7 @@ export default function SettingsScreen({
           <>
             <AccountTab />
             <section className="settings-card">
-              <h3 className="mb-2 font-medium">Your data</h3>
+              <h3 className="mb-2 font-medium">{ui("Your data")}</h3>
               <p className="settings-lead">
                 Take everything Collie knows with you, any time.
               </p>
@@ -296,12 +297,12 @@ export default function SettingsScreen({
                   }
                   className="settings-button"
                 >
-                  Export my data
+                  {ui("Export my data")}
                 </button>
               </div>
             </section>
             <section className="settings-card settings-danger-zone">
-              <h3 className="mb-2 font-medium">Danger zone</h3>
+              <h3 className="mb-2 font-medium">{ui("Danger zone")}</h3>
               <p className="settings-lead">
                 Deletes everything Collie remembers — chats, memories, people,
                 automations. This cannot be undone.
@@ -347,7 +348,7 @@ export default function SettingsScreen({
                       }}
                       disabled={deleteBusy}
                     >
-                      Keep my data
+                      {ui("Keep my data")}
                     </button>
                   </div>
                 </div>
@@ -357,7 +358,7 @@ export default function SettingsScreen({
                     className="settings-button is-danger"
                     onClick={() => setDangerOpen(true)}
                   >
-                    Delete all data…
+                    {ui("Delete all data…")}
                   </button>
                 </div>
               )}
@@ -372,7 +373,7 @@ export default function SettingsScreen({
             <section className="settings-card onboarding-card">
               <div className="settings-card-icon"><RotateCcw size={19} /></div>
               <div>
-                <h3>Getting started</h3>
+                <h3>{ui("Getting started")}</h3>
                 <p>
                   Reopen the welcome chat — the one where Collie asks your name.
                   It picks up right where you left off.
@@ -382,20 +383,20 @@ export default function SettingsScreen({
                 className="settings-button is-primary"
                 onClick={() => onGetStarted?.()}
               >
-                Getting started
+                {ui("Getting started")}
               </button>
             </section>
             <section className="settings-card onboarding-card">
               <div className="settings-card-icon"><RotateCcw size={19} /></div>
               <div>
-                <h3>Run setup again</h3>
+                <h3>{ui("Run setup again")}</h3>
                 <p>
                   Revisit provider sign-in and connection choices. Your chats, memories, and
                   existing settings stay intact.
                 </p>
               </div>
               <button className="settings-button is-primary" onClick={onRedoOnboarding}>
-                Start onboarding
+                {ui("Start onboarding")}
               </button>
             </section>
           </div>
@@ -425,7 +426,7 @@ export default function SettingsScreen({
         </div>
         {SETTINGS_GROUPS.map((group) => (
           <div key={group.label} className="settings-nav-group">
-            <div className="settings-nav-label">{group.label}</div>
+            <div className="settings-nav-label">{ui(group.label)}</div>
             {group.items.map(({ key, label, icon: Icon }) => (
               <button
                 key={key}
@@ -434,7 +435,7 @@ export default function SettingsScreen({
                 className={`settings-nav-item ${tab === key ? 'is-active' : ''}`}
                 aria-current={tab === key ? 'page' : undefined}
               >
-                <Icon size={15} /> {label}
+                <Icon size={15} /> {ui(label)}
               </button>
             ))}
           </div>
@@ -459,8 +460,8 @@ export default function SettingsScreen({
           )}
           <div className="settings-page">
             <header className="settings-page-header">
-              <h2>{TAB_COPY[tab].title}</h2>
-              <p>{TAB_COPY[tab].description}</p>
+              <h2>{ui(TAB_COPY[tab].title)}</h2>
+              <p>{ui(TAB_COPY[tab].description)}</p>
             </header>
             <div className="settings-page-body">
               <TabErrorBoundary tab={tab}>{renderTab()}</TabErrorBoundary>

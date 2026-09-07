@@ -1,3 +1,4 @@
+import { ui } from "../lib/i18n"
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   collieClient,
@@ -319,9 +320,9 @@ export default function ConnectorsScreen(): React.JSX.Element {
     <main className="min-w-0 flex-1 overflow-y-auto p-6">
       <div className="mx-auto max-w-6xl">
         <header className="mb-5">
-          <h1 className="text-2xl font-semibold">Connections</h1>
+          <h1 className="text-2xl font-semibold">{ui("Connections")}</h1>
           <p className="mt-1 text-sm" style={{ color: 'var(--collie-paw)' }}>
-            Pick an app, sign in, and use it in chat. Collie confirms important actions.
+            {ui("Pick an app, sign in, and use it in chat. Collie confirms important actions.")}
           </p>
         </header>
         {notice ? (
@@ -395,7 +396,7 @@ export default function ConnectorsScreen(): React.JSX.Element {
             <ConnectorSearch value={query} onChange={setQuery} />
             {featured.length > 0 ? (
               <section className="mt-6">
-                <h2 className="mb-3 text-sm font-semibold">Featured</h2>
+                <h2 className="mb-3 text-sm font-semibold">{ui("Featured")}</h2>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {featured.map((connector) => (
                     <ConnectorCard

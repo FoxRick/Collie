@@ -137,6 +137,26 @@ afterEach(() => {
 })
 
 describe('WelcomeScreen first-run choices', () => {
+  it('connects a keyless loopback provider but still requires a key for remote providers', async () => {
+    hooks.configureApiKeyProvider.mockResolvedValue({ configured: true, model_label: 'local' })
+    const { container } = renderWelcome()
+    await expandApiKeyForm(container)
+    const button = (label: string): HTMLButtonElement => Array.from(container.querySelectorAll('button'))
+      .find((item) => item.textContent === label)!
+    act(() => button('OpenAI').click())
+    act(() => button('Custom (OpenAI-compatible)').click())
+    const base = container.querySelector<HTMLInputElement>('input[placeholder^="Base URL"]')!
+    const model = container.querySelector<HTMLInputElement>('input[placeholder^="Model (e.g."]')!
+    typeInto(base, 'https://remote.example/v1')
+    typeInto(model, 'local-model')
+    expect(button('Connect').disabled).toBe(true)
+    typeInto(base, 'http://127.0.0.1:11434/v1')
+    expect(button('Connect').disabled).toBe(false)
+    await act(async () => button('Connect').click())
+    expect(hooks.configureApiKeyProvider).toHaveBeenCalledWith(expect.objectContaining({
+      apiKey: '', baseUrl: 'http://127.0.0.1:11434/v1', model: 'local-model'
+    }))
+  })
   it('shows the three choice cards, the help card, and the corrected footer', () => {
     const { container } = renderWelcome()
     const text = container.textContent!

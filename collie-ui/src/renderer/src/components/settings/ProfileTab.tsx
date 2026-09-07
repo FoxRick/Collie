@@ -1,3 +1,4 @@
+import { ui } from "../../lib/i18n"
 import { useCallback, useEffect, useState } from 'react'
 import { TriangleAlert } from 'lucide-react'
 import { collieClient } from '../../lib/ipc'
@@ -56,7 +57,7 @@ export default function ProfileTab({ onNotice }: Props): React.JSX.Element {
 
   return (
     <div>
-      <h3 className="mb-1 font-semibold">Collie's Personality</h3>
+      <h3 className="mb-1 font-semibold">{ui("Collie's Personality")}</h3>
       <p className="mb-3 text-sm" style={{ color: 'var(--collie-paw)' }}>
         This is your VISION.md. Collie reads this at the start of every conversation.
       </p>
@@ -75,7 +76,7 @@ export default function ProfileTab({ onNotice }: Props): React.JSX.Element {
             that Collie is running, then try again.
           </p>
           <button type="button" className="settings-button" onClick={() => void load()}>
-            Try again
+            {ui("Try again")}
           </button>
         </section>
       ) : (
@@ -101,7 +102,7 @@ export default function ProfileTab({ onNotice }: Props): React.JSX.Element {
               className="rounded-lg px-4 py-2 text-sm"
               style={{ color: 'var(--collie-paw)', background: 'var(--collie-fur)' }}
             >
-              Reset to default
+              {ui("Reset to default")}
             </button>
           </div>
         </>

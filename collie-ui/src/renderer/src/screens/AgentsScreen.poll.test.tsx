@@ -230,3 +230,31 @@ describe('AgentsScreen live roster poll', () => {
     expect(text()).toContain('Trip Planner')
   })
 })
+
+it('refreshes version history immediately after saving instructions', async () => {
+  const agent = { id: 'trip', name: 'Trip Planner', filename: 'trip.md', description: 'Plans trips', system_prompt: 'Original instructions', execution_posture: 'read_only', created_at: '', updated_at: '' }
+  hooks.client.listSubagents.mockResolvedValue({ subagents: [agent], starters: [] })
+  hooks.client.getSubagentActivity.mockResolvedValue({ active_agents: [], recent_agents: [] })
+  hooks.client.listVersions.mockResolvedValue({ versions: [] })
+  hooks.client.updateSubagent.mockResolvedValue({ subagent: { ...agent, system_prompt: 'Updated instructions' } })
+  render()
+  await act(async () => {})
+  await act(async () => {
+    host!.querySelector<HTMLButtonElement>('.agent-card')!.click()
+  })
+  expect(text()).toContain('No recorded changes yet.')
+  const textarea = host!.querySelector('textarea')!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'Updated instructions')
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  hooks.client.listVersions.mockResolvedValue({ versions: [{ id: 'v1', version: 1, status: 'applied', created_at: '2026-09-07T00:00:00Z', source: 'user' }] })
+  hooks.client.listSubagents.mockResolvedValue({ subagents: [{ ...agent, system_prompt: 'Updated instructions' }], starters: [] })
+  await act(async () => {
+    const save = [...host!.querySelectorAll('button')].find(button => button.textContent?.includes('Save changes'))!
+    save.click()
+  })
+  expect(hooks.client.updateSubagent).toHaveBeenCalled()
+  expect(text()).toContain('Version 1')
+  expect(text()).not.toContain('No recorded changes yet.')
+})

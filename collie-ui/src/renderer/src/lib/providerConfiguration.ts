@@ -30,6 +30,18 @@ export interface ApiKeyProviderInput {
   baseUrl?: string
 }
 
+/** Only loopback custom servers may omit a key in the connection form. */
+export function isKeylessLocalProvider(provider: string, baseUrl: string): boolean {
+  if (provider !== 'custom') return false
+  try {
+    const url = new URL(baseUrl)
+    return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password &&
+      (url.hostname === 'localhost' || url.hostname === '[::1]' || /^127\.\d+\.\d+\.\d+$/.test(url.hostname))
+  } catch {
+    return false
+  }
+}
+
 export function apiKeyProviderCandidate(input: ApiKeyProviderInput): ProviderCandidate {
   const provider = input.provider.trim().toLowerCase()
   const connectionName = input.displayName?.trim() || provider

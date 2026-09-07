@@ -69,6 +69,7 @@ from collie_core.onboarding import (
 from collie_core.permissions.classifier import classify_tool
 from collie_core.permissions.models import Risk
 from collie_core.providers.storage import legacy_oauth_data_root
+from collie_core.routines.timezone import local_timezone
 from collie_core.session_identity import desktop_session_key
 from collie_core.voice import LocalVoiceService, VoiceInputError
 from nanobot.security.workspace_access import (
@@ -1887,7 +1888,7 @@ class CollieIPCServer:
             self.db,
             str(frame.get("description") or ""),
             name=(str(frame["name"]) if frame.get("name") else None),
-            timezone_name=str(frame.get("timezone") or "UTC"),
+            timezone_name=str(frame.get("timezone") or local_timezone()),
         )
         return {"automation": row}
 
@@ -1906,7 +1907,7 @@ class CollieIPCServer:
             str(frame.get("automation_id") or ""),
             str(frame.get("description") or ""),
             name=(str(frame["name"]) if frame.get("name") else None),
-            timezone_name=str(frame.get("timezone") or "UTC"),
+            timezone_name=str(frame["timezone"]) if frame.get("timezone") else None,
         )
         return {"automation": row}
 
@@ -1923,7 +1924,7 @@ class CollieIPCServer:
         plan_id = str(frame.get("plan_id") or "")
         version = int(frame.get("version") or 0)
         plan = self.db.approve_plan(plan_id, version, str(frame.get("plan_hash") or ""))
-        zone = str(frame.get("timezone") or "UTC")
+        zone = str(frame.get("timezone") or local_timezone())
         schedule = parse_schedule(str(frame.get("schedule_description") or ""), zone)
         upcoming = next_occurrence(schedule, datetime.now(UTC))
         routine = self.db.add_automation(
@@ -1956,10 +1957,30 @@ class CollieIPCServer:
 
         routine_id = str(frame.get("routine_id") or "")
         updates = dict(frame.get("updates") or {})
+        row = self.db.get_automation(routine_id)
+        if row is None:
+            raise ValueError("routine not found")
         description = updates.pop("schedule_description", None)
-        if description is not None:
-            zone = str(updates.get("timezone") or frame.get("timezone") or "UTC")
-            schedule = parse_schedule(str(description), zone)
+        if description is not None or "timezone" in updates:
+            from dataclasses import replace
+
+            from collie_core.automations.scheduler import AutomationScheduler
+
+            zone = str(
+                updates.get("timezone")
+                or frame.get("timezone")
+                or row.get("timezone")
+                or local_timezone()
+            )
+            if description is not None:
+                schedule = parse_schedule(str(description), zone)
+            else:
+                existing = AutomationScheduler._structured_schedule(row)
+                if existing is None:
+                    raise ValueError(
+                        "This routine needs a valid schedule before changing timezone."
+                    )
+                schedule = replace(existing, timezone=zone)
             upcoming = next_occurrence(schedule, datetime.now(UTC))
             updates.update(
                 {

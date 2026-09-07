@@ -29,6 +29,7 @@ vi.mock('lucide-react', () => ({
   Trash2: () => null
 }))
 vi.mock('../lib/i18n', () => ({
+  ui: (source: string): string => source,
   useT: () => (key: string): string => key
 }))
 vi.mock('../lib/ipc', async (importOriginal) => {

@@ -13,6 +13,7 @@ import { en } from './locales/en'
 import { es } from './locales/es'
 import { fr } from './locales/fr'
 import { ja } from './locales/ja'
+import { interfaceCopy } from './locales/interface'
 import { useEffect, useState } from 'react'
 
 export type Locale = 'en' | 'de' | 'es' | 'fr' | 'ja'
@@ -78,11 +79,21 @@ export function initI18n(): void {
 
 export function t(key: TranslationKey, params?: Record<string, string | number>): string {
   const locale = resolveLocale()
-  let text = DICTIONARIES[locale][key] ?? en[key] ?? key
+  let text = DICTIONARIES[locale][key] ?? ui(en[key] ?? key)
   if (params) {
     for (const [name, value] of Object.entries(params)) {
       text = text.replaceAll(`{${name}}`, String(value))
     }
+  }
+  return text
+}
+
+/** Translate shared interface labels without changing persisted names or content. */
+export function ui(source: string, params?: Record<string, string | number>): string {
+  const index = ['de', 'es', 'fr', 'ja'].indexOf(resolveLocale())
+  let text = interfaceCopy[source]?.[index] ?? source
+  for (const [name, value] of Object.entries(params ?? {})) {
+    text = text.replaceAll(`{${name}}`, String(value))
   }
   return text
 }

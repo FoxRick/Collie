@@ -178,7 +178,7 @@ def update_custom_automation(
     description: str,
     *,
     name: str | None = None,
-    timezone_name: str = "UTC",
+    timezone_name: str | None = None,
 ) -> dict[str, Any]:
     """Edit an existing custom routine: re-parse the description, keep its identity.
 
@@ -195,6 +195,7 @@ def update_custom_automation(
     if str(current.get("action_type") or "") != "custom":
         raise ValueError("Built-in routines can't be reworded — pause them or make your own.")
 
+    timezone_name = timezone_name or str(current.get("timezone") or "UTC")
     fields = _custom_automation_fields(description, name, timezone_name)
 
     current_config = current.get("action_config")

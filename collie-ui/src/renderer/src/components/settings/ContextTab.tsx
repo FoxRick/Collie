@@ -1,3 +1,4 @@
+import { ui } from "../../lib/i18n"
 import { useCallback, useEffect, useState } from 'react'
 import { TriangleAlert } from 'lucide-react'
 import { collieClient } from '../../lib/ipc'
@@ -48,7 +49,7 @@ export default function ContextTab({ onNotice }: Props): React.JSX.Element {
 
   return (
     <div>
-      <h3 className="mb-1 font-semibold">Instructions for Collie</h3>
+      <h3 className="mb-1 font-semibold">{ui("Instructions for Collie")}</h3>
       <p className="mb-3 text-sm" style={{ color: 'var(--collie-paw)' }}>
         This is your AGENTS.md. Add anything Collie should know about your life, work, or preferences.
       </p>
@@ -67,7 +68,7 @@ export default function ContextTab({ onNotice }: Props): React.JSX.Element {
             that Collie is running, then try again.
           </p>
           <button type="button" className="settings-button" onClick={() => void load()}>
-            Try again
+            {ui("Try again")}
           </button>
         </section>
       ) : (

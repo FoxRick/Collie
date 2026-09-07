@@ -1,3 +1,4 @@
+import { ui } from "../../lib/i18n"
 import { useEffect, useRef, useState } from 'react'
 import { CheckCircle2, Mic2, RefreshCw, TriangleAlert } from 'lucide-react'
 import { MICROPHONE_STORAGE_KEY } from '../../lib/audio'
@@ -119,12 +120,12 @@ export default function AudioInputTab(): React.JSX.Element {
       <div className="audio-input-heading">
         <span className="settings-card-icon"><Mic2 size={19} /></span>
         <div>
-          <h3>Microphone</h3>
-          <p>Select the input Collie should use for voice messages.</p>
+          <h3>{ui("Microphone")}</h3>
+          <p>{ui("Select the input Collie should use for voice messages.")}</p>
         </div>
       </div>
       <label className="settings-field">
-        <span>Input device</span>
+        <span>{ui("Input device")}</span>
         <div className="audio-device-row">
           <select
             value={selectedId}
@@ -136,7 +137,7 @@ export default function AudioInputTab(): React.JSX.Element {
               if (testing) stopTest()
             }}
           >
-            <option value="">System default</option>
+            <option value="">{ui("System default")}</option>
             {microphones.map((microphone) => (
               <option key={microphone.deviceId} value={microphone.deviceId}>
                 {microphone.label}
@@ -150,7 +151,7 @@ export default function AudioInputTab(): React.JSX.Element {
       </label>
       <div className="audio-meter-block">
         <div className="audio-meter-label">
-          <span>Input level</span>
+          <span>{ui("Input level")}</span>
           <span>{testing ? `${level}%` : 'Not testing'}</span>
         </div>
         <div className="audio-meter" role="meter" aria-label="Microphone input level" aria-valuemin={0} aria-valuemax={100} aria-valuenow={level}>

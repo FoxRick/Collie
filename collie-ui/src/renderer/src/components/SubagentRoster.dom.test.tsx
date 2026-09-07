@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ActiveAgent } from '../lib/ipc'
 import SubagentRoster from './SubagentRoster'
+import AgentAvatar from './AgentAvatar'
 
 const working = (overrides: Partial<ActiveAgent> = {}): ActiveAgent => ({
   id: 'a1',
@@ -53,6 +54,17 @@ afterEach(() => {
 })
 
 describe('SubagentRoster', () => {
+  it('keeps the profile portrait when the same helper starts another task', () => {
+    render(<>
+      <AgentAvatar name="Trip Planner" />
+      <SubagentRoster active={[working({ id: 'new-task-id' })]} recent={[]} nowMs={1_200_000} />
+    </>)
+    const portraits = host!.querySelectorAll<HTMLElement>('.agent-portrait')
+    expect(portraits).toHaveLength(2)
+    expect(portraits[0].style.backgroundPosition).toBe(portraits[1].style.backgroundPosition)
+    expect(portraits[0].style.backgroundSize).toBe(portraits[1].style.backgroundSize)
+  })
+
   it('renders nothing when no agents are active or recent', () => {
     render(<SubagentRoster active={[]} recent={[]} nowMs={1_200_000} />)
     expect(host!.children.length).toBe(0)

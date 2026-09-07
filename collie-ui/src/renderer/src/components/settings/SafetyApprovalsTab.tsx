@@ -1,3 +1,4 @@
+import { ui } from "../../lib/i18n"
 import { ShieldCheck, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { collieClient, type ApprovalRule } from '../../lib/ipc'
@@ -37,9 +38,9 @@ export default function SafetyApprovalsTab(): React.JSX.Element {
         Everyday help can stay smooth without giving Collie authority over consequential actions.
       </p>
       <section className="settings-card">
-        <h3>Local changes</h3>
+        <h3>{ui("Local changes")}</h3>
         <label className="form-field">
-          <span>Approvals</span>
+          <span>{ui("Approvals")}</span>
           <select
             value={preset}
             onChange={(event) => {
@@ -53,8 +54,8 @@ export default function SafetyApprovalsTab(): React.JSX.Element {
                 })
             }}
           >
-            <option value="ask">Ask me</option>
-            <option value="allow">Approve for me</option>
+            <option value="ask">{ui("Ask me")}</option>
+            <option value="allow">{ui("Approve for me")}</option>
           </select>
           <small>
             {preset === 'allow'
@@ -64,7 +65,7 @@ export default function SafetyApprovalsTab(): React.JSX.Element {
         </label>
       </section>
       <section className="settings-card">
-        <h3><ShieldCheck size={16} /> Saved approval rules</h3>
+        <h3><ShieldCheck size={16} /> {ui("Saved approval rules")}</h3>
         {rules.length === 0 ? <p>No saved rules yet.</p> : (
           <div className="approval-rule-list">
             {rules.map((rule) => (

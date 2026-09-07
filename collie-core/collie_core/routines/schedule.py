@@ -139,7 +139,7 @@ def next_occurrence(schedule: Schedule, after: datetime | None = None) -> dateti
 
     if schedule.kind == "once":
         candidate = _local_candidate(schedule.date, schedule.time, zone)  # type: ignore[arg-type]
-        return candidate.astimezone(UTC) if candidate > local else None
+        return candidate.astimezone(UTC) if candidate.astimezone(UTC) > instant else None
 
     if schedule.kind in {"daily", "weekdays", "weekly"}:
         for offset in range(0, 15):
@@ -151,7 +151,7 @@ def next_occurrence(schedule: Schedule, after: datetime | None = None) -> dateti
                 if day.weekday() not in allowed:
                     continue
             candidate = _local_candidate(day, schedule.time, zone)
-            if candidate > local:
+            if candidate.astimezone(UTC) > instant:
                 return candidate.astimezone(UTC)
         return None
 
@@ -161,6 +161,6 @@ def next_occurrence(schedule: Schedule, after: datetime | None = None) -> dateti
         last_day = calendar.monthrange(year, month)[1]
         day = min(schedule.day or 1, last_day)
         candidate = _local_candidate(date(year, month, day), schedule.time, zone)
-        if candidate > local:
+        if candidate.astimezone(UTC) > instant:
             return candidate.astimezone(UTC)
     return None

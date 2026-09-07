@@ -292,6 +292,8 @@ export interface CollieAutomation {
   name: string
   description?: string
   schedule?: string
+  timezone?: string
+  schedule_json?: string | RoutineSchedule | null
   action_type?: string
   enabled: number
   routine_status?: 'enabled' | 'paused' | 'needs_attention'
@@ -300,6 +302,15 @@ export interface CollieAutomation {
   last_failure_at?: string | null
   plan_id?: string | null
   plan_version?: number | null
+}
+
+export interface RoutineSchedule {
+  kind: 'once' | 'daily' | 'weekdays' | 'weekly' | 'monthly'
+  time: string
+  timezone: string
+  days?: string[]
+  day?: number
+  date?: string
 }
 
 export interface ApprovalRequest {
@@ -1091,6 +1102,10 @@ export class CollieClient {
 
   listRoutines(): Promise<{ routines: CollieAutomation[] }> {
     return this.command('list_routines')
+  }
+
+  updateRoutineTimezone(routineId: string, timezone: string): Promise<{ routine: CollieAutomation }> {
+    return this.command('update_routine', { routine_id: routineId, updates: { timezone } })
   }
 
   createRoutineFromPlan(
