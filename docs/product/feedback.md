@@ -3,6 +3,9 @@
 **Status:** implemented; backend provisioning and live inbox verification required before release.
 
 The desktop sidebar has a **Submit Feedback** button, including when collapsed.
+The footer stacks Collapse navigation, Submit Feedback, and Settings in that
+order. Feedback uses a subtle warm tint and outline to distinguish it from
+ordinary navigation without competing with the main actions.
 It opens a keyboard-accessible dialog with one message field and Send. No account
 or email address is required. Only the typed text and a random submission ID leave
 the app; conversations, logs, device identifiers, and account details are excluded.
