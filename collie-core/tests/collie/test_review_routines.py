@@ -26,6 +26,15 @@ def test_fall_back_never_returns_an_instant_before_after():
     assert next_occurrence(schedule, after) == datetime(2026, 11, 2, 6, 30, tzinfo=UTC)
 
 
+def test_spring_forward_snaps_gap_time_to_first_valid_instant():
+    # US DST starts Sun 2026-03-08 at 02:00 EST → 03:00 EDT, so 02:30 is
+    # nonexistent. The routine must fire once at 03:00 EDT (07:00 UTC), not
+    # an hour late at 07:30 UTC (03:30 local).
+    schedule = Schedule(kind="daily", time=time(2, 30), timezone="America/New_York")
+    after = datetime(2026, 3, 8, 1, 0, tzinfo=UTC)
+    assert next_occurrence(schedule, after) == datetime(2026, 3, 8, 7, 0, tzinfo=UTC)
+
+
 @pytest.mark.parametrize("trigger", ["manual", "retry", "schedule"])
 def test_routine_summary_tracks_terminal_run_results(tmp_path, trigger):
     with CollieDB(tmp_path / "collie.db") as db:

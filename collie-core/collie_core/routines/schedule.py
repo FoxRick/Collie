@@ -126,7 +126,35 @@ def parse_schedule(description: str, timezone_name: str = "UTC") -> Schedule:
 
 
 def _local_candidate(day: date, clock: time, zone: ZoneInfo) -> datetime:
-    return datetime.combine(day, clock, tzinfo=zone)
+    """Resolve a wall clock to a real instant in ``zone``.
+
+    ``datetime.combine(..., tzinfo=zone)`` silently assigns a pre-transition
+    offset to a nonexistent local time (the spring-forward gap), so the naive
+    round-trip check can't detect it. Use the offset delta between the two
+    folds instead: equal offsets mean an unambiguous time; ``fold=1`` more
+    positive than ``fold=0`` means the wall time was skipped by a forward
+    transition (step forward to the first valid wall clock); ``fold=1`` more
+    negative means it's the repeated fall-back hour (pick the earlier instant).
+    """
+    naive = datetime.combine(day, clock)
+    fold0 = naive.replace(tzinfo=zone, fold=0)
+    fold1 = naive.replace(tzinfo=zone, fold=1)
+    offset0 = fold0.utcoffset() or timedelta(0)
+    offset1 = fold1.utcoffset() or timedelta(0)
+    if offset0 == offset1:
+        return fold0
+    if offset1 > offset0:
+        # Spring-forward gap: the wall time doesn't exist. Walk forward to the
+        # first real, unambiguous wall clock so the routine fires once, on time.
+        probe = naive
+        for _ in range(180):
+            probe += timedelta(minutes=1)
+            p0 = probe.replace(tzinfo=zone, fold=0)
+            p1 = probe.replace(tzinfo=zone, fold=1)
+            if p0.utcoffset() == p1.utcoffset():
+                return p0
+        return fold0
+    return fold0
 
 
 def next_occurrence(schedule: Schedule, after: datetime | None = None) -> datetime | None:
