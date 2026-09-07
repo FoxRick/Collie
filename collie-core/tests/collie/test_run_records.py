@@ -612,8 +612,9 @@ async def test_process_direct_records_turn_and_tools_with_redaction(
     assert "[redacted]" in (tool["input_summary"] or "")
     assert "found 3 results" in (tool["output_summary"] or "")
     metrics = db.product_metrics()
-    assert metrics["days"] == [{"day": turn["started_at"][:10], "runs": 1,
-                               "interactive_runs": 1, "tool_calls": 1}]
+    assert metrics["days"] == [
+        {"day": turn["started_at"][:10], "runs": 1, "interactive_runs": 1, "tool_calls": 1}
+    ]
     assert "web_search" not in str(metrics) and "conv1" not in str(metrics)
 
 

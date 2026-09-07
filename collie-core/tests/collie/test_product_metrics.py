@@ -1,4 +1,5 @@
 """Local count durability, privacy boundary, and retry window."""
+
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -24,16 +25,28 @@ def test_counters_count_starts_once_classify_and_survive_deletion(tmp_path, monk
             db.record_turn_event(turn_id=kind, turn_kind=kind, started_at=now)
             db.record_turn_event(turn_id=kind, turn_kind=kind, started_at=now)
             db.record_turn_event(turn_id=kind, status="ok")
-            db.record_tool_event(tool_id=kind, turn_id=kind, tool_name="private name",
-                                 input_summary="secret input", started_at=now)
+            db.record_tool_event(
+                tool_id=kind,
+                turn_id=kind,
+                tool_name="private name",
+                input_summary="secret input",
+                started_at=now,
+            )
             db.record_tool_event(tool_id=kind, turn_id=kind, tool_name="private name", status="ok")
-        db.record_tool_event(tool_id="blocked", turn_id="chat", tool_name="private",
-                             status="denied", started_at=now, finished_at=now)
+        db.record_tool_event(
+            tool_id="blocked",
+            turn_id="chat",
+            tool_name="private",
+            status="denied",
+            started_at=now,
+            finished_at=now,
+        )
         # A finish-only record does not invent a run start.
         db.record_turn_event(turn_id="missing-start", status="error")
         snapshot = db.product_metrics()
-        assert snapshot["days"] == [{"day": now[:10], "runs": 5,
-                                    "interactive_runs": 2, "tool_calls": 7}]
+        assert snapshot["days"] == [
+            {"day": now[:10], "runs": 5, "interactive_runs": 2, "tool_calls": 7}
+        ]
         assert "private" not in str(snapshot) and "secret" not in str(snapshot)
         with db._write() as conn:
             conn.execute("DELETE FROM turn_events")
@@ -66,8 +79,11 @@ def test_utc_event_day_and_bounded_offline_window(tmp_path, monkeypatch):
 async def test_ipc_returns_only_daily_counters(tmp_path, monkeypatch):
     monkeypatch.setenv("COLLIE_PRODUCT_METRICS", "1")
     with CollieDB(tmp_path / "db") as db:
-        db.record_turn_event(turn_id="private", session_key="private conversation",
-                             started_at=datetime.now(UTC).isoformat())
+        db.record_turn_event(
+            turn_id="private",
+            session_key="private conversation",
+            started_at=datetime.now(UTC).isoformat(),
+        )
         # Exercise the actual command handler without opening a network listener.
         server = object.__new__(CollieIPCServer)
         server.db = db
