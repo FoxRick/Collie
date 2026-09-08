@@ -542,8 +542,38 @@ button {
 }
 
 .sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  padding-top: 8px;
   margin-top: auto;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+
+.sidebar-feedback {
+  border: 1px solid rgba(232, 145, 58, 0.18);
+  border-radius: 9px;
+  background: rgba(232, 145, 58, 0.05);
+  color: #cbbda9;
+}
+
+.sidebar-feedback:hover {
+  background: rgba(232, 145, 58, 0.10);
+  border-color: rgba(232, 145, 58, 0.30);
+}
+
+.sidebar-feedback:focus-visible {
+  outline: 2px solid var(--collie-amber);
+  outline-offset: 2px;
+}
+
+.sidebar.is-collapsed .sidebar-footer-row {
+  width: 40px;
+}
+
+.sidebar.is-collapsed .sidebar-feedback {
+  padding-left: 11px;
+  padding-right: 11px;
 }
 
 .sidebar-settings {

@@ -419,12 +419,6 @@ export default function Sidebar({
       </nav>
 
       <div className="sidebar-footer">
-        <button type="button" onClick={() => setFeedbackOpen(true)}
-          className="sidebar-footer-row mx-4 mb-2 flex items-center gap-2 px-3 py-2.5 text-sm transition"
-          title={ui("Submit Feedback")} aria-label={ui("Submit Feedback")} aria-haspopup="dialog">
-          <MessageCircle size={16} aria-hidden="true" />
-          <span>{ui("Submit Feedback")}</span>
-        </button>
         <button
           type="button"
           onClick={toggleCollapsed}
@@ -434,6 +428,12 @@ export default function Sidebar({
           aria-expanded={!collapsed}
         >
           {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+        </button>
+        <button type="button" onClick={() => setFeedbackOpen(true)}
+          className="sidebar-feedback sidebar-footer-row mx-4 mb-2 flex items-center gap-2 px-3 py-2.5 text-sm transition"
+          title={ui("Submit Feedback")} aria-label={ui("Submit Feedback")} aria-haspopup="dialog">
+          <MessageCircle size={16} aria-hidden="true" />
+          <span>{ui("Submit Feedback")}</span>
         </button>
         <button
           onClick={() => onNavigate('settings')}
