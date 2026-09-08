@@ -134,6 +134,19 @@ it('opens feedback from the collapsed sidebar and returns focus on cancel', () =
   expect(document.activeElement).toBe(button)
 })
 
+it('stacks the footer as collapse, feedback, then settings', () => {
+  const container = renderSidebar()
+  const rows = Array.from(
+    container.querySelectorAll<HTMLButtonElement>('.sidebar-footer > button')
+  )
+  // DOM order is the keyboard tab order; docs/product/feedback.md documents it.
+  expect(rows).toHaveLength(3)
+  expect(rows[0].classList.contains('sidebar-collapse-toggle')).toBe(true)
+  expect(rows[1].getAttribute('aria-label')).toBe('Submit Feedback')
+  expect(rows[1].classList.contains('sidebar-feedback')).toBe(true)
+  expect(rows[2].classList.contains('sidebar-settings')).toBe(true)
+})
+
 afterEach(() => {
   for (const root of roots.splice(0)) act(() => root.unmount())
   document.body.replaceChildren()
