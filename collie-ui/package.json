@@ -22,6 +22,7 @@
     "dist": "node scripts/package.cjs",
     "test": "vitest run",
     "test:ui:running": "node scripts/verify-ui-ux.cjs",
+    "test:ui:sidebar-feedback": "node scripts/verify-ui-ux-sidebar-feedback.cjs",
     "check:assets": "python3 scripts/check-portrait-assets.py .."
   },
   "dependencies": {
