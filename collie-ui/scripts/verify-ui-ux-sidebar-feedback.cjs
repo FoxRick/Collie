@@ -259,6 +259,18 @@ async function main() {
   }
   record('app shell renders', await waitUntil(appShell), await evaluate(appShell))
 
+  // ------------------------------------------------------------- preflight
+  // The checks below assert an expanded rail with no modal open. Normalise the
+  // app first: a dialog left open by a previous run (or a rail restored as
+  // collapsed from localStorage) otherwise fails checks that are not about that
+  // state. Not recorded as a check — it only sets the starting state.
+  await pressKey('Escape')
+  await evaluate(`localStorage.setItem('collie.sidebarCollapsed', '0')`)
+  await command('Page.reload', { ignoreCache: false })
+  await delay(700)
+  await command('Runtime.enable')
+  if (!(await waitUntil(appShell))) console.error('PREFLIGHT: app shell missing after reload')
+
   // ---------------------------------------------------------------- footer order
   state = await evaluate(footerState)
   record('footer order is collapse, feedback, settings', JSON.stringify(state.order) === JSON.stringify(FOOTER_ORDER), state.order)
