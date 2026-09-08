@@ -1,6 +1,6 @@
 # In-app feedback
 
-**Status:** implemented; backend provisioning and live inbox verification required before release.
+**Status:** implemented; backend provisioned and verified end-to-end (Supabase table, Worker secrets, `feedback.heycollie.com` custom domain).
 
 The desktop sidebar has a **Submit Feedback** button, including when collapsed.
 The footer stacks Collapse navigation, Submit Feedback, and Settings in that
@@ -44,6 +44,15 @@ reviewed together in the main app repository, but deployed separately.
 5. From a preview/packaged app, submit a test message and confirm one database
    row and one email, then check offline failure/retry and collapsed navigation.
    Do not release the desktop feature until this live check passes.
+
+Steps 1–5 are complete: the table exists with RLS denying anonymous and
+authenticated access, the Worker holds its secrets, the custom domain is live,
+and a submission from the running app stored one row and reached Resend.
+
+Workers `fetch` accepts only `redirect: 'follow'` or `'manual'`; `'error'` throws
+at runtime before the request is sent. Keep the upstream calls on `'manual'` and
+let the response-status check fail closed, otherwise every submission returns 503
+even though the mocked unit tests pass.
 
 The endpoint fails closed when secrets or rate limiting are unavailable. IPs
 are used transiently by the Cloudflare limiter and are not stored in the feedback
