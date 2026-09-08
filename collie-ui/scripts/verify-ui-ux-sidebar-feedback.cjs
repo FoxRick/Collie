@@ -319,6 +319,40 @@ async function main() {
   }
   record('Cancel closes the dialog and returns focus to the trigger', !(await evaluate(dialogOpen)) && (await evaluate(`document.activeElement === ${feedbackTrigger}`)), { open: await evaluate(dialogOpen) })
 
+  // ---------------------- feedback submit must not strand focus on <body>
+  // Regression pin for FeedbackDialog: the in-flight Send button is disabled,
+  // and Chromium drops focus to <body> when the focused control becomes
+  // disabled. Whatever the network does (success or failure), focus must stay
+  // inside the dialog and a failed submit must keep the draft.
+  await realClick(feedbackTrigger)
+  await waitUntil(focusInTextarea)
+  await command('Input.insertText', { text: 'Automated UI regression probe — please ignore.' })
+  const typedLength = await evaluate(`document.querySelector('#feedback-message').value.length`)
+  await realClick(
+    `Array.from(document.querySelectorAll('dialog button')).find((item) => item.textContent.trim() === 'Send')`
+  )
+  const settled = await waitUntil(
+    `Boolean(document.querySelector('dialog [role=alert], dialog [role=status]'))`,
+    120
+  )
+  record('feedback submit settles into a success or failure state', settled, settled)
+  const afterSubmit = await evaluate(`(() => {
+    const dialog = document.querySelector('dialog[open]')
+    const active = document.activeElement
+    const draft = document.querySelector('#feedback-message')
+    return {
+      active: active ? active.tagName : null,
+      insideDialog: Boolean(dialog && active && dialog.contains(active)),
+      alert: Boolean(document.querySelector('dialog [role=alert]')),
+      status: Boolean(document.querySelector('dialog [role=status]')),
+      draftLength: draft ? draft.value.length : null
+    }
+  })()`)
+  record('focus stays inside the dialog after the submit settles', afterSubmit.insideDialog, afterSubmit)
+  record('a failed submit keeps the draft in place', !afterSubmit.alert || afterSubmit.draftLength === typedLength, { ...afterSubmit, typedLength })
+  await pressKey('Escape')
+  await waitUntil(`!(${dialogOpen})`)
+
   // ------------------------------------------------------------------- search
   const searchToggle = `Array.from(document.querySelectorAll('button[aria-label="Search conversations"]')).find((item) => item.getBoundingClientRect().width > 0)`
   const unfilteredCount = await evaluate(`document.querySelectorAll('.conversation-row').length`)
