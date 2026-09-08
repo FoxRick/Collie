@@ -99,6 +99,12 @@ Electron owns OS integration and protected secret storage. Python owns agent
 behavior, durable product state, tool execution, and central permission
 evaluation. The renderer must not receive decrypted long-lived secrets.
 
+Packaged desktop product metrics use content-free daily counters in local
+SQLite, read through `get_product_metrics` by Electron and uploaded alongside
+install presence. Owner reporting lives in `tools/weekly_product_metrics.py`;
+definitions, privacy boundaries, and rollout are documented in
+[install heartbeat](engineering/architecture/install-heartbeat.md#weekly-product-metrics).
+
 ### Local-file access boundary
 
 The chat's `file_access_scope` travels through the renderer bridge and Electron

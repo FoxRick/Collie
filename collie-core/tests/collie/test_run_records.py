@@ -87,7 +87,7 @@ def _table_names(path: Path) -> set[str]:
 
 
 def test_schema_v11_tables_created_on_fresh_db(db: CollieDB) -> None:
-    assert db.schema_version == 14
+    assert db.schema_version == 15
     tables = _table_names(db.path)
     assert {"turn_events", "tool_events"} <= tables
 
@@ -109,7 +109,7 @@ def test_v10_db_upgrades_to_v11_preserving_data(tmp_path: Path) -> None:
 
     upgraded = CollieDB(path)
     try:
-        assert upgraded.schema_version == 14
+        assert upgraded.schema_version == 15
         assert upgraded.get_conversation("c1")["title"] == "Keep me"
     finally:
         upgraded.close()
@@ -574,10 +574,11 @@ def _fake_tool_turn(loop: AgentLoop, *, tool_error: bool = False) -> None:
 
 
 async def test_process_direct_records_turn_and_tools_with_redaction(
-    tmp_path: Path, db: CollieDB
+    tmp_path: Path, db: CollieDB, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from collie_core.telemetry.hook import create_telemetry_hook_factory
 
+    monkeypatch.setattr(db, "_product_metrics_enabled", True)
     loop = _make_loop(tmp_path, hook_factories=[create_telemetry_hook_factory(db)])
     _fake_tool_turn(loop)
 
@@ -610,6 +611,11 @@ async def test_process_direct_records_turn_and_tools_with_redaction(
     assert "sk-top-secret" not in (tool["input_summary"] or "")
     assert "[redacted]" in (tool["input_summary"] or "")
     assert "found 3 results" in (tool["output_summary"] or "")
+    metrics = db.product_metrics()
+    assert metrics["days"] == [
+        {"day": turn["started_at"][:10], "runs": 1, "interactive_runs": 1, "tool_calls": 1}
+    ]
+    assert "web_search" not in str(metrics) and "conv1" not in str(metrics)
 
 
 async def test_process_direct_records_tool_error(tmp_path: Path, db: CollieDB) -> None:

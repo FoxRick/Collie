@@ -15,7 +15,7 @@ vi.mock('../shared/account-config', () => ({
 // Accessing either dependency is a regression: presence must work without them.
 vi.mock('./account-auth', () => { throw new Error('Heartbeat depends on sign-in') })
 vi.mock('./core-client', () => { throw new Error('Heartbeat depends on core settings') })
-import { HEARTBEAT_INTERVAL_MS, sendHeartbeat, startHeartbeat, stopHeartbeat } from './install-heartbeat'
+import { HEARTBEAT_INTERVAL_MS, sendHeartbeat, sendMetrics, startHeartbeat, stopHeartbeat } from './install-heartbeat'
 
 beforeEach(() => {
   state.directory = mkdtempSync(join(tmpdir(), 'collie-install-'))
@@ -99,4 +99,58 @@ it('does not send an unpersisted identity when local storage fails', async () =>
 it('reports HTTP rejection to the scheduler instead of treating it as success', async () => {
   vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 503 }))
   await expect(sendHeartbeat()).rejects.toThrow('503')
+})
+
+const sourceId = 'b9d4991a-47cb-4eb4-9556-cf5b324aa076'
+function snapshot(): Record<string, unknown> {
+  return { source_id: sourceId, secret: 'never upload', days: [{
+    day: new Date().toISOString().slice(0, 10), runs: 3, interactive_runs: 2,
+    tool_calls: 5, tool_name: 'never upload', input: 'never upload'
+  }] }
+}
+
+it('uploads only allowlisted counters and retries the same cumulative values', async () => {
+  const metrics = snapshot()
+  vi.mocked(fetch).mockRejectedValueOnce(new Error('offline'))
+  await expect(sendMetrics(async () => metrics)).rejects.toThrow('offline')
+  await sendMetrics(async () => metrics)
+  const [url, request] = vi.mocked(fetch).mock.calls[1]
+  expect(url).toContain('/rpc/record_install_metrics')
+  expect(request?.body).toEqual(vi.mocked(fetch).mock.calls[0][1]?.body)
+  expect(JSON.parse(String(request?.body))).toEqual({
+    p_install_id: readFileSync(join(state.directory, 'install-id'), 'utf8'),
+    p_source_id: sourceId,
+    p_days: [{ day: new Date().toISOString().slice(0, 10), runs: 3, interactive_runs: 2, tool_calls: 5 }]
+  })
+  expect(request?.headers).toEqual({ apikey: 'public-key', 'Content-Type': 'application/json' })
+  expect(String(request?.body)).not.toContain('never upload')
+})
+
+it('keeps sending presence while a metrics read is stalled', async () => {
+  let release!: (value: unknown) => void
+  const read = vi.fn(() => new Promise(r => { release = r }))
+  startHeartbeat(read)
+  await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS * 2)
+  expect(read).toHaveBeenCalledTimes(1)
+  expect(fetch).toHaveBeenCalledTimes(3)
+  release(null)
+  await vi.advanceTimersByTimeAsync(0)
+})
+
+it('skips malformed and development metrics, and retries core/HTTP failures', async () => {
+  await sendMetrics(async () => ({ source_id: 'invalid', days: [] }))
+  await sendMetrics(async () => ({ source_id: sourceId, days: [
+    { day: '2026-09-07', runs: 1, interactive_runs: 2, tool_calls: 0 }
+  ] }))
+  state.packaged = false
+  const read = vi.fn(async () => snapshot())
+  await sendMetrics(read)
+  expect(read).not.toHaveBeenCalled()
+  expect(fetch).not.toHaveBeenCalled()
+  state.packaged = true
+  await expect(sendMetrics(async () => { throw new Error('core offline') })).rejects.toThrow()
+  vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 503 }))
+  await expect(sendMetrics(read)).rejects.toThrow('503')
+  await sendMetrics(read)
+  expect(fetch).toHaveBeenCalledTimes(2)
 })

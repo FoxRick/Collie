@@ -684,6 +684,10 @@ class CollieIPCServer:
         )
         return {"messages": messages}
 
+    async def _cmd_get_product_metrics(self, connection: ServerConnection, frame: dict) -> dict:
+        """Only aggregate counts cross the main-process telemetry boundary."""
+        return await asyncio.to_thread(self.db.product_metrics)
+
     async def _cmd_get_run_records(self, connection: ServerConnection, frame: dict) -> dict:
         """List turn events (most recent first) — read-only telemetry."""
         conv_id = str(frame.get("conversation_id") or "") or None

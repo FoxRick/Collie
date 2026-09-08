@@ -17,7 +17,8 @@ adding a command is a conscious act on both sides of the wire.
 
 Mechanics:
 - Server side: ``async def _cmd_<kind>(`` in ``ipc/server.py``.
-- Client side: every ``.command(<kind>)`` literal across ``collie-ui/src``
+- Client side: every ``.command(<kind>)`` and ``commandWithCore(<kind>)``
+  literal across ``collie-ui/src``
   (the renderer also calls ``command`` directly in components, e.g.
   ``MemoryTab.tsx``, so the scan is repo-wide, not just ``ipc.ts``).
 """
@@ -57,9 +58,9 @@ _SERVER_ONLY_ALLOWLIST: dict[str, str] = {
 }
 
 _SERVER_RE = re.compile(r"^    async def _cmd_(\w+)\(", re.MULTILINE)
-# .command(<T>)('kind', ...) — kind may sit on the next line and be
+# Renderer .command / main-process commandWithCore — kind may sit on the next line and be
 # single- or double-quoted (see create_subagent / begin_connector_auth).
-_COMMAND_RE = re.compile(r"\.command(?:<[^>]*>)?\(\s*['\"]([^'\"]+)['\"]")
+_COMMAND_RE = re.compile(r"(?:\.command|\bcommandWithCore)(?:<[^>]*>)?\(\s*['\"]([^'\"]+)['\"]")
 
 
 def _server_command_kinds() -> set[str]:

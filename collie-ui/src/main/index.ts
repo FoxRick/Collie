@@ -25,6 +25,7 @@ import {
 } from './secrets'
 import {
   coreSend,
+  commandWithCore,
   onCoreEvent,
   pushStoredSecretsToCore,
   stopCoreBroker,
@@ -40,7 +41,7 @@ import {
   restoreFromDevice,
   uploadSnapshot
 } from './cloud-sync'
-import { startHeartbeat, stopHeartbeat } from './install-heartbeat'
+import { flushMetrics, startHeartbeat, stopHeartbeat } from './install-heartbeat'
 import { autoUpdater } from 'electron-updater'
 import {
   ActiveWorkTracker,
@@ -589,9 +590,14 @@ function isActiveWorkSnapshot(value: unknown): value is ActiveWorkSnapshot {
   )
 }
 
+async function readProductMetrics(): Promise<unknown> {
+  if (coreState().state !== 'running') return null
+  return commandWithCore('get_product_metrics', {})
+}
+
 app.whenReady().then(async () => {
   // Count launched installs even if onboarding or core startup fails.
-  startHeartbeat()
+  startHeartbeat(readProductMetrics)
   // Windows toasts (OS notifications) require an App User Model ID before
   // any notification is created, or they are silently dropped.
   if (process.platform === 'win32') {
@@ -619,12 +625,14 @@ app.whenReady().then(async () => {
   // keyring backend is available the server does not start and the connector
   // catalog honestly gates its routes to coming-soon.
   await startKeychainServer()
-  await spawnCore(isDev)
   // Push stored secrets to the core over the main process's own connection
   // (the renderer never sees decrypted values).
   onCoreReady(() => {
+    // Retry persisted counters after startup, including short previous launches.
+    flushMetrics(readProductMetrics)
     void pushStoredSecretsToCore()
   })
+  await spawnCore(isDev)
   // If this boot was an update, verify the new version came up healthy
   // before letting the update ledger treat it as last-known-good. Probation
   // (sustained running, not just a ready message) applies only when a

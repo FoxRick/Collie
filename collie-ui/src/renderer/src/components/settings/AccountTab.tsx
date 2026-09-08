@@ -311,8 +311,10 @@ export default function AccountTab(): React.JSX.Element {
       <p className="settings-lead">
         To count active installs, Collie sends a random install ID, app version,
         and operating system at launch and every four minutes while running,
-        even when signed out or backup is off. This contains no chats, files,
-        email address, or API keys.
+        even when signed out or backup is off. Collie also sends daily counts
+        of agent runs, interactive runs, and recorded tool calls, with a random
+        counter ID to avoid counting retries twice. No chats, files, tool names,
+        arguments, results, email address, or API keys are included.
       </p>
       {(error || notice) && (
         <p className="inline-notice" role="status">
