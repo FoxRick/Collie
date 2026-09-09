@@ -15,7 +15,7 @@ def db(tmp_path: Path) -> CollieDB:
 
 
 def test_schema_created(db: CollieDB) -> None:
-    assert db.schema_version == 15
+    assert db.schema_version == 16
 
 
 def test_migration_idempotent(tmp_path: Path) -> None:
@@ -25,7 +25,7 @@ def test_migration_idempotent(tmp_path: Path) -> None:
     d1.close()
     d2 = CollieDB(path)
     assert d2.get_setting("provider.name") == "openai"
-    assert d2.schema_version == 15
+    assert d2.schema_version == 16
     d2.close()
 
 
@@ -416,7 +416,7 @@ def test_export_and_clear(db: CollieDB) -> None:
     db.add_person("Sam")
     db.log_memory_journal("profile", "dietary", "add", "vegan")
     data = db.export_all()
-    assert data["schema_version"] == 15
+    assert data["schema_version"] == 16
     assert len(data["conversations"]) == 1
     assert data["profile"] == {"dietary": "vegan"}
 

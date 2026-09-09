@@ -572,6 +572,80 @@ CREATE TABLE product_metrics_daily (
 );
 """
 
+_SCHEMA_V16 = """
+CREATE TABLE connector_definitions (
+    id TEXT PRIMARY KEY,
+    provider_id TEXT,
+    recipe_id TEXT,
+    recipe_version TEXT,
+    driver TEXT NOT NULL,
+    transport TEXT NOT NULL,
+    auth_strategy TEXT NOT NULL,
+    provenance TEXT NOT NULL,
+    config_json TEXT NOT NULL,
+    unresolved INTEGER NOT NULL DEFAULT 0 CHECK(unresolved IN (0, 1)),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX connector_definitions_provider ON connector_definitions(provider_id);
+
+ALTER TABLE connector_connections ADD COLUMN definition_id TEXT;
+ALTER TABLE connector_connections ADD COLUMN credential_ref TEXT;
+ALTER TABLE connector_connections ADD COLUMN operation_revision INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE connector_tool_cache ADD COLUMN tool_identity TEXT;
+ALTER TABLE connector_tool_cache ADD COLUMN description TEXT;
+ALTER TABLE connector_tool_cache ADD COLUMN input_schema_json TEXT;
+ALTER TABLE connector_tool_cache ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1;
+
+INSERT INTO connector_definitions (
+    id, provider_id, recipe_id, driver, transport, auth_strategy, provenance,
+    config_json, unresolved, created_at, updated_at
+)
+SELECT
+    'def_' || id, provider_id, provider_id, driver,
+    CASE WHEN driver LIKE '%api' THEN 'api' ELSE 'streamable_http' END,
+    CASE WHEN auth_type = 'oauth' THEN 'oauth'
+         WHEN auth_type IN ('token', 'api_key') THEN 'token'
+         WHEN auth_type = 'none' THEN 'none' ELSE 'headers' END,
+    'curated', '{}', 1, COALESCE(connected_at, updated_at, CURRENT_TIMESTAMP),
+    COALESCE(updated_at, connected_at, CURRENT_TIMESTAMP)
+FROM connector_connections;
+
+UPDATE connector_connections
+SET definition_id = 'def_' || id,
+    credential_ref = 'connector:' || id;
+
+UPDATE connector_tool_cache
+SET tool_identity = length(connection_id) || ':' || connection_id || ':' ||
+                    length(remote_tool_name) || ':' || remote_tool_name,
+    enabled = CASE
+        WHEN (SELECT enabled_tools_json FROM connector_connections c
+              WHERE c.id = connector_tool_cache.connection_id) IS NULL THEN 1
+        WHEN EXISTS (
+            SELECT 1 FROM json_each((SELECT enabled_tools_json FROM connector_connections c
+                                     WHERE c.id = connector_tool_cache.connection_id))
+            WHERE value = connector_tool_cache.remote_tool_name OR value = '*'
+        ) THEN 1 ELSE 0 END;
+
+CREATE UNIQUE INDEX connector_tool_cache_identity ON connector_tool_cache(tool_identity);
+
+CREATE TRIGGER connector_connection_definition_insert
+BEFORE INSERT ON connector_connections
+WHEN NEW.definition_id IS NOT NULL
+ AND NOT EXISTS (SELECT 1 FROM connector_definitions WHERE id = NEW.definition_id)
+BEGIN SELECT RAISE(ABORT, 'unknown connector definition'); END;
+CREATE TRIGGER connector_connection_definition_update
+BEFORE UPDATE OF definition_id ON connector_connections
+WHEN NEW.definition_id IS NOT NULL
+ AND NOT EXISTS (SELECT 1 FROM connector_definitions WHERE id = NEW.definition_id)
+BEGIN SELECT RAISE(ABORT, 'unknown connector definition'); END;
+CREATE TRIGGER connector_definition_referenced_delete
+BEFORE DELETE ON connector_definitions
+WHEN EXISTS (SELECT 1 FROM connector_connections WHERE definition_id = OLD.id)
+BEGIN SELECT RAISE(ABORT, 'connector definition is in use'); END;
+"""
+
 # Ordered migrations: index 0 == schema version 1, etc.
 _MIGRATIONS: list[str] = [
     _SCHEMA_V1,
@@ -589,6 +663,7 @@ _MIGRATIONS: list[str] = [
     _SCHEMA_V13,
     _SCHEMA_V14,
     _SCHEMA_V15,
+    _SCHEMA_V16,
 ]
 
 
@@ -2868,9 +2943,57 @@ class CollieDB:
         last_verified_at: str | None = None,
         last_error_code: str | None = None,
         last_error_message: str | None = None,
+        definition_id: str | None = None,
     ) -> dict[str, Any]:
         now = utc_now()
         with self._write() as conn:
+            existing = conn.execute(
+                "SELECT definition_id, provider_id, driver FROM connector_connections WHERE id = ?",
+                (connection_id,),
+            ).fetchone()
+            if (
+                existing
+                and definition_id is not None
+                and existing["definition_id"] is not None
+                and definition_id != existing["definition_id"]
+            ):
+                raise ValueError("An installed connector definition cannot be replaced in place.")
+            definition_id = (
+                definition_id
+                or (
+                    str(existing["definition_id"])
+                    if existing and existing["definition_id"]
+                    else None
+                )
+                or f"def_{connection_id}"
+            )
+            associated = conn.execute(
+                "SELECT provider_id, driver FROM connector_definitions WHERE id = ?",
+                (definition_id,),
+            ).fetchone()
+            if associated and (
+                associated["provider_id"] not in (None, provider_id)
+                or associated["driver"] != driver
+            ):
+                raise ValueError("The connector definition does not match this account.")
+            conn.execute(
+                "INSERT OR IGNORE INTO connector_definitions "
+                "(id, provider_id, recipe_id, driver, transport, auth_strategy, provenance, "
+                "config_json, unresolved, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, 'curated', '{}', 1, ?, ?)",
+                (
+                    definition_id,
+                    provider_id,
+                    provider_id,
+                    driver,
+                    "api" if driver.endswith("api") else "streamable_http",
+                    "oauth"
+                    if auth_type == "oauth"
+                    else ("none" if auth_type == "none" else "token"),
+                    now,
+                    now,
+                ),
+            )
             conn.execute(
                 """
                 INSERT INTO connector_connections (
@@ -2878,8 +3001,8 @@ class CollieDB:
                     status, granted_scopes_json, enabled_capabilities_json,
                     enabled_tools_json, tool_policy_json, remote_account_id,
                     connected_at, updated_at, last_verified_at, last_error_code,
-                    last_error_message
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    last_error_message, definition_id, credential_ref
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     display_name = COALESCE(excluded.display_name, display_name),
                     account_label = COALESCE(excluded.account_label, account_label),
@@ -2933,8 +3056,17 @@ class CollieDB:
                     last_verified_at,
                     last_error_code,
                     last_error_message,
+                    definition_id,
+                    f"connector:{connection_id}",
                 ),
             )
+            if enabled_tools is not None:
+                conn.execute(
+                    "UPDATE connector_tool_cache SET enabled = CASE WHEN EXISTS "
+                    "(SELECT 1 FROM json_each(?) WHERE value = '*' "
+                    "OR value = remote_tool_name) THEN 1 ELSE 0 END WHERE connection_id = ?",
+                    (json.dumps(enabled_tools), connection_id),
+                )
         return self.get_connector_connection(connection_id)  # type: ignore[return-value]
 
     def get_connector_connection(self, connection_id: str) -> dict[str, Any] | None:
@@ -2951,10 +3083,122 @@ class CollieDB:
 
     def delete_connector_connection(self, connection_id: str) -> None:
         with self._write() as conn:
+            row = conn.execute(
+                "SELECT definition_id FROM connector_connections WHERE id = ?", (connection_id,)
+            ).fetchone()
             conn.execute("DELETE FROM connector_connections WHERE id = ?", (connection_id,))
+            if row and row["definition_id"]:
+                conn.execute(
+                    "DELETE FROM connector_definitions WHERE id = ? AND NOT EXISTS "
+                    "(SELECT 1 FROM connector_connections WHERE definition_id = ?)",
+                    (row["definition_id"], row["definition_id"]),
+                )
+
+    def save_connector_definition(self, definition: Any) -> dict[str, Any]:
+        """Persist a validated, secret-free installed definition snapshot."""
+        from collie_core.connectors.models import InstalledConnectorDefinition
+
+        if not isinstance(definition, InstalledConnectorDefinition):
+            definition = InstalledConnectorDefinition.from_dict(definition)
+        value = definition.to_dict()
+        config = {
+            key: value[key]
+            for key in (
+                "endpoint",
+                "oauth_registration",
+                "client_id",
+                "scopes",
+                "trusted_hosts",
+                "tool_overrides",
+            )
+            if value[key] not in (None, [], "")
+        }
+        now = utc_now()
+        with self._write() as conn:
+            current = conn.execute(
+                "SELECT * FROM connector_definitions WHERE id = ?", (definition.id,)
+            ).fetchone()
+            if current is not None and not current["unresolved"]:
+                current_config = json.loads(str(current["config_json"]))
+                immutable = (
+                    current["provider_id"],
+                    current["recipe_id"],
+                    current["recipe_version"],
+                    current["driver"],
+                    current["transport"],
+                    current["auth_strategy"],
+                    current["provenance"],
+                    current_config,
+                )
+                proposed = (
+                    definition.provider_id,
+                    definition.recipe_id,
+                    definition.recipe_version,
+                    definition.driver.value,
+                    definition.transport.value,
+                    definition.auth_strategy.value,
+                    definition.provenance.value,
+                    config,
+                )
+                if immutable != proposed:
+                    raise ValueError("Installed connector definitions are immutable.")
+                return dict(current)
+            conn.execute(
+                "INSERT INTO connector_definitions (id, provider_id, recipe_id, recipe_version, "
+                "driver, transport, auth_strategy, provenance, config_json, unresolved, "
+                "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET provider_id=excluded.provider_id, "
+                "recipe_id=excluded.recipe_id, recipe_version=excluded.recipe_version, "
+                "driver=excluded.driver, transport=excluded.transport, "
+                "auth_strategy=excluded.auth_strategy, provenance=excluded.provenance, "
+                "config_json=excluded.config_json, unresolved=excluded.unresolved, "
+                "updated_at=excluded.updated_at",
+                (
+                    definition.id,
+                    definition.provider_id,
+                    definition.recipe_id,
+                    definition.recipe_version,
+                    definition.driver.value,
+                    definition.transport.value,
+                    definition.auth_strategy.value,
+                    definition.provenance.value,
+                    json.dumps(config, sort_keys=True),
+                    int(definition.unresolved),
+                    now,
+                    now,
+                ),
+            )
+        return self.get_connector_definition(definition.id)  # type: ignore[return-value]
+
+    def get_connector_definition(self, definition_id: str) -> dict[str, Any] | None:
+        return self._row("SELECT * FROM connector_definitions WHERE id = ?", (definition_id,))
+
+    def list_connector_definitions(self) -> list[dict[str, Any]]:
+        return self._rows("SELECT * FROM connector_definitions ORDER BY created_at, id")
+
+    def advance_connector_operation(self, connection_id: str, expected_revision: int) -> int:
+        """Claim the next lifecycle operation; reject absent or stale accounts."""
+        with self._write() as conn:
+            cursor = conn.execute(
+                "UPDATE connector_connections SET operation_revision = operation_revision + 1, "
+                "updated_at = ? WHERE id = ? AND operation_revision = ?",
+                (utc_now(), connection_id, expected_revision),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("The connection changed or no longer exists.")
+        return expected_revision + 1
 
     def replace_connector_tools(self, connection_id: str, tools: list[dict[str, Any]]) -> None:
         with self._write() as conn:
+            account = conn.execute(
+                "SELECT enabled_tools_json FROM connector_connections WHERE id = ?",
+                (connection_id,),
+            ).fetchone()
+            configured = (
+                json.loads(account["enabled_tools_json"])
+                if (account and account["enabled_tools_json"] is not None)
+                else None
+            )
             conn.execute(
                 "DELETE FROM connector_tool_cache WHERE connection_id = ?",
                 (connection_id,),
@@ -2962,7 +3206,8 @@ class CollieDB:
             conn.executemany(
                 "INSERT INTO connector_tool_cache "
                 "(connection_id, remote_tool_name, schema_hash, annotations_json, "
-                "risk, discovered_at) VALUES (?, ?, ?, ?, ?, ?)",
+                "risk, discovered_at, tool_identity, description, input_schema_json, enabled) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
                     (
                         connection_id,
@@ -2971,6 +3216,24 @@ class CollieDB:
                         json.dumps(tool.get("annotations") or {}),
                         str(tool["risk"]),
                         utc_now(),
+                        f"{len(connection_id)}:{connection_id}:"
+                        f"{len(str(tool['name']))}:{tool['name']}",
+                        tool.get("description"),
+                        json.dumps(tool.get("input_schema"))
+                        if tool.get("input_schema") is not None
+                        else None,
+                        int(
+                            bool(
+                                tool.get(
+                                    "enabled",
+                                    (
+                                        configured is None
+                                        or "*" in configured
+                                        or str(tool["name"]) in configured
+                                    ),
+                                )
+                            )
+                        ),
                     )
                     for tool in tools
                 ],
@@ -3697,6 +3960,7 @@ class CollieDB:
             "budgets": self.list_budgets(),
             "health_logs": self._rows("SELECT * FROM health_logs ORDER BY logged_on"),
             "services": self.list_services(),
+            "connector_definitions": self.list_connector_definitions(),
             "connector_connections": self.list_connector_connections(),
             "connector_tools": self._rows(
                 "SELECT * FROM connector_tool_cache ORDER BY connection_id, remote_tool_name"
@@ -3753,6 +4017,7 @@ class CollieDB:
                 "services",
                 "connector_tool_cache",
                 "connector_connections",
+                "connector_definitions",
                 "subagents",
                 "usage",
                 "providers",
