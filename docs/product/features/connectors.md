@@ -6,7 +6,7 @@ Date: 2026-09-09. Product: Collie.
 
 Baseline: live `FoxRick/Collie` main at [`b54311aaae24d12f92832fcfc68167c8fe2c81c6`](https://github.com/FoxRick/Collie/commit/b54311aaae24d12f92832fcfc68167c8fe2c81c6).
 
-This is the canonical connection specification, adopted from the approved implementation plan against the baseline above. Steps 1–2 establish the storage foundation. Remote add/import, flexible authentication, provider adapters, and local execution remain later delivery steps. Existing catalogue availability is not evidence of real-account or packaged acceptance.
+This is the canonical connection specification, adopted from the approved implementation plan against the baseline above. Steps 1–3 establish the storage and remote backend foundation. Software for Steps 4–8 is implemented and deterministically tested in this worktree; provider registration, real-account tests, and packaged acceptance remain separate gates. Existing catalogue availability is not evidence of real-account or packaged acceptance.
 
 ## 1. Outcome and decisions
 
@@ -100,6 +100,19 @@ Implement explicit strategies for:
 
 Audit actual SDK support before selecting an upgrade; do not assume every mechanism is already implemented. Bind client registration and tokens to their issuer and intended resource. Prevent credentials following cross-origin redirects. Use one refresh coordinator per account and avoid unsolicited browser prompts during tasks.
 
+The current `connectors/auth.py` implementation provides this verified
+capability baseline; it is not a claim about every feature of the installed MCP
+SDK:
+
+| Capability | Verified in current implementation | Still requires acceptance or SDK verification |
+| --- | --- | --- |
+| Credential persistence | Encrypted per-connection token and client-info storage with an issuer/resource/registration binding | Cross-account and issuer-switching tests |
+| Desktop callback | Single-use loopback receiver on an OS-assigned localhost port; provider redirect is endpoint-validated | Provider-specific custom URI and callback behavior |
+| Client registration | Automatic SDK registration path; pre-registered client ID path with fixed redirect metadata | Actual provider support, metadata negotiation and failure handling |
+| Runtime behavior | Noninteractive providers reuse stored client info/tokens and do not open a browser; the current adapter persists context expiry and uses the SDK expiry/update hooks | Refresh coordination, expiry and reauthorization acceptance across real providers |
+| Provider metadata | Issuer, resource and client-metadata URL are carried into provider construction/binding; `client_metadata_url` and context metadata/expiry hooks are wired to the installed SDK | Exact provider behavior for resource indicators, metadata discovery and auth-method variants |
+| Token/header/no-auth | No-auth, token and single configured-header submission paths are represented in the current connector implementation | Protected-header and API-key acceptance, provider-specific OAuth behavior and complete Step 4 exit |
+
 Secret fields may accept user input transiently, but must never be returned in account details, stored in renderer state beyond submission, or sent through model-visible chat. Explain expiry, cancelled consent and administrator blocks in ordinary language.
 
 **Exit:** connect, refresh, restart, expired refresh token, denied consent and reauthorization work for representative auth strategies. [MCP authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)
@@ -147,17 +160,52 @@ Add per-account test, reconnect and disconnect controls. Explain local credentia
 
 **Exit:** every supported failure class provides an accurate recovery action, and cancelled/removed connections cannot return as connected from stale events.
 
+### Steps 4–8 implementation ledger
+
+The current software slice provides the following behavior, verified by focused
+deterministic backend tests and rendered desktop checks:
+
+- OAuth uses MCP SDK `>=1.29.0,<2.0.0`, protected per-account storage,
+  issuer/resource binding, metadata and client-metadata URL handling, context
+  expiry hooks, and a single-use fixed IPv4 loopback callback. Public desktop
+  clients do not receive a confidential secret; arbitrary non-loopback callback
+  URLs are not accepted.
+- Remote definitions support no-auth, token, configured-header, and OAuth
+  strategies through the shared manager. Private or local origins require an
+  explicit per-definition opt-in; that permission does not flow to redirects or
+  discovered authorization destinations.
+- Import is preview-only: it does not execute local commands, install packages,
+  or contact servers. Protected imported secrets use a five-minute submission
+  handle and are excluded from summaries and exports. Local command execution
+  remains outside this slice.
+- Discovered tools are bounded and namespaced per account. Material tool or
+  schema changes disable the affected tool until review re-enables it. Registry
+  search is bounded and advisory; listing is not trust or compatibility proof.
+- Lifecycle operations carry per-account revisions so cancel, remove, reconnect,
+  and late completion races cannot resurrect stale state.
+
+These are implementation facts, not real-provider or packaged availability
+claims. Real OAuth/provider behavior, clean-Windows installation, and release
+evidence remain Steps 9–14 gates.
+
+Consolidated validation currently records 416 distinct passing backend/core tests across
+connector, remote, services, auth, IPC, runner, subagent, registry, reconnect,
+and end-to-end suites, plus 11 focused desktop UI tests. Electron production
+build and Node/web typechecks pass; three rendered connector screens were
+visually checked. The observability test passed with writable temporary and
+Collie state directories.
+
 ### Step 9 — Finish Slack as a curated connection
 
-Register/configure a Collie Slack application, permitted callbacks and the minimum user scopes for search, read, and sending. Validate desktop PKCE with Slack's MCP-specific OAuth endpoints and refresh behavior. Fill the actual endpoint and profile into the recipe; keep send actions centrally gated.
+Register/configure a Collie Slack application, permitted callbacks and the minimum user scopes for the exact search/read/send tools accepted in the first slice. Slack's current MCP contract uses Streamable HTTP at `https://mcp.slack.com/mcp`; it does not support SSE or dynamic client registration, requires a fixed registered app identity, and permits MCP clients that are directory-published or internal. Validate desktop PKCE, the MCP OAuth metadata and token endpoints, the custom-URI/localhost redirect rules, and refresh behavior. Fill the verified endpoint and profile into the recipe; keep send actions centrally gated. Re-check these provider constraints at implementation time because they are external platform policy.
 
-Test internal-workspace access first. Complete the Marketplace distribution path before claiming public out-of-box availability: Slack currently allows Marketplace-published and internal apps, not unlisted distributed apps, and does not support dynamic client registration. If public distribution is blocked, report that dependency instead of changing availability flags or claiming another API bypasses it.
+Test internal-workspace access first. Complete the Marketplace distribution path before claiming public out-of-box availability. If public distribution is blocked, report that dependency instead of changing availability flags or claiming another API bypasses it. Internal acceptance and public eligibility are separate outcomes.
 
 **Exit:** real search/read and approved-send tests, expiry/reconnect tests, workspace denial handling, and evidence for the intended distribution audience. App eligibility is an external dependency. [Slack MCP](https://docs.slack.dev/ai/slack-mcp-server/), [PKCE](https://docs.slack.dev/authentication/using-pkce/)
 
 ### Step 10 — Finish Microsoft Teams and reusable Microsoft sign-in
 
-Implement an official API driver backed by Microsoft Graph and a Collie multitenant Entra application with public-client desktop authentication. Design sign-in once, then expose workload-specific capabilities without requesting every Microsoft permission up front.
+Implement an official API driver backed by Microsoft Graph and a Collie multitenant Entra application with public-client desktop authentication. Design sign-in once, then expose workload-specific capabilities without requesting every Microsoft permission up front. Record the delegated Graph permissions per operation and whether user consent or administrator consent is required; do not collapse those distinctions into a single “Microsoft connected” flag.
 
 First capabilities: list/read the user's chats, read permitted channel content, and send chat/channel messages with approval. Resolve exact delegated scopes and account support against current endpoint documentation; distinguish user-consentable operations from admin-required access. Support partial capabilities when broader consent is unavailable.
 
@@ -265,16 +313,17 @@ These flags describe implementation routing, not verified provider acceptance.
 
 | Boundary | Baseline implementation | Delivery still required |
 | --- | --- | --- |
-| Driver | `OfficialMcpDriver`, Streamable HTTP, OAuth, one-page discovery | Arbitrary definitions, SSE, pagination, no-auth/header and registered-client auth |
-| Manager | One authoritative lifecycle with legacy `services/` compatibility | Revision-aware IPC completion and generalized drivers |
-| Storage | Schema V15; connection/tool tables introduced in V7 | Definition snapshots, credential references, operation revisions, inventory identities |
-| Permissions | Central conservative classification and approval preferences | Material tool-change review and broader account isolation coverage |
-| Desktop | Connected/Explore, curated search, sign-in/test/remove | Add link/import preview and richer recovery |
+| Driver | `OfficialMcpDriver`, shared Streamable HTTP/SSE discovery, OAuth adapter and bounded pagination paths | Provider and packaged verification |
+| Manager | One authoritative lifecycle with legacy `services/` compatibility, account revisions and generalized auth/import paths | Provider and packaged verification |
+| Storage | Schema V16; connection/tool tables introduced in V7; definition snapshots, credential references, operation revisions and inventory identities | Migration/upgrade acceptance |
+| Permissions | Central conservative classification, per-account grants, operation revisions and material-change review gate | Provider and packaged acceptance |
+| Desktop | Connected/Explore plus typed add/import preview, protected secret submission, sign-in/test/remove and actionable recovery | Provider and packaged acceptance |
 | Providers | Curated hosted MCP route | Slack registration/acceptance; Teams Graph driver and Entra registration/acceptance |
 | Packaging | CPython 3.12 staging and Node probe runtime (`24.18.0` package engine declaration) | Managed local package installation, containment and clean-machine acceptance |
 
-Dependencies remain unchanged: `mcp>=1.26.0,<2.0.0` and
-`httpx>=0.28.0,<1.0.0`. The local regression environment used CPython 3.12.14
+The supported MCP SDK floor is now `mcp>=1.29.0,<2.0.0`; the earlier 1.26 floor
+does not provide the OAuth provider hooks used by this implementation. The other
+dependency remains `httpx>=0.28.0,<1.0.0`. The local regression environment used CPython 3.12.14
 and MCP 1.29.0; this is development evidence, not a packaged SDK guarantee.
 The baseline passed 97 tests across `test_connectors.py`, `test_services.py`,
 `test_db.py`, `test_connect_validation.py`, `test_mcp_connection.py`, and
@@ -322,15 +371,18 @@ remote definitions. It creates an installed account through the existing lifecyc
 without a bundled catalogue entry. Streamable HTTP and explicitly selected legacy
 SSE share transport/discovery helpers with the official driver and runtime. The
 backend can connect, retest, restore after restart, and remove these accounts.
-Desktop and chat add/import commands remain Steps 6�7; this backend entry point is
-not yet a user-facing setup flow.
+The desktop and chat add/import flow is implemented through the typed IPC bridge
+and renderer add dialog, with custom no-auth and OAuth routes using the same
+manager and protected token/raw-import secret handling. It remains subject to
+real-provider and packaged acceptance.
 
 Each custom account gets its own full connection namespace and permission resource,
 including when two accounts have the same endpoint or display name. Custom servers
 remain untrusted: tool hints cannot grant read authority, and imported host/tool
 trust overrides are rejected. Existing curated accounts keep their runtime names
-and pinned snapshots. No-auth accounts do not require a credential blob; custom
-token/header/OAuth strategies are rejected until Step 4 implements them.
+and pinned snapshots. No-auth accounts do not require a credential blob;
+token/header/OAuth paths are implemented through the shared manager, with
+provider and packaged acceptance still pending.
 
 The private-network choice is an explicit boolean persisted in the immutable
 definition's existing configuration JSON; it needs no additional schema migration.
@@ -349,4 +401,34 @@ discovery, cancellation, and runtime reconnects use the shared SDK/engine path.
 
 Deterministic fake-server and transport tests establish backend behavior. They do
 not establish real-provider authentication, installer acceptance, or universal MCP
-compatibility. Steps 4�8 remain the next delivery sequence.
+compatibility. Steps 4–8 software is implemented and deterministically tested;
+provider and packaged acceptance evidence are still required.
+
+## 11. Remaining delivery plan and documentation impact
+
+The following packages are the reviewable work after the Step 3 backend. Each
+package has an engineering exit and an owner-controlled gate. A package may be
+implemented behind an alpha flag while its external gate is pending, but the
+recipe and product copy must continue to show the verified audience and status.
+
+| Step | Concrete work package | External dependency | Evidence required before availability changes |
+| --- | --- | --- | --- |
+| 9 Slack | Implement the curated Slack profile, fixed app identity, MCP Streamable HTTP route, PKCE callback and refresh handling; classify search/read/send tools and gate sends. | Collie Slack app ownership, internal workspace, callback approval, Marketplace review for public distribution. | Sanitized profile; internal search/read and approved-send runs; expiry/reconnect and workspace-denial tests; separate public eligibility result. |
+| 10 Microsoft | Implement the Graph driver and reusable multitenant Entra desktop sign-in; request workload scopes per operation and expose partial capability when consent is limited. | Collie Entra app ownership, publisher verification, test tenant/accounts, tenant admin consent and current Graph scope behavior. | Account and tenant identity; delegated read and approved-send runs; partial-consent, refresh, switching and admin-required restrictions; personal-account boundary. |
+| 11 Local packages | Implement managed stdio lifecycle, pinned recipes, installer/update/remove flow, runtime discovery, bounded logs and process cleanup; document the containment boundary. | Installer-owned runtimes, supported package list, package licenses, Windows clean-machine access, security review for third-party installation. | Clean install and uninstall evidence for every advertised package; crash/restart and dependency-failure tests; explicit host access and containment result. |
+| 12 Discovery | Ship a signed, versioned recipe feed with schema validation, provenance, cache-last-good behavior and outage handling; keep registry results advisory. | Feed hosting/signing ownership and, if used, registry policy/availability. | Signature/schema verification, rollback and outage tests; recipe provenance; no silent package install or permission expansion. |
+| 13 Managed evaluation | Evaluate one managed provider against named workflows, account types, consent, distribution rights, limits, cost, data handling, disconnect and latency. | Provider contract, production quotas/pricing, data-processing terms and account isolation review. | Written adopt/defer decision plus demonstrated workflows. No catalogue-size claim substitutes for this evidence. |
+| 14 Packaged rollout | Run clean Windows acceptance per route, record installer/version/provider evidence, roll out independently, and define compatible rollback and migration backup procedures. | Test destinations/accounts, release owner, signing/distribution access and recovery artifacts. | Release matrix passes for each advertised route; verified capability matrix and rollback evidence; route-level kill/recovery controls. |
+
+Documentation updates follow the same evidence boundary:
+
+- Keep the Steps 4–8 ledger aligned with source and focused test evidence. Do not
+  turn implementation status, catalogue entries, or deterministic mocks into
+  real-provider or packaged availability claims.
+- Update `docs/VISION.md` only if the supported audience, local-first promise,
+  or alpha/release boundary changes. Update `docs/PROJECT_MAP.md` only when
+  ownership, paths, interfaces, or invariants change. A provider registration or
+  test result alone belongs here, not in either durable document.
+- If canonical docs or project shape change, regenerate
+  `docs/generated/REPOSITORY_SNAPSHOT.md` with the repository tool and run its
+  `--check` form. The generated snapshot is never hand-edited.

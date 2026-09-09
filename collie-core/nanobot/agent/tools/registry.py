@@ -3,10 +3,81 @@
 from __future__ import annotations
 
 import json
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 
 from nanobot.agent.tools.base import Tool, ToolResult
 from nanobot.agent.tools.context import ContextAware, current_request_context
+
+_DIRECT_MCP_SCHEMA_LIMIT = 32
+_SELECTED_MCP_SCHEMA_LIMIT = 24
+_selected_connected_tools: ContextVar[tuple[str, list[str]] | None] = ContextVar(
+    "selected_connected_tools", default=None
+)
+
+
+class _ConnectedToolSearch(Tool):
+    """Select a bounded set of already-authorized connector tool schemas."""
+
+    _plugin_discoverable = False
+
+    def __init__(self, registry: "ToolRegistry") -> None:
+        self._registry = registry
+
+    @property
+    def name(self) -> str:
+        return "search_connected_tools"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Search enabled tools from connected accounts. Matching tool schemas become "
+            "available on the next step; this search does not run them."
+        )
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Capability or service to find"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 10, "default": 8},
+            },
+            "required": ["query"],
+        }
+
+    @property
+    def read_only(self) -> bool:
+        return True
+
+    async def execute(self, **kwargs: Any) -> str:
+        query = str(kwargs.get("query") or "").strip().lower()
+        limit = max(1, min(int(kwargs.get("limit") or 8), 10))
+        if not query:
+            return ToolResult.error("Please say what connected capability you want to find.")
+        matches: list[tuple[str, Tool]] = []
+        for name, tool in self._registry._tools.items():
+            if not name.startswith("mcp_"):
+                continue
+            authority_error = getattr(tool, "_connector_authority_error", None)
+            if callable(authority_error) and authority_error():
+                continue
+            account = str(getattr(tool, "_connector_account_label", "") or "")
+            provider = str(getattr(tool, "_connector_provider_id", "") or "")
+            haystack = f"{name} {tool.description} {provider} {account}".lower()
+            if all(part in haystack for part in query.split()):
+                matches.append((name, tool))
+        matches.sort(key=lambda item: item[0])
+        selected = [name for name, _ in matches[:limit]]
+        _, turn_selection = self._registry._turn_selection()
+        # AgentRunner executes read tools in child tasks. Mutating the inherited
+        # per-turn list makes the selection visible to the parent task's next
+        # model iteration without leaking it to another concurrent turn.
+        turn_selection[:] = selected[:_SELECTED_MCP_SCHEMA_LIMIT]
+        if not selected:
+            return "No enabled connected tools matched that search."
+        return "Selected connected tools: " + ", ".join(selected)
+
 
 if TYPE_CHECKING:
     from nanobot.runtime_context import RuntimeContextProvider
@@ -26,6 +97,19 @@ class ToolRegistry:
     def __init__(self):
         self._tools: dict[str, Tool] = {}
         self._cached_definitions: list[dict[str, Any]] | None = None
+        self._connected_tool_search = _ConnectedToolSearch(self)
+
+    def _large_mcp_inventory(self) -> bool:
+        return sum(name.startswith("mcp_") for name in self._tools) > _DIRECT_MCP_SCHEMA_LIMIT
+
+    def _turn_selection(self) -> tuple[str, list[str]]:
+        context = current_request_context()
+        key = str((getattr(context, "turn_id", None) or id(context)) if context else "direct")
+        current = _selected_connected_tools.get()
+        if current is None or current[0] != key:
+            current = (key, [])
+            _selected_connected_tools.set(current)
+        return current
 
     def register(self, tool: Tool) -> None:
         """Register a tool."""
@@ -39,6 +123,8 @@ class ToolRegistry:
 
     def get(self, name: str) -> Tool | None:
         """Get a tool by name."""
+        if name == self._connected_tool_search.name and self._large_mcp_inventory():
+            return self._connected_tool_search
         return self._tools.get(name)
 
     def get_runtime_context_providers(self) -> list[RuntimeContextProvider]:
@@ -59,18 +145,14 @@ class ToolRegistry:
         key = self._lookup_key(str(name or ""))
         if not key:
             return None
-        matches = [
-            registered
-            for registered in self._tools
-            if self._lookup_key(registered) == key
-        ]
+        matches = [registered for registered in self._tools if self._lookup_key(registered) == key]
         if len(matches) == 1:
             return matches[0]
         return None
 
     def has(self, name: str) -> bool:
         """Check if a tool is registered."""
-        return name in self._tools
+        return self.get(name) is not None
 
     @staticmethod
     def _schema_name(schema: dict[str, Any]) -> str:
@@ -90,7 +172,8 @@ class ToolRegistry:
         sorted and appended.  The result is cached until the next
         register/unregister call.
         """
-        if self._cached_definitions is not None:
+        large_inventory = self._large_mcp_inventory()
+        if self._cached_definitions is not None and not large_inventory:
             return self._cached_definitions
 
         definitions = [tool.to_schema() for tool in self._tools.values()]
@@ -105,8 +188,18 @@ class ToolRegistry:
 
         builtins.sort(key=self._schema_name)
         mcp_tools.sort(key=self._schema_name)
-        self._cached_definitions = builtins + mcp_tools
-        return self._cached_definitions
+        if large_inventory:
+            _, turn_selection = self._turn_selection()
+            selected = set(turn_selection)
+            mcp_tools = [schema for schema in mcp_tools if self._schema_name(schema) in selected][
+                :_SELECTED_MCP_SCHEMA_LIMIT
+            ]
+            builtins.append(self._connected_tool_search.to_schema())
+            builtins.sort(key=self._schema_name)
+        definitions = builtins + mcp_tools
+        if not large_inventory:
+            self._cached_definitions = definitions
+        return definitions
 
     def prepare_call(
         self,
@@ -114,14 +207,22 @@ class ToolRegistry:
         params: Any,
     ) -> tuple[Tool | None, Any, str | None]:
         """Resolve, cast, and validate one tool call."""
-        tool = self._tools.get(name)
+        tool = self.get(name)
         if not tool:
             suggestion = self._suggest_name(str(name))
-            hint = f" Did you mean '{suggestion}'? Tool names must match exactly." if suggestion else ""
-            return None, params, (
-                ToolResult.error(
-                    f"Error: Tool '{name}' not found.{hint} Available: {', '.join(self.tool_names)}"
-                )
+            hint = (
+                f" Did you mean '{suggestion}'? Tool names must match exactly."
+                if suggestion
+                else ""
+            )
+            return (
+                None,
+                params,
+                (
+                    ToolResult.error(
+                        f"Error: Tool '{name}' not found.{hint} Available: {', '.join(self.tool_names)}"
+                    )
+                ),
             )
 
         # Compatibility for external tools that still implement the legacy
@@ -132,19 +233,29 @@ class ToolRegistry:
 
         params = self._coerce_params(tool, params)
         if not isinstance(params, dict):
-            return tool, params, (
-                ToolResult.error(
-                    f"Error: Tool '{name}' parameters must be a JSON object, got "
-                    f"{type(params).__name__}. Use named parameters like "
-                    'tool_name(param1="value1", param2="value2") matching the tool schema.'
-                )
+            return (
+                tool,
+                params,
+                (
+                    ToolResult.error(
+                        f"Error: Tool '{name}' parameters must be a JSON object, got "
+                        f"{type(params).__name__}. Use named parameters like "
+                        'tool_name(param1="value1", param2="value2") matching the tool schema.'
+                    )
+                ),
             )
 
         cast_params = tool.cast_params(params)
         errors = tool.validate_params(cast_params)
         if errors:
-            return tool, cast_params, (
-                ToolResult.error(f"Error: Invalid parameters for tool '{name}': " + "; ".join(errors))
+            return (
+                tool,
+                cast_params,
+                (
+                    ToolResult.error(
+                        f"Error: Invalid parameters for tool '{name}': " + "; ".join(errors)
+                    )
+                ),
             )
         return tool, cast_params, None
 
@@ -202,7 +313,10 @@ class ToolRegistry:
     @property
     def tool_names(self) -> list[str]:
         """Get list of registered tool names."""
-        return list(self._tools.keys())
+        names = list(self._tools.keys())
+        if self._large_mcp_inventory():
+            names.append(self._connected_tool_search.name)
+        return names
 
     def __len__(self) -> int:
         return len(self._tools)

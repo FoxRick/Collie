@@ -94,10 +94,14 @@ schemas; `tests/collie/test_prompt_hashes.py` covers the hash telemetry
   tools (calendar, email, notes, smart home, documents) return guidance
   toward `mcp_<service>_*` tools once a service is connected.
 - **Connections**: `collie_core/connectors/` owns the curated catalogue,
-  official-MCP OAuth lifecycle, custom no-auth remote HTTP/SSE lifecycle,
-  shared endpoint checks/discovery (`remote.py`), cached tool policy, and the sole
-  runtime `ConnectorManager`. A catalogue entry is available only after the
-  exact packaged artifact passes the complete provider acceptance matrix.
+  MCP OAuth adapter (`auth.py`), import parsing (`import_config.py`), custom
+  remote HTTP/SSE lifecycle, shared endpoint checks/discovery (`remote.py`),
+  cached tool policy, and the sole runtime `ConnectorManager`. The desktop
+  add/import surface lives in the sibling `collie-ui` bridge and renderer;
+  secrets remain in Electron's protected path. A catalogue entry is available
+  only after the exact packaged artifact passes the complete provider acceptance
+  matrix; in-progress connector code and deterministic tests do not establish
+  real-provider or packaged acceptance.
   `collie_core/services/` remains for one alpha as a compatibility shim for
   legacy rows, credentials, tools, IPC reads, and the packaged MCP probe. Do
   not add a second UI connection flow or remove that shim before the dedicated

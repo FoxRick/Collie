@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 import uuid
@@ -13,6 +14,8 @@ from loguru import logger
 
 from collie_core.connectors.catalog import CONNECTOR_CATALOG, connector_def
 from collie_core.connectors.drivers.official_mcp import OfficialMcpDriver
+from collie_core.connectors.import_config import import_preview as parse_import_preview
+from collie_core.connectors.import_config import validate_definition_payload
 from collie_core.connectors.models import (
     ConnectionStatus,
     ConnectorAuthStrategy,
@@ -57,11 +60,14 @@ class ConnectorManager:
         *,
         credentials: CredentialStore | None = None,
         driver_factory: Callable[[ConnectorDefinition], Any] | None = None,
+        on_runtime_change: Callable[[], None] | None = None,
     ) -> None:
         self.db = db
         self.credentials = credentials or CredentialStore()
         self._driver_factory = driver_factory or self._default_driver
         self._lock = threading.RLock()
+        self._on_runtime_change = on_runtime_change
+        self._operations: dict[str, str] = {}
         self._cancelled: set[str] = set()
         self._connecting: set[str] = set()
         self._migrate_legacy_credentials()
@@ -106,7 +112,15 @@ class ConnectorManager:
                 endpoint=str(config.get("endpoint") or ""),
                 transport=ConnectorTransport(str(stored["transport"])),
                 allow_private_network=config.get("allow_private_network", False),
-                available=stored["auth_strategy"] == ConnectorAuthStrategy.NONE.value,
+                scopes=tuple(config.get("scopes") or ()),
+                oauth_registration=config.get("oauth_registration"),
+                client_id=config.get("client_id"),
+                redirect_uri=config.get("redirect_uri"),
+                issuer=config.get("issuer"),
+                resource=config.get("resource"),
+                client_metadata_url=config.get("client_metadata_url"),
+                header_name=config.get("header_name"),
+                available=True,
                 release_status="alpha",
             )
         if recipe is None:
@@ -121,6 +135,13 @@ class ConnectorManager:
             tool_overrides=dict(config.get("tool_overrides") or {}),
             transport=ConnectorTransport(str(stored["transport"])),
             allow_private_network=config.get("allow_private_network", False),
+            oauth_registration=config.get("oauth_registration"),
+            client_id=config.get("client_id"),
+            redirect_uri=config.get("redirect_uri"),
+            issuer=config.get("issuer"),
+            resource=config.get("resource"),
+            client_metadata_url=config.get("client_metadata_url"),
+            header_name=config.get("header_name"),
         )
 
     def _resolve_migrated_definitions(self) -> None:
@@ -226,6 +247,8 @@ class ConnectorManager:
         if definition is not None and definition.auth_type == "none":
             return True
         data = self.credentials.load(f"connector:{row['id']}") or {}
+        if definition is not None and definition.auth_type in {"token", "headers"}:
+            return bool((data.get("static") or {}).get("value"))
         tokens = data.get("tokens") or {}
         return bool(tokens.get("access_token"))
 
@@ -273,6 +296,9 @@ class ConnectorManager:
             "last_verified_at": row.get("last_verified_at"),
             "last_error_code": last_error_code,
             "last_error_message": last_error_message,
+            "operation_revision": int(row.get("operation_revision") or 0),
+            "operation_id": self._operations.get(str(row["id"])),
+            "failure": self._failure(last_error_code, last_error_message),
             "permissions": list(definition.permissions) if definition else [],
             "capabilities": list(definition.capabilities) if definition else [],
             "route": "Official MCP"
@@ -293,6 +319,147 @@ class ConnectorManager:
         row = self.db.get_connector_connection(connection_id)
         return self._connection_view(row) if row else None
 
+    @staticmethod
+    def _failure(code: Any, message: Any = None) -> dict[str, Any] | None:
+        if not code:
+            return None
+        recovery = {
+            "oauth_cancelled": "Try signing in again when you're ready.",
+            "scope_denied": "Sign in again and allow the requested access.",
+            "callback_timeout": "Try signing in again and finish in the browser.",
+            "token_refresh_failed": "Reconnect this account.",
+            "credentials_missing": "Reconnect this account.",
+            "account_admin_blocked": "Ask your workspace administrator to allow the app.",
+            "tool_discovery_failed": "Test the connection again.",
+            "server_unreachable": "Check the address and your network, then try again.",
+            "provider_unavailable": "Use an available connection route or update Collie.",
+            "interrupted": "Try the connection again.",
+        }
+        return {
+            "code": str(code),
+            "message": str(message or "I couldn't finish that connection step."),
+            "recovery_action": recovery.get(str(code), "Check the details and try again."),
+            "stage": "authorization"
+            if str(code).startswith(("oauth", "scope", "token", "callback", "account"))
+            else "discovery",
+            "retryable": str(code) not in {"provider_unavailable", "account_admin_blocked"},
+        }
+
+    def validate_definition(self, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            definition, preview = validate_definition_payload(payload)
+        except (TypeError, ValueError):
+            return {
+                "valid": False,
+                "preview": None,
+                "warnings": [],
+                "errors": [
+                    {
+                        "code": "invalid_definition",
+                        "message": "Check the connection address and sign-in details.",
+                    }
+                ],
+            }
+        return {
+            "valid": True,
+            "preview": preview,
+            "definition": definition.to_dict(),
+            "warnings": [],
+            "errors": [],
+        }
+
+    def import_preview(self, value: str | dict[str, Any]) -> dict[str, Any]:
+        return parse_import_preview(value)
+
+    def save_definition(self, payload: dict[str, Any]) -> dict[str, Any]:
+        definition = InstalledConnectorDefinition.from_dict(payload)
+        if definition.id.startswith("draft_"):
+            definition = replace(definition, id=f"def_{uuid.uuid4().hex}")
+        self.db.save_connector_definition(definition)
+        return {
+            "definition_id": definition.id,
+            "auth_strategy": definition.auth_strategy.value,
+            "requires_secret": definition.auth_strategy
+            in {ConnectorAuthStrategy.TOKEN, ConnectorAuthStrategy.HEADERS},
+        }
+
+    def begin_auth(
+        self,
+        definition_id: str,
+        *,
+        secret: dict[str, Any] | None = None,
+        display_name: str | None = None,
+        origin: str = "connectors_ui",
+        connection_id: str | None = None,
+        operation_id: str | None = None,
+    ) -> dict[str, Any]:
+        row = self.db.get_connector_definition(definition_id)
+        if row is None:
+            raise ValueError("I couldn't find those connection details.")
+        config = _json_value(row.get("config_json"), {})
+        installed = InstalledConnectorDefinition.from_dict(
+            {
+                "id": str(row["id"]),
+                "provider_id": row.get("provider_id"),
+                "recipe_id": row.get("recipe_id"),
+                "recipe_version": row.get("recipe_version"),
+                "driver": row["driver"],
+                "transport": row["transport"],
+                "auth_strategy": row["auth_strategy"],
+                "provenance": row["provenance"],
+                "unresolved": bool(row.get("unresolved")),
+                **config,
+            }
+        )
+        return self.connect_definition(
+            installed,
+            display_name=display_name,
+            origin=origin,
+            secret=secret,
+            connection_id=connection_id,
+            operation_id=operation_id,
+        )
+
+    def inspect_tools(
+        self, connection_id: str, *, query: str = "", limit: int = 50
+    ) -> dict[str, Any]:
+        limit = max(1, min(int(limit), 100))
+        if hasattr(self.db, "search_connector_tools"):
+            tools = self.db.search_connector_tools(
+                connection_id, query, limit=limit, enabled_only=False
+            )
+        else:
+            needle = query.casefold().strip()
+            tools = [
+                tool
+                for tool in self.db.list_connector_tools(connection_id)
+                if not needle or needle in str(tool.get("remote_tool_name", "")).casefold()
+            ][:limit]
+        row = self.db.get_connector_connection(connection_id)
+        policy = _json_value((row or {}).get("tool_policy_json"), {})
+        review_status = policy.get("_tool_review_status", {})
+        enabled = set(_json_value((row or {}).get("enabled_tools_json"), []))
+        tools = [
+            {
+                **tool,
+                "review_status": review_status.get(str(tool.get("remote_tool_name")), "reviewed"),
+                "previously_enabled": str(tool.get("remote_tool_name")) in enabled,
+            }
+            for tool in tools
+        ]
+        return {
+            "connection_id": connection_id,
+            "total": len(self.db.list_connector_tools(connection_id)),
+            "tools": tools,
+        }
+
+    def _notify_runtime_change(self) -> None:
+        if self._on_runtime_change is not None:
+            try:
+                self._on_runtime_change()
+            except Exception:
+                logger.exception("Connector runtime reconciliation callback failed")
+
     # -- lifecycle -----------------------------------------------------------
 
     def connect(
@@ -303,6 +470,7 @@ class ConnectorManager:
         origin: str = "connectors_ui",
         replace_connection_id: str | None = None,
         connection_id: str | None = None,
+        operation_id: str | None = None,
     ) -> dict[str, Any]:
         del credentials  # Ordinary connector flows never accept renderer credentials.
         definition = connector_def(provider_id)
@@ -315,6 +483,7 @@ class ConnectorManager:
             origin=origin,
             replace_connection_id=replace_connection_id,
             connection_id=connection_id,
+            operation_id=operation_id,
         )
 
     def connect_definition(
@@ -323,6 +492,9 @@ class ConnectorManager:
         *,
         display_name: str | None = None,
         origin: str = "custom_connection",
+        secret: dict[str, Any] | None = None,
+        connection_id: str | None = None,
+        operation_id: str | None = None,
     ) -> dict[str, Any]:
         """Connect a validated custom remote definition through the shared lifecycle.
 
@@ -339,11 +511,9 @@ class ConnectorManager:
             or installed.unresolved
         ):
             raise ValueError("Choose a complete custom remote connection definition.")
-        if installed.auth_strategy is not ConnectorAuthStrategy.NONE:
-            raise ValueError("Custom sign-in strategies are not available yet.")
         if installed.tool_overrides or installed.trusted_hosts:
             raise ValueError("Custom connections cannot grant trusted tool or host overrides.")
-        connection_id = f"con_{uuid.uuid4().hex}"
+        connection_id = connection_id or f"con_{uuid.uuid4().hex}"
         # Caller-provided labels/recipe IDs cannot impersonate a curated route.
         provider_id = f"custom_{uuid.uuid4().hex}"
         installed = replace(
@@ -363,14 +533,49 @@ class ConnectorManager:
             endpoint=installed.endpoint or "",
             transport=installed.transport,
             allow_private_network=installed.allow_private_network,
+            scopes=installed.scopes,
+            oauth_registration=installed.oauth_registration,
+            client_id=installed.client_id,
+            redirect_uri=installed.redirect_uri,
+            issuer=installed.issuer,
+            resource=installed.resource,
+            client_metadata_url=installed.client_metadata_url,
+            header_name=installed.header_name,
             available=True,
             release_status="alpha",
         )
+        definition = replace(definition, auth_type=installed.auth_strategy.value, available=True)
+        if installed.auth_strategy in (ConnectorAuthStrategy.TOKEN, ConnectorAuthStrategy.HEADERS):
+            value = (secret or {}).get("token") or (secret or {}).get("value")
+            submitted_headers = (secret or {}).get("headers")
+            if isinstance(submitted_headers, dict):
+                if list(submitted_headers) != [installed.header_name]:
+                    raise ValueError(
+                        "The submitted authentication header does not match the definition."
+                    )
+                value = submitted_headers[installed.header_name]
+            existing_secret = self.credentials.load(f"connector:{connection_id}")
+            if (not isinstance(value, str) or not value) and not existing_secret:
+                raise ValueError("Enter the credential for this connection.")
+            pending_static = (
+                {
+                    "kind": installed.auth_strategy.value,
+                    "value": value,
+                    "header_name": installed.header_name,
+                }
+                if isinstance(value, str) and value
+                else None
+            )
+        else:
+            pending_static = None
+        self._operations[connection_id] = operation_id or f"op_{uuid.uuid4().hex}"
         return self._connect(
             definition,
             origin=origin,
             connection_id=connection_id,
             installed=installed,
+            pending_static=pending_static,
+            operation_id=operation_id,
         )
 
     def _connect(
@@ -381,8 +586,12 @@ class ConnectorManager:
         replace_connection_id: str | None = None,
         connection_id: str | None = None,
         installed: InstalledConnectorDefinition | None = None,
+        pending_static: dict[str, Any] | None = None,
+        operation_id: str | None = None,
     ) -> dict[str, Any]:
         with self._lock:
+            if connection_id and connection_id in self._connecting:
+                raise ValueError("That connection is still stopping. Try again in a moment.")
             existing = next(
                 (
                     row
@@ -415,6 +624,13 @@ class ConnectorManager:
                         last_error_message="The previous sign-in was interrupted.",
                     )
             connection_id = connection_id or f"con_{uuid.uuid4().hex}"
+            operation_id = operation_id or f"op_{uuid.uuid4().hex}"
+            self._operations[connection_id] = operation_id
+            previous_row = self.db.get_connector_connection(connection_id)
+            previous_tool_names = {
+                str(tool["remote_tool_name"])
+                for tool in self.db.list_connector_tools(connection_id)
+            }
             if installed is None:
                 self._save_definition_snapshot(definition, connection_id)
             else:
@@ -428,6 +644,8 @@ class ConnectorManager:
                 status=ConnectionStatus.AUTHORIZING.value,
                 enabled_capabilities=list(definition.capabilities),
             )
+            if pending_static is not None:
+                self.credentials.save(f"connector:{connection_id}", {"static": pending_static})
             self._connecting.add(connection_id)
 
         try:
@@ -435,6 +653,8 @@ class ConnectorManager:
             result: ProbeResult = driver.connect_and_probe(definition, connection_id)
             with self._lock:
                 if connection_id in self._cancelled:
+                    raise RuntimeError("oauth cancelled")
+                if self._operations.get(connection_id) != operation_id:
                     raise RuntimeError("oauth cancelled")
                 # A concurrent remove() may have deleted the row while we probed.
                 if self.db.get_connector_connection(connection_id) is None:
@@ -450,7 +670,35 @@ class ConnectorManager:
                     raise RuntimeError("The provider connected but returned no usable tools.")
                 policy = {tool["name"]: tool["risk"] for tool in result.tools}
                 enabled_tools = [tool["name"] for tool in result.tools]
-                self.db.replace_connector_tools(connection_id, result.tools)
+                report = self.db.replace_connector_tools(connection_id, result.tools)
+                if previous_row is not None:
+                    previous_policy = _json_value(previous_row.get("tool_policy_json"), {})
+                    if "_approval_preference" in previous_policy:
+                        policy["_approval_preference"] = previous_policy["_approval_preference"]
+                    previous_enabled = _json_value(previous_row.get("enabled_tools_json"), [])
+                    enabled_tools = (
+                        sorted(previous_tool_names & {str(tool["name"]) for tool in result.tools})
+                        if "*" in previous_enabled
+                        else sorted(
+                            set(previous_enabled) & {str(tool["name"]) for tool in result.tools}
+                        )
+                    )
+                    enabled_tools = sorted(
+                        set(enabled_tools)
+                        - set(report.get("changed_tools", ()))
+                        - set(report.get("new_tools", ()))
+                    )
+                    prior_reviews = previous_policy.get("_tool_review_status", {})
+                    policy["_tool_review_status"] = {
+                        name: (
+                            "changed"
+                            if name in set(report.get("changed_tools", ()))
+                            else "new"
+                            if name in set(report.get("new_tools", ()))
+                            else prior_reviews.get(name, "reviewed")
+                        )
+                        for name in {str(tool["name"]) for tool in result.tools}
+                    }
                 # Second cancellation check: the flag may have been set while the
                 # probe ran — the CONNECTED upsert must not win the race.
                 if connection_id in self._cancelled:
@@ -477,10 +725,11 @@ class ConnectorManager:
             # Credentials survive retryable failures (network, tool discovery)
             # so the user can retry without a fresh sign-in — but never for
             # cancellations or auth-level refusals.
-            if code in _CREDENTIAL_DELETING_CODES:
-                self.credentials.delete(f"connector:{connection_id}")
             with self._lock:
-                if self.db.get_connector_connection(connection_id) is not None:
+                owns_operation = self._operations.get(connection_id) == operation_id
+                if code in _CREDENTIAL_DELETING_CODES and owns_operation:
+                    self.credentials.delete(f"connector:{connection_id}")
+                if owns_operation and self.db.get_connector_connection(connection_id) is not None:
                     self.db.upsert_connector_connection(
                         connection_id,
                         provider_id=definition.id,
@@ -492,22 +741,33 @@ class ConnectorManager:
                     )
             raise ValueError(self._friendly_error(code)) from error
         finally:
-            cancelled = connection_id in self._cancelled
-            self._cancelled.discard(connection_id)
-            self._connecting.discard(connection_id)
-            if cancelled:
-                # Clean up credentials only after the probe thread is done
-                # writing them (deleting mid-write resurrects the file).
-                self.credentials.delete(f"connector:{connection_id}")
+            with self._lock:
+                cancelled = connection_id in self._cancelled
+                if cancelled:
+                    # Clean up credentials before releasing the in-flight marker,
+                    # so a reconnect cannot race this deletion.
+                    self.credentials.delete(f"connector:{connection_id}")
+                self._cancelled.discard(connection_id)
+                self._connecting.discard(connection_id)
         logger.info("Connector connected: {} ({})", definition.id, connection_id)
+        self._notify_runtime_change()
         return {
+            **self._connection_view(row),
             "provider_id": definition.id,
             "connection_id": connection_id,
             "status": row["status"],
             "origin": origin,
+            "operation_id": operation_id,
+            "operation_revision": int(row.get("operation_revision") or 0),
         }
 
-    def cancel_auth(self, connection_id: str) -> dict[str, Any]:
+    def cancel_auth(
+        self,
+        connection_id: str,
+        *,
+        operation_id: str | None = None,
+        operation_revision: int | None = None,
+    ) -> dict[str, Any]:
         with self._lock:
             row = self.db.get_connector_connection(connection_id)
             if row is None or row["status"] not in {
@@ -515,6 +775,16 @@ class ConnectorManager:
                 ConnectionStatus.TESTING.value,
             }:
                 return {"connection_id": connection_id, "cancelled": False}
+            if operation_id is not None and self._operations.get(connection_id) != operation_id:
+                return {"connection_id": connection_id, "cancelled": False}
+            expected = int(row.get("operation_revision") or 0)
+            if operation_revision is not None and operation_revision != expected:
+                return {"connection_id": connection_id, "cancelled": False}
+            revision = self.db.advance_connector_operation(connection_id, expected)
+            self._operations[connection_id] = f"cancelled_{uuid.uuid4().hex}"
+            from collie_core.connectors.auth import cancel_oauth_connection
+
+            cancel_oauth_connection(connection_id)
             self._cancelled.add(connection_id)
             # Credentials are deleted by the connect thread after it finishes
             # (deleting mid-write resurrects the token file) — unless no
@@ -530,13 +800,30 @@ class ConnectorManager:
                 last_error_code="oauth_cancelled",
                 last_error_message=self._friendly_error("oauth_cancelled"),
             )
-            return {"connection_id": connection_id, "cancelled": True}
+            self._notify_runtime_change()
+            return {
+                "connection_id": connection_id,
+                "cancelled": True,
+                "operation_revision": revision,
+            }
 
-    def test(self, connection_id: str) -> dict[str, Any]:
+    def test(
+        self,
+        connection_id: str,
+        *,
+        operation_id: str | None = None,
+        operation_revision: int | None = None,
+    ) -> dict[str, Any]:
         with self._lock:
             row = self.db.get_connector_connection(connection_id)
             if row is None:
                 raise ValueError("I couldn't find that connection.")
+            expected = int(row.get("operation_revision") or 0)
+            if operation_revision is not None and operation_revision != expected:
+                raise ValueError("The connection changed. Refresh it and try again.")
+            revision = self.db.advance_connector_operation(connection_id, expected)
+            operation_id = operation_id or f"op_{uuid.uuid4().hex}"
+            self._operations[connection_id] = operation_id
             definition = self._definition_for_row(row)
             if definition is None:
                 raise ValueError("That provider is no longer in this build.")
@@ -559,13 +846,44 @@ class ConnectorManager:
                 raise RuntimeError("No tools returned")
             with self._lock:
                 current = self.db.get_connector_connection(connection_id)
-                if current is None or current["status"] == ConnectionStatus.REVOKING.value:
+                if (
+                    current is None
+                    or current["status"] == ConnectionStatus.REVOKING.value
+                    or int(current.get("operation_revision") or 0) != revision
+                    or self._operations.get(connection_id) != operation_id
+                ):
                     raise RuntimeError("Connection test cancelled")
                 policy = {tool["name"]: tool["risk"] for tool in result.tools}
                 previous = _json_value(current.get("tool_policy_json"), {})
                 if "_approval_preference" in previous:
                     policy["_approval_preference"] = previous["_approval_preference"]
-                self.db.replace_connector_tools(connection_id, result.tools)
+                previous_enabled = _json_value(current.get("enabled_tools_json"), [])
+                previous_names = {
+                    str(tool["remote_tool_name"])
+                    for tool in self.db.list_connector_tools(connection_id)
+                }
+                discovered_names = {str(tool["name"]) for tool in result.tools}
+                if "*" in previous_enabled:
+                    enabled_tools = sorted(discovered_names & previous_names)
+                else:
+                    enabled_tools = sorted(discovered_names & set(previous_enabled))
+                report = self.db.replace_connector_tools(connection_id, result.tools)
+                enabled_tools = sorted(
+                    set(enabled_tools)
+                    - set(report.get("changed_tools", ()))
+                    - set(report.get("new_tools", ()))
+                )
+                prior_reviews = previous.get("_tool_review_status", {})
+                policy["_tool_review_status"] = {
+                    name: (
+                        "changed"
+                        if name in set(report.get("changed_tools", ()))
+                        else "new"
+                        if name in set(report.get("new_tools", ()))
+                        else prior_reviews.get(name, "reviewed")
+                    )
+                    for name in discovered_names
+                }
                 updated = self.db.upsert_connector_connection(
                     connection_id,
                     provider_id=definition.id,
@@ -574,7 +892,7 @@ class ConnectorManager:
                     status=ConnectionStatus.CONNECTED.value,
                     account_label=result.account_label,
                     granted_scopes=result.granted_scopes,
-                    enabled_tools=[tool["name"] for tool in result.tools],
+                    enabled_tools=enabled_tools,
                     tool_policy=policy,
                     remote_account_id=result.remote_account_id,
                     last_verified_at=utc_now(),
@@ -583,7 +901,12 @@ class ConnectorManager:
             code = self._error_code(error)
             with self._lock:
                 current = self.db.get_connector_connection(connection_id)
-                if current is not None and current["status"] != ConnectionStatus.REVOKING.value:
+                if (
+                    current is not None
+                    and current["status"] != ConnectionStatus.REVOKING.value
+                    and int(current.get("operation_revision") or 0) == revision
+                    and self._operations.get(connection_id) == operation_id
+                ):
                     self.db.upsert_connector_connection(
                         connection_id,
                         provider_id=definition.id,
@@ -594,7 +917,81 @@ class ConnectorManager:
                         last_error_message=self._friendly_error(code),
                     )
             raise ValueError(self._friendly_error(code)) from error
-        return self._connection_view(updated)
+        self._notify_runtime_change()
+        view = self._connection_view(updated)
+        view.update(
+            {
+                "operation_id": operation_id,
+                "operation_revision": revision,
+                "inventory_change": report,
+            }
+        )
+        return view
+
+    def reconnect(
+        self,
+        connection_id: str,
+        *,
+        secret: dict[str, Any] | None = None,
+        operation_id: str | None = None,
+        operation_revision: int | None = None,
+        origin: str = "connectors_ui",
+    ) -> dict[str, Any]:
+        row = self.db.get_connector_connection(connection_id)
+        if row is None:
+            raise ValueError("I couldn't find that connection.")
+        with self._lock:
+            if connection_id in self._connecting:
+                raise ValueError("That connection is still stopping. Try again in a moment.")
+        current_revision = int(row.get("operation_revision") or 0)
+        if operation_revision is not None and operation_revision != current_revision:
+            raise ValueError("The connection changed. Refresh it and try again.")
+        self.db.advance_connector_operation(connection_id, current_revision)
+        stored = self.db.get_connector_definition(str(row.get("definition_id") or ""))
+        definition = self._definition_for_row(row)
+        if stored is None or definition is None:
+            raise ValueError("Those saved connection details are no longer available.")
+        config = _json_value(stored.get("config_json"), {})
+        installed = InstalledConnectorDefinition.from_dict(
+            {
+                "id": str(stored["id"]),
+                "provider_id": stored.get("provider_id"),
+                "recipe_id": stored.get("recipe_id"),
+                "recipe_version": stored.get("recipe_version"),
+                "driver": stored["driver"],
+                "transport": stored["transport"],
+                "auth_strategy": stored["auth_strategy"],
+                "provenance": stored["provenance"],
+                "unresolved": bool(stored.get("unresolved")),
+                **config,
+            }
+        )
+        pending_static = None
+        if definition.auth_type in {"token", "headers"} and secret:
+            value = secret.get("token") or secret.get("value")
+            headers = secret.get("headers")
+            if isinstance(headers, dict):
+                if list(headers) != [definition.header_name]:
+                    raise ValueError(
+                        "The submitted authentication header does not match the definition."
+                    )
+                value = headers[definition.header_name]
+            if not isinstance(value, str) or not value:
+                raise ValueError("Enter the credential for this connection.")
+            pending_static = {
+                "kind": definition.auth_type,
+                "value": value,
+                "header_name": definition.header_name,
+            }
+        return self._connect(
+            definition,
+            origin=origin,
+            replace_connection_id=connection_id,
+            connection_id=connection_id,
+            installed=installed,
+            pending_static=pending_static,
+            operation_id=operation_id,
+        )
 
     def update(
         self,
@@ -602,6 +999,7 @@ class ConnectorManager:
         *,
         display_name: str | None = None,
         enabled_capabilities: list[str] | None = None,
+        enabled_tools: list[str] | None = None,
         approval_preference: str | None = None,
     ) -> dict[str, Any]:
         row = self.db.get_connector_connection(connection_id)
@@ -610,6 +1008,18 @@ class ConnectorManager:
         policy = _json_value(row.get("tool_policy_json"), {})
         if approval_preference:
             policy["_approval_preference"] = approval_preference
+        if enabled_tools is not None:
+            known = {
+                str(tool["remote_tool_name"])
+                for tool in self.db.list_connector_tools(connection_id)
+            }
+            if "*" in enabled_tools or not set(enabled_tools) <= known:
+                raise ValueError("Choose tools discovered for this connection.")
+            reviews = policy.get("_tool_review_status", {})
+            policy["_tool_review_status"] = {
+                name: "reviewed" if name in enabled_tools else reviews.get(name, "reviewed")
+                for name in known
+            }
         updated = self.db.upsert_connector_connection(
             connection_id,
             provider_id=str(row["provider_id"]),
@@ -618,11 +1028,20 @@ class ConnectorManager:
             auth_type=str(row["auth_type"]),
             status=str(row["status"]),
             enabled_capabilities=enabled_capabilities,
+            enabled_tools=enabled_tools,
             tool_policy=policy,
         )
+        self._notify_runtime_change()
         return self._connection_view(updated)
 
-    def remove(self, connection_id: str, *, origin: str = "connectors_ui") -> dict[str, Any]:
+    def remove(
+        self,
+        connection_id: str,
+        *,
+        origin: str = "connectors_ui",
+        operation_id: str | None = None,
+        operation_revision: int | None = None,
+    ) -> dict[str, Any]:
         row = self.db.get_connector_connection(connection_id)
         if row is None:
             return {
@@ -632,6 +1051,15 @@ class ConnectorManager:
             }
         definition = self._definition_for_row(row)
         with self._lock:
+            expected = int(row.get("operation_revision") or 0)
+            if operation_revision is not None and operation_revision != expected:
+                raise ValueError("The connection changed. Refresh it and try again.")
+            revision = self.db.advance_connector_operation(connection_id, expected)
+            operation_id = operation_id or f"op_{uuid.uuid4().hex}"
+            self._operations[connection_id] = operation_id
+            from collie_core.connectors.auth import cancel_oauth_connection
+
+            cancel_oauth_connection(connection_id)
             # A concurrent connect() must not resurrect this connection.
             self._cancelled.add(connection_id)
             self.db.upsert_connector_connection(
@@ -644,18 +1072,26 @@ class ConnectorManager:
         remote_revocation = RemoteRevocationStatus.UNSUPPORTED
         if definition is not None:
             try:
-                import asyncio
+                result_box: list[Any] = []
+                error_box: list[Exception] = []
+                done = threading.Event()
 
-                outcome = asyncio.run(
-                    asyncio.wait_for(
-                        asyncio.to_thread(
-                            self._driver_factory(definition).revoke,
-                            definition,
-                            connection_id,
-                        ),
-                        timeout=10,
-                    )
-                )
+                def revoke_remote() -> None:
+                    try:
+                        result_box.append(
+                            self._driver_factory(definition).revoke(definition, connection_id)
+                        )
+                    except Exception as exc:
+                        error_box.append(exc)
+                    finally:
+                        done.set()
+
+                threading.Thread(target=revoke_remote, daemon=True).start()
+                if not done.wait(10):
+                    raise TimeoutError("Remote revocation timed out")
+                if error_box:
+                    raise RuntimeError("Remote revocation failed") from error_box[0]
+                outcome = result_box[0] if result_box else None
                 remote_revocation = RemoteRevocationStatus(
                     outcome or RemoteRevocationStatus.REVOKED
                 )
@@ -668,12 +1104,15 @@ class ConnectorManager:
             self.credentials.delete(f"connector:{connection_id}")
             self.db.delete_connector_connection(connection_id)
         logger.info("Connector removed: {}", connection_id)
+        self._notify_runtime_change()
         return {
             "connection_id": connection_id,
             "provider_id": row["provider_id"],
             "status": "disconnected",
             "origin": origin,
             "remote_revocation": remote_revocation.value,
+            "operation_id": operation_id,
+            "operation_revision": revision,
         }
 
     # -- runtime and legacy facade ------------------------------------------
@@ -696,6 +1135,17 @@ class ConnectorManager:
             custom = definition.driver == ConnectorDriverKind.CUSTOM_MCP
             name = str(row["id"]) if custom else f"{definition.id}_{str(row['id'])[-8:]}"
             policy = _json_value(row.get("tool_policy_json"), {})
+            inventory = {
+                str(tool["remote_tool_name"]): {
+                    "schema_hash": str(tool["schema_hash"]),
+                    "risk": str(tool["risk"]),
+                    "enabled": bool(tool.get("enabled")),
+                }
+                for tool in self.db.list_connector_tools(str(row["id"]))
+            }
+            inventory_fingerprint = hashlib.sha256(
+                json.dumps(inventory, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
             servers[name] = {
                 "type": "sse"
                 if definition.transport == ConnectorTransport.SSE
@@ -710,6 +1160,25 @@ class ConnectorManager:
                 "connectorAllowPrivateNetwork": definition.allow_private_network,
                 "connectorToolOverrides": definition.tool_overrides,
                 "connectorApprovalPreference": policy.get("_approval_preference", "important"),
+                "connectorConnectionId": row["id"],
+                "connectorAccountLabel": row.get("account_label")
+                or row.get("display_name")
+                or definition.name,
+                "connectorAuthType": definition.auth_type,
+                "connectorHeaderName": definition.header_name or "",
+                "connectorOAuthConfig": {
+                    "scopes": list(definition.scopes),
+                    "oauth_registration": definition.oauth_registration,
+                    "client_id": definition.client_id,
+                    "redirect_uri": definition.redirect_uri,
+                    "issuer": definition.issuer,
+                    "resource": definition.resource,
+                    "client_metadata_url": definition.client_metadata_url,
+                }
+                if definition.auth_type == "oauth"
+                else {},
+                "connectorToolInventory": inventory,
+                "connectorInventoryFingerprint": inventory_fingerprint,
             }
         return servers
 

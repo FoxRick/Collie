@@ -63,6 +63,11 @@ import {
   type CoreSettleState
 } from './update-boot-settle'
 import { readUpdateBootRecord } from './update-boot-record'
+import {
+  discardConnectorImportSecrets,
+  previewConnectorImport,
+  submitConnectorCredentials
+} from './connector-credentials'
 
 // A detached dev terminal can close stdout while Electron is still running.
 // Treat that transport failure as harmless instead of surfacing an app error dialog.
@@ -388,6 +393,31 @@ function registerIpc(): void {
   // Count only — the values themselves are pushed to the core by the main
   // process (core-client.ts); decrypted secrets never cross into the renderer.
   handle('collie:stored-secret-count', () => listSecretProviders().length)
+  handle('collie:submit-connector-credentials', (submission: unknown) =>
+    submitConnectorCredentials(submission)
+  )
+  handle('collie:preview-connector-import', (source: string | Record<string, unknown>) =>
+    previewConnectorImport(source)
+  )
+  handle('collie:discard-connector-import-secrets', (handles: unknown) =>
+    discardConnectorImportSecrets(handles)
+  )
+  handle('collie:preview-connector-import-file', async () => {
+    if (!mainWindow) return null
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Import a connection file',
+      properties: ['openFile'],
+      filters: [{ name: 'JSON files', extensions: ['json'] }]
+    })
+    if (result.canceled || result.filePaths.length !== 1) return null
+    const path = result.filePaths[0]
+    const stats = await statAsync(path)
+    if (!stats.isFile() || stats.size > 1024 * 1024) {
+      throw new Error('Choose a JSON connection file smaller than 1 MB.')
+    }
+    const preview = await previewConnectorImport(await readFileAsync(path, 'utf8'))
+    return { file_name: basename(path), ...preview }
+  })
   handle('account:start-sign-in', () => startAccountSignIn())
   handle('collie:submit-feedback', (submission: unknown) => submitFeedback(submission))
   handle('account:get-state', () => getAccountState())

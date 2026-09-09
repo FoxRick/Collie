@@ -10,7 +10,7 @@ vi.mock('./secrets', () => ({
   loadSecrets: (...args: unknown[]) => loadSecretsMock(...args)
 }))
 
-import { pushStoredSecretsToCore } from './core-client'
+import { coreSend, pushStoredSecretsToCore } from './core-client'
 
 class FakeWebSocket {
   static instances: FakeWebSocket[] = []
@@ -115,5 +115,22 @@ describe('pushStoredSecretsToCore', () => {
     }
     ;(globalThis as { WebSocket: unknown }).WebSocket = FailingWebSocket
     await expect(pushStoredSecretsToCore()).resolves.toBeUndefined()
+  })
+})
+
+describe('connector credential isolation', () => {
+  it('rejects secret-bearing connector commands from the generic renderer relay', async () => {
+    await expect(
+      coreSend({
+        type: 'begin_definition_auth',
+        id: 'unsafe-secret',
+        definition_id: 'def_1',
+        secret: { token: 'must-not-cross' }
+      })
+    ).rejects.toThrow(/protected bridge/)
+    await expect(
+      coreSend({ type: 'preview_connector_import', id: 'unsafe-import', source: '{}' })
+    ).rejects.toThrow(/protected bridge/)
+    expect(FakeWebSocket.instances).toHaveLength(0)
   })
 })

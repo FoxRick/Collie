@@ -32,6 +32,12 @@ def _origin(url: str) -> tuple[str, str, int]:
     return parsed.scheme, parsed.hostname.rstrip(".").lower(), port
 
 
+def _require_secure_authenticated_url(url: str) -> None:
+    scheme, host, _port = _origin(url)
+    if scheme != "https" and host not in {"127.0.0.1", "::1", "localhost"}:
+        raise ValueError("Authenticated remote MCP endpoints must use HTTPS.")
+
+
 def validate_remote_endpoint(
     initial_url: str,
     candidate_url: str | None = None,
@@ -185,6 +191,9 @@ async def remote_mcp_session(
     from nanobot.agent.tools.mcp import _filter_malformed_mcp_progress_notifications
 
     validate_remote_endpoint(endpoint, allow_private_network=allow_private_network)
+    if headers or auth:
+        _require_secure_authenticated_url(endpoint)
+    authenticated = bool(headers or auth)
     normalized = transport.replace("-", "_").lower()
     client_headers = {"Accept": "application/json, text/event-stream", **dict(headers or {})}
     validate_request = _request_validator(
@@ -200,7 +209,9 @@ async def remote_mcp_session(
     ) -> httpx.AsyncClient:
         return httpx.AsyncClient(
             headers={**client_headers, **(headers or {})},
-            follow_redirects=True,
+            # Never replay authentication headers or OAuth request bodies to a
+            # redirect target. Authenticated endpoints must use their final URL.
+            follow_redirects=not authenticated,
             event_hooks={"request": [validate_request]},
             timeout=timeout or httpx.Timeout(DEFAULT_PROTOCOL_TIMEOUT, connect=10),
             auth=auth,
@@ -227,7 +238,7 @@ async def remote_mcp_session(
     async with (
         httpx.AsyncClient(
             headers=client_headers,
-            follow_redirects=True,
+            follow_redirects=not authenticated,
             event_hooks={"request": [validate_request]},
             timeout=httpx.Timeout(timeout, connect=min(timeout, 10)),
             auth=auth,
