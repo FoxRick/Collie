@@ -12,13 +12,13 @@ terminal. No prompt engineering. No forced subscription.
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow" alt="License: MIT"></a>
   <a href="https://github.com/FoxRick/Collie/releases"><img src="https://img.shields.io/badge/Platform-Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-0078d6" alt="Platform: Windows, macOS, Linux"></a>
-  <a href="https://github.com/FoxRick/Collie/releases"><img src="https://img.shields.io/badge/Release-v0.1.0--alpha.7.3-purple" alt="Current release: v0.1.0-alpha.7.3"></a>
+  <a href="https://github.com/FoxRick/Collie/releases"><img src="https://img.shields.io/badge/Release-v0.1.0--alpha.7.4-purple" alt="Current release: v0.1.0-alpha.7.4"></a>
   <a href="https://github.com/FoxRick/Collie/actions/workflows/ci.yml"><img src="https://github.com/FoxRick/Collie/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
   <a href="https://heycollie.com"><img src="https://img.shields.io/badge/Website-heycollie.com-2ea44f" alt="heycollie.com"></a>
   <a href="https://github.com/FoxRick/Collie"><img src="https://img.shields.io/github/stars/FoxRick/Collie" alt="GitHub stars"></a>
 </p>
 
-> **Alpha release** — this repo ships a published **alpha** (`v0.1.0-alpha.7.3`)
+> **Alpha release** — this repo ships a published **alpha** (`v0.1.0-alpha.7.4`)
 > with installers for **Windows (x64), macOS (ARM64), and Linux (x64)**, plus
 > the full source. It's a real product you can install and talk to — but it's
 > early, so expect rough edges. The `main` branch is slightly ahead of the
@@ -235,7 +235,7 @@ The alpha installers are built on **Windows (x64)**, **macOS (ARM64)**, and
 development. You need Python 3.12, Node.js, and npm:
 
 > Versioning note: the repo carries two versions that move independently —
-> the desktop app (`collie-ui/package.json`, e.g. `0.1.0-alpha.7.3`) and the
+> the desktop app (`collie-ui/package.json`, e.g. `0.1.0-alpha.7.4`) and the
 > Python core (`collie-core/pyproject.toml`, e.g. `0.2.2`). A release tag
 > tracks the app version.
 
