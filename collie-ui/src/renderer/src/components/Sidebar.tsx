@@ -14,6 +14,7 @@ import {
   Plug,
   Repeat2,
   Search,
+  Users,
   Settings,
   Shapes,
   Trash2
@@ -314,6 +315,9 @@ export default function Sidebar({
       </div>
 
       <nav className="sidebar-primary px-3" aria-label="Primary navigation">
+        <button type="button" className={`sidebar-nav-item ${activeView === 'shared' ? 'is-active' : ''}`} onClick={() => onNavigate('shared')}>
+          <Users size={16} /> <span>Shared conversations</span>
+        </button>
         {primaryItems.map(({ key, label, icon: Icon }) => (
           <button
             key={key}

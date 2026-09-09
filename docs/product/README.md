@@ -10,8 +10,12 @@ Active product truth is organized by purpose:
   stack.
 - `features/planning-ui-and-more/` - accepted checklist and reviewed-plan
   behavior.
-- `features/share-collie.md` - simple Telegram multiplayer, local identity,
-  shared-resource boundaries, and optional local-AI direction.
+- `features/shared-sessions-implementation-plan.md` - account-based shared
+  sessions, personal execution, bounded cloud sync, and verified local auto-archive;
+  backend/core/frontend acceptance contract, with implementation and release gates
+  tracked in `../engineering/architecture/shared-sessions.md`.
+- `features/share-collie.md` - parked earlier Telegram multiplayer proposal;
+  its identity and execution defaults are superseded by the shared-session plan.
 - `design/assets/` - product and character design references used by the app.
 
 When implementation changes a product decision, update the single relevant

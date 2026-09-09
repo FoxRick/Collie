@@ -423,6 +423,7 @@ class SubagentManager:
                 message_id=origin_message_id,
                 session_key=sess_key,
                 runtime=runtime,
+                metadata={"permission_context": dict(origin)},
             ))
             token = bind_workspace_scope(workspace_scope) if workspace_scope is not None else None
             try:
@@ -449,6 +450,14 @@ class SubagentManager:
                     conversation_id=origin.get("chat_id"),
                     routine_id=origin.get("routine_id"),
                     origin="subagent",
+                    requester_id=origin.get("requester_id"),
+                    credential_owner_id=origin.get("credential_owner_id"),
+                    executor_device_id=origin.get("executor_device_id"),
+                    shared_session_id=origin.get("shared_session_id"),
+                    audience_revision=origin.get("audience_revision"),
+                    context_cutoff=origin.get("context_cutoff"),
+                    lease_token=origin.get("lease_token"),
+                    publication_authorized=bool(origin.get("publication_authorized", False)),
                     execution_posture=execution_posture,
                 ))
             finally:

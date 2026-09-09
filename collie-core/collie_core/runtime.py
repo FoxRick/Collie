@@ -26,9 +26,10 @@ from loguru import logger
 
 from collie_core import settings as collie_settings
 from collie_core.automations.scheduler import AutomationScheduler
+from collie_core.collaboration import ArchiveManager, CollaborationStore, SharedExecutionContext
 from collie_core.commands import CommandController
 from collie_core.connectors.manager import ConnectorManager
-from collie_core.db import CollieDB, collie_home
+from collie_core.db import CollieDB, collie_home, utc_now
 from collie_core.ipc.server import CollieIPCServer
 from collie_core.memory.profile import ProfileStore
 from collie_core.messengers import CollieBus, MessengerManager
@@ -78,6 +79,14 @@ class CollieRuntime:
         self, *, port: int = 3818, db: CollieDB | None = None, ipc_token: str | None = None
     ) -> None:
         self.db = db or CollieDB()
+        data_root = self.db.path.parent
+        self.collaboration = CollaborationStore(data_root / "collaboration.db")
+        self.archives = ArchiveManager(data_root / "archives" / "shared")
+        self._collaboration_account_id = str(os.environ.get("COLLIE_ACCOUNT_ID") or "")
+        self._collaboration_device_id = str(os.environ.get("COLLIE_DEVICE_ID") or "")
+        self._active_shared_runs: dict[str, dict[str, str]] = {}
+        self.collaboration.bind_account(self._collaboration_account_id)
+        self.archives.bind_account(self._collaboration_account_id)
         # Anchor the engine's runtime data dir (media downloads, pairing
         # store, cron jobs) under ~/.collie instead of ~/.nanobot. No JSON
         # config file is ever written — the path only derives directories.
@@ -174,8 +183,18 @@ class CollieRuntime:
             dream_runner=self._run_dream_manual,
             gardener_runner=self._run_gardener_manual,
             thing_store=self.things,
+            collaboration_store=self.collaboration,
+            archive_manager=self.archives,
+            shared_chat_runner=self._run_shared_chat,
+            collaboration_identity_binder=self._bind_collaboration_identity,
+            collaboration_run_controller=self._control_shared_run,
         )
-        self.approvals = ApprovalBroker(self.db, self.permission_evaluator, self.ipc.broadcast)
+        self.approvals = ApprovalBroker(
+            self.db,
+            self.permission_evaluator,
+            self.ipc.broadcast,
+            context_validator=self._validate_execution_context,
+        )
         self.ipc.approval_broker = self.approvals
         self.messengers.broadcaster = self.ipc.broadcast
         self._scheduler = AutomationScheduler(
@@ -1004,6 +1023,7 @@ class CollieRuntime:
             return
 
         assistant = self.db.add_message(conv_id, "assistant", content)
+        self._queue_routine_shared_delivery(auto, assistant, content)
         await self.ipc.broadcast(
             {
                 "type": "message",
@@ -1066,6 +1086,7 @@ class CollieRuntime:
         if not content:
             return
         assistant = self.db.add_message(conv_id, "assistant", content)
+        self._queue_routine_shared_delivery(auto, assistant, content)
         await self.ipc.broadcast(
             {
                 "type": "message",
@@ -1092,6 +1113,63 @@ class CollieRuntime:
         targets.update(self.messengers.automation_targets())
         for target in sorted(targets):
             await self.messengers.deliver(target, f"🔔 {name}\n\n{content}")
+
+    def _queue_routine_shared_delivery(
+        self, auto: dict[str, Any], assistant: dict[str, Any], content: str
+    ) -> None:
+        raw = auto.get("shared_delivery")
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except (TypeError, ValueError):
+                raw = None
+        if not isinstance(raw, dict):
+            return
+        routine_id = str(auto.get("id") or "")
+        creator = str(raw.get("creator_account_id") or "")
+        session_id = str(raw.get("session_id") or "")
+        event_id = str(
+            uuid.uuid5(uuid.NAMESPACE_URL, f"collie:routine:{routine_id}:{assistant.get('id')}")
+        )
+        try:
+            revision = int(raw.get("audience_revision") or 0)
+            if not creator or not session_id or revision < 1:
+                raise ValueError("The routine shared-delivery configuration is invalid.")
+            self.collaboration.queue_event_for_account(
+                creator,
+                session_id,
+                {
+                    "event_id": event_id,
+                    "session_id": session_id,
+                    "kind": "message",
+                    "publication_kind": "routine_result",
+                    "message_id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{event_id}:message")),
+                    "author_id": creator,
+                    "role": "assistant",
+                    "content": content,
+                    "revision": 1,
+                    "audience_revision": revision,
+                    "routine_id": routine_id,
+                    "created_at": utc_now(),
+                },
+            )
+            self.db.record_routine_shared_delivery(
+                routine_id, status="pending", event_id=event_id, error=None
+            )
+            asyncio.create_task(
+                self.ipc.broadcast(
+                    {
+                        "type": "collaboration_outbox_pending",
+                        "routine_id": routine_id,
+                        "session_id": session_id,
+                        "event_id": event_id,
+                    }
+                )
+            )
+        except Exception as error:
+            self.db.record_routine_shared_delivery(
+                routine_id, status="pending", event_id=event_id, error=str(error)[:300]
+            )
 
     async def _run_dream_manual(self) -> dict[str, Any]:
         """Manual 'Review now' trigger (Settings -> Memory)."""
@@ -1442,6 +1520,215 @@ class CollieRuntime:
                 logger.exception("Failed to record usage for {}", default_provider.get("id"))
         return outbound
 
+    async def _run_shared_chat(
+        self,
+        *,
+        content: str,
+        claim: dict[str, Any],
+        published_history: list[dict[str, Any]],
+        mode: str = "shared",
+    ) -> dict[str, Any]:
+        """Execute a backend-claimed run privately on the requester's enrolled device.
+
+        Electron supplies a claim returned by the authenticated backend. The account and
+        device bindings are injected into this process at launch, not accepted in this
+        command. The result is returned only to Electron for an explicit complete_run RPC.
+        """
+        context = SharedExecutionContext.from_claim(
+            claim,
+            enrolled_account_id=self._collaboration_account_id,
+            enrolled_device_id=self._collaboration_device_id,
+        )
+        if not content.strip():
+            raise ValueError("A shared request cannot be empty.")
+        if mode not in {"shared", "private_result"}:
+            raise ValueError("Unsupported shared execution mode.")
+        if self.collaboration.cursor(context.session_id) < context.context_cutoff:
+            raise ValueError("Shared history is not synchronized through the claimed cutoff.")
+        canonical_history = self.collaboration.materialized_messages(
+            context.session_id, through=context.context_cutoff
+        )
+        previous_seq = 0
+        for item in canonical_history:
+            seq = int(item.get("seq") or 0)
+            if seq <= previous_seq or seq > context.context_cutoff:
+                raise ValueError("Shared history is unordered or exceeds the claimed cutoff.")
+            if str(item.get("session_id") or context.session_id) != context.session_id:
+                raise ValueError("Shared history contains another session.")
+            previous_seq = seq
+        supplied_projection = [
+            (
+                str(item.get("message_id") or ""),
+                str(item.get("role") or ""),
+                str(item.get("content") or ""),
+            )
+            for item in published_history
+            if not bool(item.get("deleted"))
+        ]
+        canonical_projection = [
+            (
+                str(item.get("message_id") or ""),
+                str(item.get("role") or ""),
+                str(item.get("content") or ""),
+            )
+            for item in canonical_history
+            if not bool(item.get("deleted"))
+        ]
+        if supplied_projection and supplied_projection != canonical_projection:
+            raise ValueError("Shared history does not match the synchronized canonical copy.")
+        published_history = [item for item in canonical_history if not bool(item.get("deleted"))]
+        if self.loop is None:
+            configured = await self._configure()
+            if not configured.get("configured"):
+                raise RuntimeError(configured.get("error") or "no provider configured")
+        from nanobot.agent.tools.registry import ToolRegistry
+
+        shared_tools = ToolRegistry()
+        # These capabilities consume private profile/specialist context or can
+        # continue after the fenced parent run. They stay fail-closed until an
+        # explicit requester-only flow supplies scoped input and publication review.
+        private_context_tools = (
+            {"remember", "suggest_profile", "call_subagent"} if mode == "shared" else set()
+        )
+        for name in self.loop.tools.tool_names:
+            tool = self.loop.tools.get(name)
+            if tool is not None and name not in private_context_tools:
+                shared_tools.register(tool)
+
+        async def private_stream(delta: str = "", **_kwargs: Any) -> None:
+            await self.ipc.broadcast(
+                {
+                    "type": "collaboration_private_delta",
+                    "run_id": context.run_id,
+                    "requester_id": context.requester_id,
+                    "delta": str(delta),
+                }
+            )
+
+        async def private_progress(text: str = "", **kwargs: Any) -> None:
+            # Private local frame: Electron must never forward this to the shared publisher.
+            await self.ipc.broadcast(
+                {
+                    "type": "collaboration_private_progress",
+                    "run_id": context.run_id,
+                    "requester_id": context.requester_id,
+                    "text": str(text),
+                    "state": str(kwargs.get("state") or "working"),
+                }
+            )
+
+        prompt_content = content
+        if published_history:
+            last = published_history[-1]
+            if str(last.get("role") or "") == "user" and str(last.get("content") or "") == content:
+                prompt_content = ""
+
+        session_key = f"shared-private:{context.run_id}"
+        if context.run_id in self._active_shared_runs:
+            raise ValueError("This shared run is already active on this device.")
+        self._active_shared_runs[context.run_id] = {
+            "lease_token": context.lease_token,
+            "session_key": session_key,
+            "lease_expires_at": context.lease_expires_at,
+        }
+        try:
+            outbound = await self.loop.process_direct(
+                prompt_content,
+                session_key=session_key,
+                channel="shared-private",
+                chat_id=context.session_id,
+                on_stream=private_stream,
+                on_progress=private_progress,
+                ephemeral=True,
+                persist_user_message=False,
+                tools=shared_tools,
+                message_metadata={
+                    "audience_mode": mode,
+                    "published_history": published_history,
+                    "shared_execution": context.permission_metadata(),
+                },
+                permission_context={
+                    "execution_mode": "execute",
+                    "run_id": context.run_id,
+                    "origin": "shared",
+                    "audience_mode": mode,
+                    **context.permission_metadata(),
+                },
+            )
+        finally:
+            # A requester-bound specialist may not outlive its fenced parent and
+            # re-enter as an ordinary system turn with private context.
+            await self.loop.subagents.cancel_by_session(session_key)
+            self._active_shared_runs.pop(context.run_id, None)
+        return {
+            "run_id": context.run_id,
+            "session_id": context.session_id,
+            "audience_revision": context.audience_revision,
+            "context_cutoff": context.context_cutoff,
+            "content": str(getattr(outbound, "content", "") or ""),
+            "publication_authorized": context.publication_authorized,
+            "mode": mode,
+            "requires_publication_review": True,
+        }
+
+    def _bind_collaboration_identity(self, account_id: str, device_id: str) -> None:
+        previous_account = self._collaboration_account_id
+        if (
+            (account_id, device_id)
+            != (self._collaboration_account_id, self._collaboration_device_id)
+            and self._active_shared_runs
+            and self.loop is not None
+        ):
+            for active in list(self._active_shared_runs.values()):
+                asyncio.create_task(self.loop.cancel_session(active["session_key"]))
+        if previous_account and previous_account != str(account_id).strip():
+            asyncio.create_task(self.approvals.cancel_shared_requester(previous_account))
+        self._collaboration_account_id = str(account_id).strip()
+        self._collaboration_device_id = str(device_id).strip()
+        self.collaboration.bind_account(self._collaboration_account_id)
+        self.archives.bind_account(self._collaboration_account_id)
+
+    async def _control_shared_run(
+        self, *, run_id: str, action: str, lease_token: str, lease_expires_at: str
+    ) -> dict[str, Any]:
+        active = self._active_shared_runs.get(run_id)
+        if active is None:
+            return {"active": False, "cancelled": 0}
+        if action == "renew":
+            if not lease_token or not lease_expires_at:
+                raise ValueError("A renewed lease token and expiry are required.")
+            active["lease_token"] = lease_token
+            active["lease_expires_at"] = lease_expires_at
+            return {"active": True, "renewed": True}
+        if action in {"cancel", "fenced"}:
+            self._active_shared_runs.pop(run_id, None)
+            cancelled = 0
+            if self.loop is not None:
+                cancelled = await self.loop.cancel_session(active["session_key"])
+            return {"active": False, "cancelled": cancelled}
+        raise ValueError("Unsupported shared-run control action.")
+
+    def _validate_execution_context(self, context: ExecutionContext) -> bool:
+        if not context.shared_session_id:
+            return True
+        active = self._active_shared_runs.get(str(context.run_id or ""))
+        try:
+            from datetime import UTC, datetime
+
+            expiry = datetime.fromisoformat(str((active or {}).get("lease_expires_at") or ""))
+            if expiry.tzinfo is None:
+                expiry = expiry.replace(tzinfo=UTC)
+            lease_live = expiry > datetime.now(UTC)
+        except (TypeError, ValueError):
+            lease_live = False
+        return bool(
+            active
+            and lease_live
+            and context.requester_id == self._collaboration_account_id
+            and context.credential_owner_id == self._collaboration_account_id
+            and context.executor_device_id == self._collaboration_device_id
+        )
+
     # -- process lifecycle ----------------------------------------------------
 
     def _gc_media_uploads(self) -> None:
@@ -1576,6 +1863,7 @@ class CollieRuntime:
             if recorder is not None:
                 recorder.shutdown()
             self.db.close()
+            self.collaboration.close()
 
 
 def _env_port(default: int = 3818) -> int:

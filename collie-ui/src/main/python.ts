@@ -19,6 +19,8 @@ const IPC_PORT = Number(process.env.COLLIE_IPC_PORT || 3818)
 // main-process broker's WebSocket (core-client.ts). It is NEVER sent to the
 // renderer, so no renderer compromise can open a socket that drives the core.
 export const ipcToken = randomBytes(32).toString('hex')
+/** Separate capability for account/device binding; never exposed to the renderer. */
+export const collaborationIdentityBindToken = randomBytes(32).toString('hex')
 
 let child: ChildProcess | null = null
 let state: 'stopped' | 'starting' | 'running' | 'failed' = 'stopped'
@@ -133,6 +135,7 @@ export async function spawnCore(isDev: boolean): Promise<void> {
       COLLIE_IPC_PORT: String(IPC_PORT),
       COLLIE_TIMEZONE: Intl.DateTimeFormat().resolvedOptions().timeZone,
       COLLIE_IPC_TOKEN: ipcToken,
+      COLLIE_IDENTITY_BIND_TOKEN: collaborationIdentityBindToken,
       COLLIE_PRODUCT_METRICS: isDev ? '0' : '1',
       COLLIE_MCP_RUNTIME_ROOT: bundledMcpRuntime(isDev),
       ...(keychain

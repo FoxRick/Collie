@@ -92,6 +92,14 @@ class AgentRunSpec:
     conversation_id: str | None = None
     routine_id: str | None = None
     origin: str = "chat"
+    requester_id: str | None = None
+    credential_owner_id: str | None = None
+    executor_device_id: str | None = None
+    shared_session_id: str | None = None
+    audience_revision: int | None = None
+    context_cutoff: int | None = None
+    lease_token: str | None = None
+    publication_authorized: bool = False
     execution_posture: str = "inherit"
     approve_all_for_run: bool = False
 
@@ -1243,6 +1251,14 @@ class AgentRunner:
                 execution_posture=spec.execution_posture,
                 approve_all_for_run=spec.approve_all_for_run,
                 project_path=str(spec.workspace) if spec.workspace is not None else None,
+                requester_id=spec.requester_id,
+                credential_owner_id=spec.credential_owner_id,
+                executor_device_id=spec.executor_device_id,
+                shared_session_id=spec.shared_session_id,
+                audience_revision=spec.audience_revision,
+                context_cutoff=spec.context_cutoff,
+                lease_token=spec.lease_token,
+                publication_authorized=spec.publication_authorized,
             )
             try:
                 await spec.authorizer.authorize(

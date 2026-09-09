@@ -58,6 +58,7 @@ collie-ui/out/
 
 # Generated build and visual QA artifacts
 *.tsbuildinfo
+supabase/.temp/
 collie-ui/screenshots/
 
 # Private company material and reference repositories stay outside the public product repository

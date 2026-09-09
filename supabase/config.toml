@@ -1,0 +1,17 @@
+project_id = "collie-collaboration"
+
+# Slack signatures/OAuth state and worker secrets are verified inside the handlers.
+[functions.slack-install]
+verify_jwt = false
+[functions.slack-callback]
+verify_jwt = false
+[functions.slack-events]
+verify_jwt = false
+[functions.slack-interactions]
+verify_jwt = false
+[functions.slack-worker]
+verify_jwt = false
+[functions.archive-worker]
+verify_jwt = false
+[functions.collaboration-files]
+verify_jwt = false

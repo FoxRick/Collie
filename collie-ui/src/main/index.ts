@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell, nativeImage, session } from 'electron'
+import { randomUUID } from 'crypto'
 import { basename, extname, isAbsolute, join } from 'path'
 import { homedir } from 'os'
 import { pathToFileURL } from 'url'
@@ -33,6 +34,12 @@ import {
 } from './core-client'
 import { startKeychainServer, stopKeychainServer } from './keychain-server'
 import { getAccountState, signOut, startAccountSignIn } from './account-auth'
+import {
+  beginSlackSenderLink, bootstrapCollaboration, changeSharedMessage, clearCollaborationIdentity, collaborationBackend, exportSharedArchive, importSharedArchive,
+  downloadSharedFile, installSlack, listLocalArchives, listPrivateDrafts, listSharedFiles, openSharedSession, publishSharedDraft, reconcileCollaboration,
+  runSharedPrivately, saveVerifiedArchive, selectSlackChannel, sendSharedMessage, setRoutineDelivery,
+  startCollaborationReconciliation, stopCollaborationReconciliation, stopSessionRun, uploadSharedFile
+} from './collaboration'
 import { submitFeedback } from './feedback'
 import {
   enableSync,
@@ -284,6 +291,7 @@ function createWindow(): void {
     // Returning to the app is an acknowledgement that the user reviewed
     // the latest completion announcement.
     sendPetCommand('status:dismiss')
+    void reconcileCollaboration().catch(() => undefined)
   })
 
   mainWindow.on('close', (e) => {
@@ -360,6 +368,10 @@ function registerIpc(): void {
   ): void => {
     ipcMain.handle(channel, guardIpcHandler(validSender, handler))
   }
+  const textArg = (value: unknown, label: string, max = 500): string => {
+    if (typeof value !== 'string' || !value.trim() || value.length > max) throw new Error(`Invalid ${label}.`)
+    return value.trim()
+  }
 
   handle('collie:core-state', () => coreState())
   // #122: the renderer no longer holds the per-boot token or opens its own
@@ -391,7 +403,10 @@ function registerIpc(): void {
   handle('account:start-sign-in', () => startAccountSignIn())
   handle('collie:submit-feedback', (submission: unknown) => submitFeedback(submission))
   handle('account:get-state', () => getAccountState())
-  handle('account:sign-out', () => signOut())
+  handle('account:sign-out', async () => {
+    await clearCollaborationIdentity()
+    return signOut()
+  })
   // Account cloud sync (account-cloud-sync.md): per-device snapshots,
   // opt-in. Payloads never include secrets; RLS scopes every REST call.
   handle('account:sync-status', () => getSyncStatus())
@@ -399,6 +414,53 @@ function registerIpc(): void {
   handle('account:sync-upload', () => uploadSnapshot())
   handle('account:sync-list', () => listSnapshots())
   handle('account:sync-restore', (deviceId: string) => restoreFromDevice(String(deviceId)))
+  handle('collaboration:bootstrap', () => bootstrapCollaboration())
+  handle('collaboration:create-organization', (name: unknown) => collaborationBackend('create_organization', { name: textArg(name, 'organization name', 120) }))
+  handle('collaboration:invite-organization', (organizationId: unknown, userId: unknown, displayName: unknown) => collaborationBackend('invite_organization', { org_id: textArg(organizationId, 'organization'), user_id: textArg(userId, 'account'), display_name: textArg(displayName, 'display name', 120), invite_id: randomUUID() }))
+  handle('collaboration:accept-organization-invite', (inviteId: unknown) => collaborationBackend('accept_organization_invite', { invite_id: textArg(inviteId, 'invitation') }))
+  handle('collaboration:directory', (organizationId: unknown, query: unknown) => collaborationBackend('directory', { org_id: textArg(organizationId, 'organization'), query: typeof query === 'string' ? query.slice(0, 200) : '' }))
+  handle('collaboration:create-session', (organizationId: unknown, title: unknown) => collaborationBackend('create_session', { org_id: textArg(organizationId, 'organization'), title: textArg(title, 'title', 200) }))
+  handle('collaboration:invite', (sessionId: unknown, memberId: unknown, policy: unknown) => {
+    if (!policy || typeof policy !== 'object') throw new Error('Describe the invitation audience.')
+    const value = policy as Record<string, unknown>
+    if (typeof value.includes_existing_history !== 'boolean') throw new Error('The invitation audience is invalid.')
+    return collaborationBackend('invite', { session_id: textArg(sessionId, 'session'), user_id: textArg(memberId, 'member'), invite_id: randomUUID(), audience_policy: { summary: textArg(value.summary, 'audience summary', 500), includes_existing_history: value.includes_existing_history }, audience_policy_version: 1 })
+  })
+  handle('collaboration:accept-invite', (inviteId: unknown, audienceConsent: unknown, policyVersion: unknown) => {
+    if (typeof audienceConsent !== 'boolean' || !Number.isSafeInteger(policyVersion) || Number(policyVersion) < 1) throw new Error('Review the invitation audience before accepting.')
+    return collaborationBackend('accept_invite', { invite_id: textArg(inviteId, 'invitation'), audience_consent: audienceConsent, audience_policy_version: Number(policyVersion) })
+  })
+  handle('collaboration:open-session', (sessionId: unknown) => openSharedSession(textArg(sessionId, 'session')))
+  handle('collaboration:send-message', (sessionId: unknown, content: unknown, expectedRevision: unknown, mentionedUserIds: unknown) => sendSharedMessage(textArg(sessionId, 'session'), textArg(content, 'message', 2 * 1024 * 1024), typeof expectedRevision === 'number' ? expectedRevision : undefined, false, mentionedUserIds as string[] | undefined))
+  handle('collaboration:edit-message', (sessionId: unknown, messageId: unknown, content: unknown, expectedRevision: unknown) => changeSharedMessage('edit_message', textArg(sessionId, 'session'), textArg(messageId, 'message'), textArg(content, 'message', 2 * 1024 * 1024), Number(expectedRevision)))
+  handle('collaboration:delete-message', (sessionId: unknown, messageId: unknown, expectedRevision: unknown) => changeSharedMessage('delete_message', textArg(sessionId, 'session'), textArg(messageId, 'message'), '', Number(expectedRevision)))
+  handle('collaboration:upload-file', (sessionId: unknown, expectedRevision: unknown, membershipRevision: unknown) => uploadSharedFile(mainWindow, textArg(sessionId, 'session'), Number(expectedRevision), Number(membershipRevision)))
+  handle('collaboration:list-files', (sessionId: unknown) => listSharedFiles(textArg(sessionId, 'session')))
+  handle('collaboration:download-file', (sessionId: unknown, fileId: unknown) => downloadSharedFile(mainWindow, textArg(sessionId, 'session'), textArg(fileId, 'file')))
+  handle('collaboration:run-private', (sessionId: unknown, content: unknown) => runSharedPrivately(textArg(sessionId, 'session'), textArg(content, 'request', 2 * 1024 * 1024)))
+  handle('collaboration:publish-draft', (draftId: unknown, content: unknown) => publishSharedDraft(textArg(draftId, 'draft'), textArg(content, 'publication', 2 * 1024 * 1024)))
+  handle('collaboration:list-private-drafts', () => listPrivateDrafts())
+  handle('collaboration:stop-session-run', (sessionId: unknown) => stopSessionRun(textArg(sessionId, 'session')))
+  handle('collaboration:resolve-reconciliation', (runId: unknown) => collaborationBackend('resolve_reconciliation', { run_id: textArg(runId, 'request') }))
+  handle('collaboration:request-archive', (sessionId: unknown) => collaborationBackend('request_archive', { session_id: textArg(sessionId, 'session') }))
+  handle('collaboration:archive-status', (sessionId: unknown) => collaborationBackend('archive_status', { session_id: textArg(sessionId, 'session') }))
+  handle('collaboration:save-archive', (sessionId: unknown) => saveVerifiedArchive(textArg(sessionId, 'session')))
+  handle('collaboration:export-archive', (archivePath: unknown) => exportSharedArchive(mainWindow, textArg(archivePath, 'archive path', 4096)))
+  handle('collaboration:import-archive', () => importSharedArchive(mainWindow))
+  handle('collaboration:list-local-archives', () => listLocalArchives())
+  handle('collaboration:continue-session', (sessionId: unknown, title: unknown) => collaborationBackend('continue_session', { session_id: textArg(sessionId, 'session'), ...(typeof title === 'string' && title.trim() ? { title: title.trim().slice(0, 200) } : {}) }))
+  handle('collaboration:revoke-member', (sessionId: unknown, memberId: unknown) => collaborationBackend('revoke_member', { session_id: textArg(sessionId, 'session'), user_id: textArg(memberId, 'member') }))
+  handle('collaboration:install-slack', (organizationId: unknown) => installSlack(textArg(organizationId, 'organization')))
+  handle('collaboration:link-slack-sender', (installationId: unknown) => beginSlackSenderLink(textArg(installationId, 'Slack installation')))
+  handle('collaboration:select-slack-channel', (organizationId: unknown, installationId: unknown, channelId: unknown) => selectSlackChannel(textArg(organizationId, 'organization'), textArg(installationId, 'Slack installation'), textArg(channelId, 'Slack channel')))
+  handle('collaboration:notifications', (cursor: unknown) => collaborationBackend('notifications', { cursor: typeof cursor === 'number' && Number.isSafeInteger(cursor) && cursor >= 0 ? cursor : 0, limit: 100 }))
+  handle('collaboration:ack-notifications', (through: unknown) => {
+    if (typeof through !== 'number' || !Number.isSafeInteger(through) || through < 0) throw new Error('The notification cursor is invalid.')
+    return collaborationBackend('ack_notifications', { through })
+  })
+  handle('collaboration:set-routine-delivery', (routineId: unknown, sessionId: unknown, audienceRevision: unknown) => setRoutineDelivery(textArg(routineId, 'routine'), sessionId === null ? null : textArg(sessionId, 'session'), typeof audienceRevision === 'number' ? audienceRevision : undefined))
+  handle('collaboration:slack-settings', (organizationId: unknown) => collaborationBackend('slack_settings', { org_id: textArg(organizationId, 'organization') }))
+  handle('collaboration:link-slack-channel', (organizationId: unknown, installationId: unknown, channelId: unknown) => collaborationBackend('select_slack_channel', { org_id: textArg(organizationId, 'organization'), installation_id: textArg(installationId, 'Slack installation'), channel_id: textArg(channelId, 'Slack channel') }))
   handle('collie:pick-attachments', async (): Promise<SelectedAttachment[]> => {
     const options = {
       title: 'Attach files to your message',
@@ -631,6 +693,7 @@ app.whenReady().then(async () => {
     // Retry persisted counters after startup, including short previous launches.
     flushMetrics(readProductMetrics)
     void pushStoredSecretsToCore()
+    startCollaborationReconciliation()
   })
   await spawnCore(isDev)
   // If this boot was an update, verify the new version came up healthy
@@ -668,6 +731,7 @@ app.on('before-quit', () => {
 })
 
 app.on('will-quit', () => {
+  stopCollaborationReconciliation()
   stopHeartbeat()
   stopCore()
   stopCoreBroker()

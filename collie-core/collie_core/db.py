@@ -572,6 +572,9 @@ CREATE TABLE product_metrics_daily (
 );
 """
 
+# Main's connections feature (V16) then the feature's shared-delivery
+# automation columns (V17), so installs that already ran V16 (connections)
+# still receive the collaboration automations columns.
 _SCHEMA_V16 = """
 CREATE TABLE connector_definitions (
     id TEXT PRIMARY KEY,
@@ -646,6 +649,13 @@ WHEN EXISTS (SELECT 1 FROM connector_connections WHERE definition_id = OLD.id)
 BEGIN SELECT RAISE(ABORT, 'connector definition is in use'); END;
 """
 
+_SCHEMA_V17 = """
+ALTER TABLE automations ADD COLUMN shared_delivery TEXT;
+ALTER TABLE automations ADD COLUMN shared_delivery_status TEXT;
+ALTER TABLE automations ADD COLUMN shared_delivery_event_id TEXT;
+ALTER TABLE automations ADD COLUMN shared_delivery_error TEXT;
+"""
+
 # Ordered migrations: index 0 == schema version 1, etc.
 _MIGRATIONS: list[str] = [
     _SCHEMA_V1,
@@ -664,6 +674,7 @@ _MIGRATIONS: list[str] = [
     _SCHEMA_V14,
     _SCHEMA_V15,
     _SCHEMA_V16,
+    _SCHEMA_V17,
 ]
 
 
@@ -1524,6 +1535,36 @@ class CollieDB:
             if cursor.rowcount != 1:
                 raise ValueError("routine not found")
         return self.get_automation(automation_id)  # type: ignore[return-value]
+
+    def set_routine_shared_delivery(
+        self, automation_id: str, delivery: dict[str, Any] | None
+    ) -> dict[str, Any]:
+        with self._write() as conn:
+            cursor = conn.execute(
+                """UPDATE automations SET shared_delivery=?, shared_delivery_status=?,
+                shared_delivery_event_id=NULL, shared_delivery_error=NULL, updated_at=? WHERE id=?""",
+                (
+                    json.dumps(delivery, sort_keys=True) if delivery else None,
+                    "ready" if delivery else None,
+                    utc_now(),
+                    automation_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("routine not found")
+        return self.get_automation(automation_id)  # type: ignore[return-value]
+
+    def record_routine_shared_delivery(
+        self, automation_id: str, *, status: str, event_id: str | None, error: str | None
+    ) -> None:
+        if status not in {"ready", "pending", "acknowledged", "rejected"}:
+            raise ValueError("invalid shared delivery status")
+        with self._write() as conn:
+            conn.execute(
+                """UPDATE automations SET shared_delivery_status=?,
+                shared_delivery_event_id=?, shared_delivery_error=?, updated_at=? WHERE id=?""",
+                (status, event_id, error, utc_now(), automation_id),
+            )
 
     def delete_automation(self, automation_id: str) -> None:
         with self._write() as conn:

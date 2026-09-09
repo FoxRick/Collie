@@ -405,6 +405,7 @@ async def _run_one_in_home(args: argparse.Namespace, home: Path) -> tuple[int, d
             recorder = RunRecorder.active_for(runtime.db)
             if recorder is not None:
                 recorder.shutdown()
+            runtime.collaboration.close()
         if db is not None:
             db.close()
 
