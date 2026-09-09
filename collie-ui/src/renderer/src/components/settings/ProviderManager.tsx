@@ -115,7 +115,9 @@ export default function ProviderManager({
     return `${days} day${days === 1 ? '' : 's'}`
   }
 
-  const providers = [...(status.providers || [])]
+  // Collie AI is managed entirely by the card above (sign-in / allowance /
+  // sign-out); don't repeat it as an ordinary row with an unguarded delete.
+  const providers = [...(status.providers || []).filter((item) => item.auth_type !== 'collie-managed')]
   const currentAuth = String(settings['provider.auth'] || '')
   const currentName = String(settings['provider.name'] || '')
   if (

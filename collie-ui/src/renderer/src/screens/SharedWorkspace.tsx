@@ -340,6 +340,24 @@ export default function SharedWorkspace({
     }
   }, [api, slackOpen, active?.organization_id])
 
+  // Shared conversations are account-backed. Signed-out users get a clear,
+  // honest CTA instead of an empty grid and an unexplained error.
+  if (typeof data.account === 'undefined' && Object.keys(data).length > 0) {
+    return (
+      <main className="shared-workspace">
+        <div className="shared-card" style={{ margin: 24, padding: 24 }}>
+          <h2>Share conversations you own</h2>
+          <p>
+            Shared conversations need a Collie account so everyone can verify the
+            copies they keep. Sign in from Settings → Account, then come back to
+            create a room and invite people. Your local chats are unaffected.
+          </p>
+          <button className="settings-button" onClick={onBack}>Back to local chat</button>
+        </div>
+      </main>
+    )
+  }
+
   return (
     <main className="shared-workspace">
       <header className="shared-header">
