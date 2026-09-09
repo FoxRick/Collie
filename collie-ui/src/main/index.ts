@@ -34,6 +34,7 @@ import {
 } from './core-client'
 import { startKeychainServer, stopKeychainServer } from './keychain-server'
 import { getAccountState, signOut, startAccountSignIn } from './account-auth'
+import { managedStatus } from './managed-inference'
 import {
   beginSlackSenderLink, bootstrapCollaboration, changeSharedMessage, clearCollaborationIdentity, collaborationBackend, exportSharedArchive, importSharedArchive,
   downloadSharedFile, installSlack, listLocalArchives, listPrivateDrafts, listSharedFiles, openSharedSession, publishSharedDraft, reconcileCollaboration,
@@ -403,6 +404,12 @@ function registerIpc(): void {
   handle('account:start-sign-in', () => startAccountSignIn())
   handle('collie:submit-feedback', (submission: unknown) => submitFeedback(submission))
   handle('account:get-state', () => getAccountState())
+  handle('account:inference-status', () => managedStatus())
+  handle('account:use-inference', async () => {
+    const status = await managedStatus()
+    if (!status.available) return { configured: false, error: status.message }
+    return commandWithCore('activate_managed_provider', {})
+  })
   handle('account:sign-out', async () => {
     await clearCollaborationIdentity()
     return signOut()

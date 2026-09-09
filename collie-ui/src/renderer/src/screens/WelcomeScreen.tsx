@@ -8,6 +8,7 @@ import {
 } from '../lib/providerConfiguration'
 import BrandLogo from '../components/BrandLogo'
 import CollieFace from '../components/CollieFace'
+import ManagedInferenceCard from '../components/ManagedInferenceCard'
 
 const HELP_URL = 'https://heycollie.com/get-started'
 const CUSTOM_PROVIDER_ID = 'custom'
@@ -425,6 +426,7 @@ export default function WelcomeScreen({ onDone, onCancel }: Props): React.JSX.El
           </p>
         </div>
 
+        <ManagedInferenceCard onActivated={onDone} />
         <button
           onClick={() => void signInOAuth('chatgpt')}
           disabled={busyOAuth !== null || busyKey || busyLocal}

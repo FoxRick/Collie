@@ -37,6 +37,17 @@ def test_build_config_defaults(db: CollieDB) -> None:
     assert str(collie_settings.workspace_path()) in config.agents.defaults.workspace
 
 
+def test_managed_config_does_not_inherit_personal_credentials(db: CollieDB) -> None:
+    db.set_setting("provider.auth", "collie-managed")
+    db.set_setting("provider.name", "custom")
+    db.set_setting("provider.api_base", "https://personal.example/v1")
+    collie_settings.set_api_key("custom", "personal-test-key")
+    config = collie_settings.build_config(db)
+    assert config.agents.defaults.model == "collie-auto"
+    assert not config.providers.custom.api_key
+    assert not config.providers.custom.api_base
+
+
 def test_build_config_from_settings(db: CollieDB) -> None:
     db.set_setting("provider.name", "openrouter")
     db.set_setting("provider.model", "anthropic/claude-sonnet-5")

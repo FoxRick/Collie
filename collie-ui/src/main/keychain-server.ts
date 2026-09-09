@@ -28,6 +28,7 @@ import { safeStorage } from 'electron'
 import { createServer, IncomingMessage, ServerResponse } from 'http'
 import { randomBytes } from 'crypto'
 import { secureStorageAvailable } from './secrets'
+import { forwardManagedInference } from './managed-inference'
 
 export interface KeychainAddress {
   port: number
@@ -61,12 +62,17 @@ export async function startKeychainServer(): Promise<KeychainAddress | null> {
   }
   token = randomBytes(32).toString('hex')
   const serverInstance = createServer((req: IncomingMessage, res: ServerResponse) => {
-    if (req.method !== 'POST' || (req.url !== '/encrypt' && req.url !== '/decrypt')) {
+    const inference = req.url === '/inference/v1/chat/completions'
+    if (req.method !== 'POST' || (!inference && req.url !== '/encrypt' && req.url !== '/decrypt')) {
       writeJson(res, 404, { error: 'not found' })
       return
     }
     if (req.headers.authorization !== `Bearer ${token}`) {
       writeJson(res, 401, { error: 'unauthorized' })
+      return
+    }
+    if (inference) {
+      void forwardManagedInference(req, res)
       return
     }
     let body = ''

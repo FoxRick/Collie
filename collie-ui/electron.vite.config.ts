@@ -11,6 +11,7 @@ export default defineConfig({
     // to ship in clients. release.yml sets them on the build step; without
     // them the packaged app reports "sign-in is not configured".
     define: {
+      'process.env.COLLIE_INFERENCE_URL': JSON.stringify(process.env.COLLIE_INFERENCE_URL ?? ''),
       'process.env.COLLIE_SUPABASE_URL': JSON.stringify(
         process.env.COLLIE_SUPABASE_URL ?? ''
       ),

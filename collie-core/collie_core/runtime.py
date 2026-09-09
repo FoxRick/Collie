@@ -492,8 +492,12 @@ class CollieRuntime:
         return True
 
     def _provider_override(self) -> Any | None:
-        """Build an OAuth-backed provider when the user signed in that way."""
+        """Resolve account-backed providers without personal API credentials."""
         auth_type = str(self.db.get_setting("provider.auth", "") or "").lower()
+        if auth_type == "collie-managed":
+            from collie_core.providers.managed import managed_provider
+
+            return managed_provider()
         if auth_type == "claude-oauth":
             from collie_core.providers.claude_oauth import ClaudeOAuthProvider
 
@@ -1820,7 +1824,7 @@ class CollieRuntime:
             # up a provider. OAuth tokens live on disk, so those can configure
             # immediately; API keys arrive from the shell over IPC first.
             auth = str(self.db.get_setting("provider.auth", "") or "")
-            if auth in ("chatgpt-oauth", "claude-oauth"):
+            if auth in ("chatgpt-oauth", "claude-oauth", "collie-managed"):
                 await self._configure()
             else:
                 logger.info("Waiting for the shell to deliver credentials")
