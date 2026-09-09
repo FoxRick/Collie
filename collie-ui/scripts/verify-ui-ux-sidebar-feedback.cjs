@@ -423,11 +423,14 @@ async function main() {
         }
       })()`)
       navigation[label] = audit
+      // Headings carry a decorative emoji prefix (e.g. "⚙️ Settings"), so
+      // compare the text only — the destination must still be the right one.
+      const heading = audit.heading.replace(/[^\p{L}\p{N}\s]+/gu, '').trim()
       const correctDestination = label === 'New chat'
-        ? audit.chatVisible && audit.heading === 'New conversation'
+        ? audit.chatVisible && heading === 'New conversation'
         : label === 'General Chat'
           ? audit.chatVisible && audit.currentDestinations.includes(label)
-          : audit.heading === label && audit.currentDestinations.includes(label)
+          : heading === label && audit.currentDestinations.includes(label)
       record(`navigation to ${label} renders content`, correctDestination && audit.textLength > 20 && !audit.horizontalOverflow, audit)
     } catch (error) {
       navigation[label] = { error: error.message }
