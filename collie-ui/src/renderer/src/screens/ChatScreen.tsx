@@ -28,6 +28,7 @@ import AgentsScreen from './AgentsScreen'
 import SkillsScreen from './SkillsScreen'
 import RoutinesScreen from './RoutinesScreen'
 import ConnectorsScreen from './ConnectorsScreen'
+import SharedWorkspace from './SharedWorkspace'
 import type { AppView } from '../lib/navigation'
 import { mergeStreamDelta, nextStreamReveal, visibleStreamText } from '../lib/stream'
 import ApprovalSheet from '../components/approvals/ApprovalSheet'
@@ -1056,6 +1057,8 @@ export default function ChatScreen({
         <RoutinesScreen />
       ) : activeView === 'connectors' ? (
         <ConnectorsScreen />
+      ) : activeView === 'shared' ? (
+        <SharedWorkspace onBack={() => onNavigate('chat')} personalMessages={messages.filter(message => !message.card_type)} />
       ) : (
       <main className="workspace flex min-w-0 flex-1 flex-col">
         <header className="workspace-header">

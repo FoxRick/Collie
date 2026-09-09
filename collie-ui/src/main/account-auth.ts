@@ -52,12 +52,18 @@ export interface AccountState {
   access: 'granted' | 'waiting' | 'unknown'
 }
 
-interface StoredSession {
+export interface StoredSession {
   access_token: string
   refresh_token: string
   /** Epoch milliseconds. */
   expires_at: number
   email: string
+}
+
+export interface VerifiedAccount {
+  id: string
+  email: string | null
+  accessToken: string
 }
 
 /** All fields stored as safeStorage-encrypted base64 blobs (secrets.ts style). */
@@ -315,6 +321,24 @@ export async function getAccountState(): Promise<AccountState> {
     return state
   }
   return { ...state, access: await fetchAccessStatus(session.access_token) }
+}
+
+/** Refresh if needed, then ask Supabase Auth to verify the bearer and return its subject. */
+export async function getVerifiedAccount(): Promise<VerifiedAccount> {
+  const state = await getAccountState()
+  const session = getStoredSession()
+  if (!state.signedIn || !session?.access_token) throw new Error('Sign in to use shared conversations.')
+  const baseUrl = SUPABASE_URL.replace(/\/+$/, '')
+  if (!baseUrl || !SUPABASE_ANON_KEY) throw new Error('Shared conversations are not enabled in this build yet.')
+  const response = await fetch(`${baseUrl}/auth/v1/user`, {
+    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${session.access_token}` },
+    signal: AbortSignal.timeout(10_000)
+  })
+  const user = await response.json().catch(() => null) as { id?: unknown; email?: unknown } | null
+  if (!response.ok || typeof user?.id !== 'string' || !user.id) {
+    throw new Error('Your sign-in could not be verified. Sign in again and retry.')
+  }
+  return { id: user.id, email: typeof user.email === 'string' ? user.email : null, accessToken: session.access_token }
 }
 
 /* ------------------------------------------------------------------ *

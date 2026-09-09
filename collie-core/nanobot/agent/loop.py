@@ -766,6 +766,18 @@ class AgentLoop:
     ) -> list[dict[str, Any]]:
         """Build the initial message list for the LLM turn."""
         scope = self.workspace_scopes.for_message(msg, session.metadata)
+        audience_mode = str(msg.metadata.get("audience_mode") or "")
+        shared = audience_mode in {"shared", "private_result"}
+        metadata = session.metadata if not shared else dict(session.metadata)
+        if shared:
+            metadata.update(
+                audience_mode=audience_mode,
+                published_history=msg.metadata.get("published_history"),
+            )
+            # Runtime context providers may describe private local state. Shared
+            # prompts receive only canonical published history and public policy.
+            if audience_mode == "shared":
+                runtime_context_blocks = []
         return self.context.build_messages(
             history=history,
             current_message=msg.content,
@@ -774,10 +786,12 @@ class AgentLoop:
             chat_id=self._runtime_chat_id(msg),
             sender_id=msg.sender_id,
             session_summary=pending_summary,
-            session_metadata=session.metadata,
-            workspace=scope.project_path,
+            session_metadata=metadata,
+            workspace=None if audience_mode == "shared" else scope.project_path,
             runtime_context_blocks=runtime_context_blocks,
-            include_memory_recent_history=include_memory_recent_history,
+            include_memory_recent_history=(
+                include_memory_recent_history and audience_mode != "shared"
+            ),
             session_key=session.key,
             unified_session=self._unified_session,
         )
@@ -1101,6 +1115,14 @@ class AgentLoop:
                 conversation_id=permission_context.get("conversation_id") or chat_id,
                 routine_id=permission_context.get("routine_id"),
                 origin=str(permission_context.get("origin") or channel),
+                requester_id=permission_context.get("requester_id"),
+                credential_owner_id=permission_context.get("credential_owner_id"),
+                executor_device_id=permission_context.get("executor_device_id"),
+                shared_session_id=permission_context.get("shared_session_id"),
+                audience_revision=permission_context.get("audience_revision"),
+                context_cutoff=permission_context.get("context_cutoff"),
+                lease_token=permission_context.get("lease_token"),
+                publication_authorized=bool(permission_context.get("publication_authorized", False)),
                 approve_all_for_run=bool(
                     permission_context.get("approve_all_for_run", False)
                 ),

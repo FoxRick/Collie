@@ -74,6 +74,31 @@ class PermissionEvaluator:
         self.local_write_preset = preset
 
     def evaluate(self, context: ExecutionContext, request: PermissionRequest) -> PermissionDecision:
+        if context.shared_session_id and not all(
+            (
+                context.requester_id,
+                context.credential_owner_id,
+                context.executor_device_id,
+                context.audience_revision,
+                context.lease_token,
+            )
+        ):
+            return PermissionDecision(
+                Effect.DENY, "Shared execution identity is incomplete, so this action is blocked."
+            )
+        if (
+            context.shared_session_id
+            and context.requester_id != context.credential_owner_id
+        ):
+            return PermissionDecision(
+                Effect.DENY, "Shared work cannot use another person's credentials."
+            )
+
+        if context.shared_session_id and request.action.startswith("memory."):
+            return PermissionDecision(
+                Effect.ASK,
+                "Remembering from shared work requires the requester to approve it explicitly.",
+            )
         if context.parent_effect == Effect.DENY:
             return PermissionDecision(Effect.DENY, "The parent run denied this capability.")
 

@@ -4,6 +4,7 @@ export type AppView =
   | 'skills'
   | 'loops'
   | 'connectors'
+  | 'shared'
   | 'settings'
 
 export const PINNED_CONVERSATIONS_STORAGE_KEY = 'collie.pinnedConversations'

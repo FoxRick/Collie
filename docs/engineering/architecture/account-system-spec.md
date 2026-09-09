@@ -5,6 +5,9 @@
 > Amendment (2026-08-22): opt-in per-device backup of memory/personality is
 > now specified in `account-cloud-sync.md` — narrowing the "no sync" non-goal
 > below to conversations/plans/approvals only.
+> Amendment (2026-09-09): opt-in shared sessions are a separate, gated exception
+> for explicitly published conversation content. They do not synchronize private
+> conversations or approvals. See [shared session authority](shared-sessions.md).
 
 ## 1. Goals / Non-goals
 

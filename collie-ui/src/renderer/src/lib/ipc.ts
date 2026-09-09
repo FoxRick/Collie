@@ -50,6 +50,18 @@ export interface Conversation {
   project_path?: string | null
 }
 
+export interface LocalCollaborationEvent {
+  event_id: string
+  session_id: string
+  kind: 'message' | 'edit' | 'delete'
+  message_id: string
+  author_id: string
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  revision?: number
+  created_at?: string
+}
+
 export type ExecutionMode = 'plan' | 'execute'
 export type ApprovalPreset = 'ask' | 'allow'
 export type FileAccessMode = 'selected_folder' | 'chosen_folders' | 'full_file_access'
@@ -764,6 +776,7 @@ export class CollieClient {
   getMessages(conversationId: string): Promise<{ messages: CollieMessage[] }> {
     return this.command('get_messages', { conversation_id: conversationId })
   }
+
 
   getActiveTask(conversationId: string): Promise<{ task: TaskState | null }> {
     return this.command('get_active_task', { conversation_id: conversationId })

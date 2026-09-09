@@ -24,11 +24,13 @@ class ApprovalBroker:
         broadcaster: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
         *,
         timeout_seconds: float = 300,
+        context_validator: Callable[[ExecutionContext], bool] | None = None,
     ) -> None:
         self.db = db
         self.evaluator = evaluator
         self.broadcaster = broadcaster
         self.timeout_seconds = timeout_seconds
+        self.context_validator = context_validator
         self._pending: dict[str, asyncio.Future[str]] = {}
 
     async def _enforce_plan_change(self, context: ExecutionContext, request: Any) -> None:
@@ -75,6 +77,8 @@ class ApprovalBroker:
         tool: Any,
         params: dict[str, Any],
     ) -> None:
+        if self.context_validator is not None and not self.context_validator(context):
+            raise PermissionDeniedError("This shared run is no longer authorized on this device.")
         request = classify_tool(tool, str(tool_call.name), params)
         await self._enforce_plan_change(context, request)
         decision = self.evaluator.evaluate(context, request)
@@ -96,6 +100,10 @@ class ApprovalBroker:
                 "suggested_scope": request.suggested_scope,
                 "approve_for_me_eligible": self.evaluator._approve_for_me_eligible(request),
                 "reason": decision.reason,
+                "requester_id": context.requester_id,
+                "shared_session_id": context.shared_session_id,
+                "audience_revision": context.audience_revision,
+                "private_to_requester": bool(context.shared_session_id),
             },
             run_id=context.run_id,
             conversation_id=context.conversation_id,
@@ -116,6 +124,8 @@ class ApprovalBroker:
             self._pending.pop(request_id, None)
         if resolution not in {"allow_once", "allow_run"}:
             raise PermissionDeniedError("You rejected this action.")
+        if self.context_validator is not None and not self.context_validator(context):
+            raise PermissionDeniedError("This shared run is no longer authorized on this device.")
         await self._enforce_plan_change(context, request)
 
     async def resolve(
@@ -176,6 +186,23 @@ class ApprovalBroker:
                         "approval": resolved,
                     }
                 )
+        return len(rows)
+
+    async def cancel_shared_requester(self, requester_id: str) -> int:
+        """Resolve requester-private approvals before an account switch can expose them."""
+        rows = []
+        for row in self.db.list_pending_approvals():
+            display = row.get("display") if isinstance(row.get("display"), dict) else {}
+            if display.get("private_to_requester") and str(display.get("requester_id") or "") == requester_id:
+                rows.append(row)
+        for row in rows:
+            request_id = str(row["id"])
+            resolved = self.db.resolve_approval_request(request_id, "cancelled")
+            future = self._pending.get(request_id)
+            if future and not future.done():
+                future.set_result("cancelled")
+            if self.broadcaster:
+                await self.broadcaster({"type": "approval_resolved", "approval": resolved})
         return len(rows)
 
     def cancel_all(self) -> None:

@@ -1,6 +1,8 @@
 # Shared sessions: implementation plan
 
-**Status:** proposed implementation plan; no feature implementation in this PR.
+**Status:** implemented behind disabled release flags. Hosted rollback validation
+and synthetic capacity checks pass; multi-computer/Slack acceptance remain release gates. See
+[authority and recovery](../../engineering/architecture/shared-sessions.md).
 **Date:** 2026-09-09
 **Scope:** Python core, Electron/React desktop, managed Supabase coordination, then Slack.
 **Source baseline:** `b54311aaae24d12f92832fcfc68167c8fe2c81c6`.
@@ -28,8 +30,9 @@ history to make a free tier appear unlimited.
 
 This direction supersedes the no-account, Telegram-owner-execution defaults in
 [the parked Share Collie proposal](share-collie.md). It does not activate that
-proposal or change existing Telegram behavior. The present PR adds a plan only:
-no migrations, runtime changes, credentials, deployments, or feature flags enabled.
+proposal or change existing Telegram behavior. The original plan PR was
+documentation-only. Implementation follows below with separate migration and
+runtime changes; deployments and feature-flag enablement require the release gates.
 
 ## Existing code to preserve and extend
 

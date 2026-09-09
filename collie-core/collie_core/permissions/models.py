@@ -43,6 +43,14 @@ class ExecutionContext:
     parent_effect: Effect | None = None
     approve_all_for_run: bool = False
     project_path: str | None = None
+    requester_id: str | None = None
+    credential_owner_id: str | None = None
+    executor_device_id: str | None = None
+    shared_session_id: str | None = None
+    audience_revision: int | None = None
+    context_cutoff: int | None = None
+    lease_token: str | None = None
+    publication_authorized: bool = False
 
 
 @dataclass(frozen=True, slots=True)

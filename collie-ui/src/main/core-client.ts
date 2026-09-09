@@ -349,6 +349,12 @@ export function coreSend(frame: CoreCommandFrame): Promise<unknown> {
   if (typeof type !== 'string' || typeof id !== 'string') {
     return Promise.reject(new Error('Malformed core command frame'))
   }
+  // Shared-session storage, archives, identity binding and execution cross a
+  // trust boundary. Only collaboration.ts may invoke those commands after it
+  // verifies the protected account and obtains canonical backend claims.
+  if (type.startsWith('collaboration_')) {
+    return Promise.reject(new Error('Use the protected collaboration bridge.'))
+  }
   return coreBroker.send(type, id, payload)
 }
 

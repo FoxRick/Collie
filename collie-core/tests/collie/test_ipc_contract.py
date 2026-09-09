@@ -38,6 +38,22 @@ _UI_SRC = _REPO_ROOT / "collie-ui" / "src"
 #   - Dead: no caller at all; candidates for removal, listed so the
 #     decision to remove (or wire up) is explicit.
 _SERVER_ONLY_ALLOWLIST: dict[str, str] = {
+    # Authenticated collaboration transport is called only by Electron main's
+    # collaboration coordinator. It intentionally bypasses the renderer bridge
+    # and carries a per-process main-only identity token.
+    **{
+        command: "main-only authenticated collaboration coordinator"
+        for command in (
+            "collaboration_apply_page", "collaboration_bind_identity",
+            "collaboration_cache_bootstrap", "collaboration_control_run",
+            "collaboration_export_archive", "collaboration_get_cached_bootstrap",
+            "collaboration_import_archive", "collaboration_list_messages",
+            "collaboration_mark_routine_delivery",
+            "collaboration_queue_event", "collaboration_run_shared",
+            "collaboration_status", "collaboration_write_archive",
+            "collaboration_set_routine_delivery",
+        )
+    },
     # Health check used by backend tests (tests/collie/test_ipc.py).
     "ping": "test-only heartbeat; renderer relies on the WS itself",
     # Plan engine commands driven by backend tests; the UI plans flow
