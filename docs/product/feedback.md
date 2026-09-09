@@ -1,6 +1,6 @@
 # In-app feedback
 
-**Status:** implemented; backend provisioned and verified end-to-end (Supabase table, Worker secrets, `feedback.heycollie.com` custom domain).
+**Status:** implemented; backend provisioning and app-to-Resend acceptance reported verified. Mailbox receipt and the remaining release checks below still require confirmation.
 
 The desktop sidebar has a **Submit Feedback** button, including when collapsed.
 The footer stacks Collapse navigation, Submit Feedback, and Settings in that
@@ -45,9 +45,11 @@ reviewed together in the main app repository, but deployed separately.
    row and one email, then check offline failure/retry and collapsed navigation.
    Do not release the desktop feature until this live check passes.
 
-Steps 1–5 are complete: the table exists with RLS denying anonymous and
-authenticated access, the Worker holds its secrets, the custom domain is live,
-and a submission from the running app stored one row and reached Resend.
+The provisioning report in PR #172 records the table, Worker secrets, custom
+domain, and a submission from the running app that stored one row and was
+accepted by Resend. This does not establish mailbox receipt or completion of
+every release check: confirm rate-limit namespace uniqueness, both client-role
+access checks, and the mailbox/offline-retry checks above before release.
 
 Workers `fetch` accepts only `redirect: 'follow'` or `'manual'`; `'error'` throws
 at runtime before the request is sent. Keep the upstream calls on `'manual'` and
