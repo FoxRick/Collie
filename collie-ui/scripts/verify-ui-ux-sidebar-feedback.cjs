@@ -8,10 +8,11 @@
 //
 // Usage (the app must be running with a remote debugging port):
 //   COLLIE_DEBUG_PORT=9222 node scripts/verify-ui-ux-sidebar-feedback.cjs
-//   COLLIE_DEBUG_PORT=9222 node scripts/verify-ui-ux-sidebar-feedback.cjs --no-submit
+//   COLLIE_DEBUG_PORT=9222 node scripts/verify-ui-ux-sidebar-feedback.cjs --submit-live-feedback
 //
-// --no-submit skips the live POST to the production feedback endpoint; without
-// it every run stores a real app_feedback row and sends a real Resend email.
+// Submissions are skipped by default. --submit-live-feedback explicitly enables
+// a production POST that stores a real feedback row and sends a real email.
+// The older --no-submit flag remains supported and takes precedence.
 //
 // Every check drives the real renderer with real mouse and key events, so
 // focus behaviour is asserted the way a keyboard user experiences it.
@@ -21,7 +22,7 @@ const { mkdirSync, writeFileSync } = require('fs')
 const { dirname, resolve } = require('path')
 
 const debugPort = Number(process.env.COLLIE_DEBUG_PORT || 9223)
-const submitLiveFeedback = !process.argv.includes('--no-submit')
+const submitLiveFeedback = process.argv.includes('--submit-live-feedback') && !process.argv.includes('--no-submit')
 const outputDir = resolve(process.env.COLLIE_UI_UX_OUTPUT || '../.local-runtime-logs')
 const failures = []
 const checks = []
@@ -343,9 +344,9 @@ async function main() {
   // dialog moves to its sent state, and focus goes to Done — so this check
   // passes whether or not FeedbackDialog reclaims focus. The mechanism-level
   // pin (focus is reclaimed to the textarea after a *failed* submit) lives in
-  // FeedbackDialog.dom.test.tsx. Pass --no-submit to skip the live POST.
+  // FeedbackDialog.dom.test.tsx. Live POSTs require --submit-live-feedback.
   if (!submitLiveFeedback) {
-    console.error('SKIP: live feedback submit (--no-submit)')
+    console.error('SKIP: live feedback submit (requires --submit-live-feedback; --no-submit overrides it)')
   } else {
     await realClick(feedbackTrigger)
     await waitUntil(focusInTextarea)
@@ -382,10 +383,12 @@ async function main() {
   const unfilteredCount = await evaluate(`document.querySelectorAll('.conversation-row').length`)
   await realClick(searchToggle)
   record('search panel opens and takes focus', await waitUntil(`!(${searchPanelHidden})`) && (await evaluate(`document.activeElement && document.activeElement.tagName === 'INPUT'`)), await evaluate(`document.activeElement && document.activeElement.tagName`))
-  await command('Input.insertText', { text: 'gen' })
+  // A fresh query avoids assumptions about titles or how many chats exist.
+  const searchQuery = `collie-no-match-${require('node:crypto').randomUUID()}`
+  await command('Input.insertText', { text: searchQuery })
   await delay(800)
-  // Search matches conversation content, not just titles, so the assertion is
-  // that the list narrowed and the query reached the input.
+  // Search also matches content. A unique no-match query should yield no rows,
+  // including when the app starts with an empty history.
   const filtered = await evaluate(`(() => {
     const input = document.querySelector('input[aria-label="Search conversations"]') ||
       document.querySelector('#sidebar-search input') ||
@@ -393,7 +396,7 @@ async function main() {
     const rows = Array.from(document.querySelectorAll('.conversation-row'))
     return { query: input ? input.value : null, count: rows.length, texts: rows.map((row) => row.textContent.trim().slice(0, 60)) }
   })()`)
-  record('search filters the conversation list', filtered.query === 'gen' && filtered.count < unfilteredCount, { ...filtered, unfilteredCount })
+  record('search accepts a no-match query and shows no conversations', filtered.query === searchQuery && filtered.count === 0, { ...filtered, unfilteredCount })
   await pressKey('Escape')
   record('Escape closes search and returns focus to the toggle', (await evaluate(searchPanelHidden)) && (await evaluate(`document.activeElement === ${searchToggle}`)), { hidden: await evaluate(searchPanelHidden) })
 
@@ -405,17 +408,27 @@ async function main() {
   const navigation = {}
   for (const label of ['New chat', ...primaryNavLabels, 'General Chat', 'Settings']) {
     try {
+      // Start chat checks from Settings so a no-op click cannot pass merely
+      // because the app was already displaying the chat screen.
+      if (label === 'New chat' || label === 'General Chat') await clickButtonText('Settings')
       await clickButtonText(label)
       const audit = await evaluate(`(() => {
         const main = document.querySelector('main')
         return {
           heading: (main && (main.querySelector('h1') || main.querySelector('h2'))?.textContent.trim()) || '',
+          currentDestinations: Array.from(document.querySelectorAll('aside button[aria-current="page"]')).map((item) => item.textContent.trim()),
+          chatVisible: Boolean(document.querySelector('main .conversation-panel')),
           textLength: main ? main.innerText.trim().length : 0,
           horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1
         }
       })()`)
       navigation[label] = audit
-      record(`navigation to ${label} renders content`, audit.textLength > 20 && !audit.horizontalOverflow, audit)
+      const correctDestination = label === 'New chat'
+        ? audit.chatVisible && audit.heading === 'New conversation'
+        : label === 'General Chat'
+          ? audit.chatVisible && audit.currentDestinations.includes(label)
+          : audit.heading === label && audit.currentDestinations.includes(label)
+      record(`navigation to ${label} renders content`, correctDestination && audit.textLength > 20 && !audit.horizontalOverflow, audit)
     } catch (error) {
       navigation[label] = { error: error.message }
       record(`navigation to ${label} renders content`, false, error.message)
