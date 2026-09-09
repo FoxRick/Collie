@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import threading
 import urllib.parse
 import webbrowser
@@ -347,48 +348,81 @@ class CollieOAuthClientProvider:
                 while not self._collie_flow_lock.acquire(blocking=False):
                     await asyncio.sleep(0.01)
                 flow = None
+                worker: asyncio.Task[None] | None = None
+                outgoing: asyncio.Queue[httpx.Request | None] = asyncio.Queue()
+                incoming: asyncio.Queue[httpx.Response] = asyncio.Queue()
                 try:
                     storage.ensure_active()
                     self._initialized = False
                     flow = super().async_auth_flow(request)
-                    try:
-                        outgoing = await flow.__anext__()
-                        while True:
-                            storage.ensure_active()
-                            self._validate_oauth_url(str(outgoing.url), label="request")
-                            incoming = yield outgoing
-                            registration_endpoint = (
-                                str(self.context.oauth_metadata.registration_endpoint)
-                                if self.context.oauth_metadata
-                                and self.context.oauth_metadata.registration_endpoint
-                                else None
-                            )
-                            if registration_endpoint == str(outgoing.url):
-                                if incoming.status_code not in {200, 201}:
-                                    await incoming.aread()
-                                    raise RuntimeError(
-                                        f"OAuth client registration failed ({incoming.status_code})."
-                                    )
-                                try:
-                                    from mcp.shared.auth import OAuthClientInformationFull
 
-                                    OAuthClientInformationFull.model_validate_json(
-                                        await incoming.aread()
-                                    )
-                                except Exception:
-                                    raise RuntimeError(
-                                        "OAuth provider returned invalid client registration data."
-                                    ) from None
-                            outgoing = await flow.asend(incoming)
-                            self._validate_discovered_context()
-                    except StopAsyncIteration:
-                        return
+                    # The SDK flow holds a task-affine anyio lock for its whole
+                    # lifetime (mcp oauth2.py ``async with self.context.lock``).
+                    # Drive it on ONE dedicated worker task so that lock is
+                    # always acquired AND released by the same task — even when
+                    # this consumer advances the generator under
+                    # ``asyncio.wait_for`` (which runs ``__anext__`` in a child
+                    # task) and then closes it from a different one.
+                    async def _drive_flow() -> None:
+                        try:
+                            next_request = await flow.__anext__()
+                            while True:
+                                await outgoing.put(next_request)
+                                response = await incoming.get()
+                                next_request = await flow.asend(response)
+                        except StopAsyncIteration:
+                            # Flow completed naturally; the SDK released its lock.
+                            # Signal the consumer loop to stop.
+                            await outgoing.put(None)
+                            return
+                        finally:
+                            # Always close the SDK flow on the worker task so its
+                            # task-affine lock is released, whether we completed,
+                            # errored, or were cancelled. Shield so a cancellation
+                            # cannot strand the lock.
+                            with contextlib.suppress(Exception):
+                                await asyncio.shield(flow.aclose())
+
+                    worker = asyncio.create_task(_drive_flow())
+                    while True:
+                        outgoing_request = await outgoing.get()
+                        if outgoing_request is None:
+                            return
+                        storage.ensure_active()
+                        self._validate_oauth_url(str(outgoing_request.url), label="request")
+                        incoming_response = yield outgoing_request
+                        registration_endpoint = (
+                            str(self.context.oauth_metadata.registration_endpoint)
+                            if self.context.oauth_metadata
+                            and self.context.oauth_metadata.registration_endpoint
+                            else None
+                        )
+                        if registration_endpoint == str(outgoing_request.url):
+                            if incoming_response.status_code not in {200, 201}:
+                                await incoming_response.aread()
+                                raise RuntimeError(
+                                    f"OAuth client registration failed ({incoming_response.status_code})."
+                                )
+                            try:
+                                from mcp.shared.auth import OAuthClientInformationFull
+
+                                OAuthClientInformationFull.model_validate_json(
+                                    await incoming_response.aread()
+                                )
+                            except Exception:
+                                raise RuntimeError(
+                                    "OAuth provider returned invalid client registration data."
+                                ) from None
+                        await incoming.put(incoming_response)
+                        self._validate_discovered_context()
+                except StopAsyncIteration:
+                    return
                 finally:
-                    try:
-                        if flow is not None:
-                            await flow.aclose()
-                    finally:
-                        self._collie_flow_lock.release()
+                    if worker is not None and not worker.done():
+                        worker.cancel()
+                        with contextlib.suppress(asyncio.CancelledError, Exception):
+                            await worker
+                    self._collie_flow_lock.release()
 
         return _Provider()
 

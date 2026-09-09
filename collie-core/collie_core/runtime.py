@@ -14,6 +14,7 @@ import asyncio
 import inspect
 import json
 import os
+import sqlite3
 import sys
 import time
 import urllib.parse
@@ -110,7 +111,6 @@ class CollieRuntime:
         self._connector_reconcile_task: asyncio.Task[Any] | None = None
         self.services = ConnectorManager(self.db, on_runtime_change=self._connections_changed)
         bind_service_manager(self.services)
-        bind_connector_tool_authority(self._connector_tool_authority)
         self.subagents = SubagentLoader(self.workspace, self.db)
         self.subagents.seed_bundled_once()
         self.subagents.sync()
@@ -228,10 +228,20 @@ class CollieRuntime:
     def _connector_tool_authority(
         self, connection_id: str, tool_name: str
     ) -> ConnectorToolAuthority | None:
-        connection = self.db.get_connector_connection(connection_id)
+        # The DB can be sealed during shutdown while an in-flight connector tool
+        # still resolves its authority. A closed DB must degrade to the safe
+        # "tool not currently connected" state (caller blocks it with a clear
+        # message) rather than propagate a raw sqlite3.ProgrammingError.
+        try:
+            connection = self.db.get_connector_connection(connection_id)
+        except sqlite3.ProgrammingError:
+            return None
         if connection is None:
             return None
-        row = self.db.get_connector_tool(connection_id, tool_name)
+        try:
+            row = self.db.get_connector_tool(connection_id, tool_name)
+        except sqlite3.ProgrammingError:
+            return None
         if row is None:
             return None
         try:
@@ -657,6 +667,11 @@ class CollieRuntime:
         """Rebuild the loop while the caller owns ``_configure_lock``."""
         await self._shutdown_loop()
         try:
+            # Bind the connector tool authority resolver only once the loop is
+            # actually being built (a running runtime). Binding in __init__
+            # leaked the global to tests that construct a runtime without
+            # starting it; that stale resolver then pointed at a closed DB.
+            bind_connector_tool_authority(self._connector_tool_authority)
             self.loop = self._build_loop()
             if probe_api_base:
                 await self._probe_provider_endpoint(probe_api_base)
@@ -1318,6 +1333,12 @@ class CollieRuntime:
         # Active turns are drained above; flush their telemetry so evidence
         # from cancelled/stopped turns is durable before the loop is gone.
         self._flush_telemetry()
+        # The connector authority resolver is bound to this runtime's DB and
+        # must not outlive the loop. A caller that stops only this loop (e.g.
+        # tests) would otherwise leave the global bound to a closed DB, which
+        # later connector tool-authority reads resolve through to a raw
+        # sqlite3.ProgrammingError.
+        bind_connector_tool_authority(None)
 
     def _flush_telemetry(self) -> None:
         from collie_core.telemetry.recorder import RunRecorder
