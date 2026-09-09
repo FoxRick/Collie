@@ -6,6 +6,7 @@ import json
 import threading
 import uuid
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any
 
 from loguru import logger
@@ -14,8 +15,12 @@ from collie_core.connectors.catalog import CONNECTOR_CATALOG, connector_def
 from collie_core.connectors.drivers.official_mcp import OfficialMcpDriver
 from collie_core.connectors.models import (
     ConnectionStatus,
+    ConnectorAuthStrategy,
     ConnectorDefinition,
     ConnectorDriverKind,
+    ConnectorProvenance,
+    ConnectorTransport,
+    InstalledConnectorDefinition,
     ProbeResult,
     RemoteRevocationStatus,
 )
@@ -60,6 +65,7 @@ class ConnectorManager:
         self._cancelled: set[str] = set()
         self._connecting: set[str] = set()
         self._migrate_legacy_credentials()
+        self._resolve_migrated_definitions()
 
     def _default_driver(self, definition: ConnectorDefinition) -> Any:
         if definition.driver == ConnectorDriverKind.OFFICIAL_MCP:
@@ -75,6 +81,60 @@ class ConnectorManager:
                 old = self.credentials.load(str(row["provider_id"]))
                 if old is not None:
                     self.credentials.save(target, old)
+
+    def _definition_for_row(self, row: dict[str, Any]) -> ConnectorDefinition | None:
+        """Resolve a connection against its installed snapshot when one is complete."""
+        recipe = connector_def(str(row["provider_id"]))
+        stored = self.db.get_connector_definition(str(row.get("definition_id") or ""))
+        if recipe is None or stored is None or stored.get("unresolved"):
+            return recipe
+        if stored.get("provenance") != ConnectorProvenance.CURATED.value:
+            return None
+        config = _json_value(stored.get("config_json"), {})
+        return replace(
+            recipe,
+            driver=ConnectorDriverKind(str(stored["driver"])),
+            auth_type=str(stored["auth_strategy"]),
+            endpoint=str(config.get("endpoint") or ""),
+            scopes=tuple(config.get("scopes") or ()),
+            trusted_hosts=tuple(config.get("trusted_hosts") or ()),
+            tool_overrides=dict(config.get("tool_overrides") or {}),
+        )
+
+    def _resolve_migrated_definitions(self) -> None:
+        """Pin the packaged recipe once for V15 accounts; unknown rows remain removable."""
+        for row in self.db.list_connector_connections():
+            stored = self.db.get_connector_definition(str(row.get("definition_id") or ""))
+            if not stored or not stored.get("unresolved"):
+                continue
+            recipe = connector_def(str(row["provider_id"]))
+            if recipe is not None and row["driver"] == recipe.driver.value:
+                self._save_definition_snapshot(recipe, str(row["id"]))
+
+    def _save_definition_snapshot(
+        self, definition: ConnectorDefinition, connection_id: str
+    ) -> None:
+        self.db.save_connector_definition(
+            InstalledConnectorDefinition(
+                id=f"def_{connection_id}",
+                provider_id=definition.id,
+                recipe_id=definition.id,
+                recipe_version="1",
+                driver=definition.driver,
+                transport=(
+                    ConnectorTransport.API
+                    if definition.driver == ConnectorDriverKind.OFFICIAL_API
+                    else ConnectorTransport.STREAMABLE_HTTP
+                ),
+                auth_strategy=ConnectorAuthStrategy(definition.auth_type),
+                provenance=ConnectorProvenance.CURATED,
+                endpoint=definition.endpoint or None,
+                oauth_registration="automatic" if definition.auth_type == "oauth" else None,
+                scopes=definition.scopes,
+                trusted_hosts=definition.trusted_hosts,
+                tool_overrides=definition.tool_overrides,
+            )
+        )
 
     # -- catalog and connection views ---------------------------------------
 
@@ -145,7 +205,7 @@ class ConnectorManager:
         return bool(tokens.get("access_token"))
 
     def _connection_view(self, row: dict[str, Any]) -> dict[str, Any]:
-        definition = connector_def(str(row["provider_id"]))
+        definition = self._definition_for_row(row)
         compatible = bool(
             definition and definition.available and row["driver"] == definition.driver.value
         )
@@ -256,6 +316,7 @@ class ConnectorManager:
                         last_error_message="The previous sign-in was interrupted.",
                     )
             connection_id = connection_id or f"con_{uuid.uuid4().hex}"
+            self._save_definition_snapshot(definition, connection_id)
             self.db.upsert_connector_connection(
                 connection_id,
                 provider_id=definition.id,
@@ -370,7 +431,7 @@ class ConnectorManager:
         row = self.db.get_connector_connection(connection_id)
         if row is None:
             raise ValueError("I couldn't find that connection.")
-        definition = connector_def(str(row["provider_id"]))
+        definition = self._definition_for_row(row)
         if definition is None:
             raise ValueError("That provider is no longer in this build.")
         if not definition.available:
@@ -452,7 +513,7 @@ class ConnectorManager:
                 "status": "disconnected",
                 "remote_revocation": RemoteRevocationStatus.NOT_APPLICABLE.value,
             }
-        definition = connector_def(str(row["provider_id"]))
+        definition = self._definition_for_row(row)
         with self._lock:
             # A concurrent connect() must not resurrect this connection.
             self._cancelled.add(connection_id)
@@ -504,7 +565,7 @@ class ConnectorManager:
         for row in self.db.list_connector_connections():
             if row["status"] != ConnectionStatus.CONNECTED.value:
                 continue
-            definition = connector_def(str(row["provider_id"]))
+            definition = self._definition_for_row(row)
             if (
                 not definition
                 or not definition.available

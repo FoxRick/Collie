@@ -107,6 +107,14 @@ React renderer
   -> streamed events back to the renderer
 ```
 
+Connection recipes remain in `collie_core/connectors/catalog.py`. Installed
+configuration snapshots and account/tool inventory live in SQLite through
+`collie_core/db.py`; `ConnectorManager` resolves existing accounts against those
+snapshots while retaining catalogue availability controls. Credential references
+point to the existing protected store. The connection specification in
+`docs/product/features/connectors.md` separates this foundation from later driver
+and desktop delivery.
+
 Electron owns OS integration and protected secret storage. Python owns agent
 behavior, durable product state, tool execution, and central permission
 evaluation. The renderer must not receive decrypted long-lived secrets.
