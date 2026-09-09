@@ -5,6 +5,10 @@
 **Parked:** 2026-08-03
 **Applies to:** Post-alpha multiplayer and shared-chat work
 
+The [shared-session implementation plan](shared-sessions-implementation-plan.md)
+supersedes this proposal's no-account and owner-execution defaults. This file
+remains historical reference; neither proposal is a claim of shipped multiplayer.
+
 ## Outcome
 
 Collie will support simple multiplayer use without becoming an organization
