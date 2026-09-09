@@ -19,8 +19,13 @@ async def test_fixed_model_output_cap_and_no_retries(monkeypatch):
     monkeypatch.setenv("COLLIE_KEYCHAIN_TOKEN", "test-bridge-token")
     provider = managed_provider()
     kwargs = provider._build_kwargs(
-        [{"role": "user", "content": "Hello"}], None, "expensive-model",
-        4096, 0.7, "high", None,
+        [{"role": "user", "content": "Hello"}],
+        None,
+        "expensive-model",
+        4096,
+        0.7,
+        "high",
+        None,
     )
     assert kwargs["model"] == MODEL
     assert kwargs.get("max_tokens", kwargs.get("max_completion_tokens")) == 1024
@@ -34,14 +39,19 @@ async def test_fixed_model_output_cap_and_no_retries(monkeypatch):
 
 
 @pytest.mark.parametrize("success", [True, False])
-async def test_activation_preserves_personal_provider_and_rolls_back(tmp_path, monkeypatch, success):
+async def test_activation_preserves_personal_provider_and_rolls_back(
+    tmp_path, monkeypatch, success
+):
     monkeypatch.setenv("COLLIE_KEYCHAIN_PORT", "12345")
     monkeypatch.setenv("COLLIE_KEYCHAIN_TOKEN", "test-bridge-token")
     db = CollieDB(tmp_path / "collie.db")
-    db.upsert_provider("personal", name="openai", auth_type="api-key",
-                       model="personal-model", is_default=True)
+    db.upsert_provider(
+        "personal", name="openai", auth_type="api-key", model="personal-model", is_default=True
+    )
+
     async def configure():
         return {"configured": success}
+
     server = CollieIPCServer(db, on_configure=configure)
     try:
         result = await server._cmd_activate_managed_provider(None, {})
@@ -63,8 +73,10 @@ async def test_failed_first_activation_leaves_no_managed_default(tmp_path, monke
     monkeypatch.setenv("COLLIE_KEYCHAIN_PORT", "12345")
     monkeypatch.setenv("COLLIE_KEYCHAIN_TOKEN", "test-bridge-token")
     db = CollieDB(tmp_path / "collie.db")
+
     async def configure():
         return {"configured": False}
+
     server = CollieIPCServer(db, on_configure=configure)
     try:
         await server._cmd_activate_managed_provider(None, {})

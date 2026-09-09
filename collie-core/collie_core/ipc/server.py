@@ -1069,13 +1069,17 @@ class CollieIPCServer:
         created = self.db.get_provider("collie-managed") is None
         if created:
             self.db.upsert_provider(
-                "collie-managed", name="Collie AI", auth_type="collie-managed",
-                model=MODEL, runtime_name="custom", protocol="openai",
-                api_base=None, secret_name="collie-managed", is_default=False,
+                "collie-managed",
+                name="Collie AI",
+                auth_type="collie-managed",
+                model=MODEL,
+                runtime_name="custom",
+                protocol="openai",
+                api_base=None,
+                secret_name="collie-managed",
+                is_default=False,
             )
-        result = await self._cmd_activate_provider(
-            connection, {"provider_id": "collie-managed"}
-        )
+        result = await self._cmd_activate_provider(connection, {"provider_id": "collie-managed"})
         if not result.get("configured") and created:
             self.db.delete_provider("collie-managed")
             self._apply_provider_settings(previous)

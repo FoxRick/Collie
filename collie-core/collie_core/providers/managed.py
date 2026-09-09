@@ -3,6 +3,7 @@
 The bridge resolves a fresh account session on each call. The core never
 receives a Supabase refresh token or a supplier credential.
 """
+
 from __future__ import annotations
 
 import os
@@ -26,10 +27,12 @@ def managed_transport() -> tuple[str, str]:
 class ManagedProvider(OpenAICompatProvider):
     """Fixed hosted model; never retry uncertain attempts automatically."""
 
-    def _build_kwargs(self, messages, tools, model, max_tokens, temperature,
-                      reasoning_effort, tool_choice):
-        return super()._build_kwargs(messages, tools, MODEL, min(max_tokens, 1024),
-                                     temperature, None, tool_choice)
+    def _build_kwargs(
+        self, messages, tools, model, max_tokens, temperature, reasoning_effort, tool_choice
+    ):
+        return super()._build_kwargs(
+            messages, tools, MODEL, min(max_tokens, 1024), temperature, None, tool_choice
+        )
 
     def _should_use_responses_api(self, model, reasoning_effort):
         return False

@@ -34,7 +34,6 @@ import {
 import { startKeychainServer, stopKeychainServer } from './keychain-server'
 import { getAccountState, signOut, startAccountSignIn } from './account-auth'
 import { managedStatus } from './managed-inference'
-import { commandWithCore as managedCoreCommand } from './core-client'
 import { submitFeedback } from './feedback'
 import {
   enableSync,
@@ -397,7 +396,7 @@ function registerIpc(): void {
   handle('account:use-inference', async () => {
     const status = await managedStatus()
     if (!status.available) return { configured: false, error: status.message }
-    return managedCoreCommand('activate_managed_provider', {})
+    return commandWithCore('activate_managed_provider', {})
   })
   handle('account:sign-out', () => signOut())
   // Account cloud sync (account-cloud-sync.md): per-device snapshots,
