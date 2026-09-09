@@ -115,9 +115,9 @@ def test_private_opt_in_is_limited_to_selected_origin(monkeypatch) -> None:
     monkeypatch.setattr(socket, "getaddrinfo", resolve)
     with pytest.raises(ValueError):
         validate_remote_endpoint("http://device.example/mcp")
-    assert validate_remote_endpoint(
-        "http://device.example/mcp", allow_private_network=True
-    ) == ("192.168.1.20",)
+    assert validate_remote_endpoint("http://device.example/mcp", allow_private_network=True) == (
+        "192.168.1.20",
+    )
     with pytest.raises(ValueError):
         validate_remote_endpoint(
             "http://device.example/mcp",

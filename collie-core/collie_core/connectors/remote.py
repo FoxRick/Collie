@@ -73,11 +73,7 @@ def validate_remote_endpoint(
         raise ValueError(f"Blocked remote MCP endpoint address: {forbidden_even_with_opt_in}")
     if not permits_private:
         blocked = next(
-            (
-                address
-                for address in parsed_addresses
-                if not address.is_global
-            ),
+            (address for address in parsed_addresses if not address.is_global),
             None,
         )
         if blocked is not None:
