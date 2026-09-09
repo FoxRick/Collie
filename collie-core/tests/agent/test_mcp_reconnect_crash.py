@@ -62,6 +62,28 @@ def _run_mcp_server(port: int, ready_event: multiprocessing.Event) -> None:
         session_idle_timeout=_IDLE_TIMEOUT_SECONDS,
     )
 
+    from starlette.responses import JSONResponse
+
+    @mcp.custom_route("/control/expire", methods=["POST"])
+    async def _expire_sessions(request):  # noqa: ANN001, ARG001
+        """Terminate every live session, deterministically.
+
+        The idle sweep is timing-dependent on a loaded CI runner, and a session
+        that is still alive makes the reconnect tests wait for a reconnect that
+        never happens.  Terminating server-side keeps the production shape (the
+        client's next call sees a dead session) without the timing race.
+        """
+        manager = mcp._session_manager
+        terminated = 0
+        for session_id, transport in list(manager._server_instances.items()):
+            try:
+                await transport.terminate()
+            except Exception:  # pragma: no cover - best effort in a test server
+                pass
+            manager._server_instances.pop(session_id, None)
+            terminated += 1
+        return JSONResponse({"terminated": terminated})
+
     ready_event.set()
     mcp.run(transport="streamable-http")
 
@@ -80,6 +102,22 @@ async def _wait_for_server(url: str, timeout: float = 10.0) -> bool:
         except Exception:
             await asyncio.sleep(0.1)
     return False
+
+
+async def _terminate_server_sessions(url: str) -> int:
+    """Drop every live session on the repro server and return how many died.
+
+    Waiting for the server's idle sweep is timing-dependent on a loaded CI
+    runner: when the sweep has not fired yet the client's next call simply
+    succeeds, no reconnect is attempted, and the test waits for an event that
+    will never be set.  Terminating server-side removes that race while keeping
+    the production shape (the client's next call sees a dead session).
+    """
+    base = url.rsplit("/mcp", 1)[0]
+    async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
+        response = await client.post(f"{base}/control/expire")
+        response.raise_for_status()
+        return int(response.json().get("terminated", 0))
 
 
 @pytest.fixture(scope="module")
@@ -209,6 +247,11 @@ async def test_mcp_reconnect_during_shutdown_does_not_crash(
 
     await asyncio.create_task(tool.execute(name="first"))
     await asyncio.sleep(_IDLE_TIMEOUT_SECONDS + _IDLE_EXPIRY_GRACE_SECONDS)
+    # Guarantee the dead-session precondition.  The idle sweep is timing
+    # dependent on a loaded runner; if the session is still alive the second
+    # call simply succeeds and this test waits for a reconnect that never
+    # happens (the CI failure this replaced).
+    await _terminate_server_sessions(mcp_server_url)
 
     reconnect_started = asyncio.Event()
     finish_reconnect = asyncio.Event()
@@ -221,7 +264,10 @@ async def test_mcp_reconnect_during_shutdown_does_not_crash(
 
     monkeypatch.setattr(mcp_module, "connect_mcp_servers", gated_connect)
     call_task = asyncio.create_task(tool.execute(name="second"))
-    await asyncio.wait_for(reconnect_started.wait(), timeout=5)
+    # Hosted CI runners are far slower than a dev box: the dead-session
+    # detection that precedes the reconnect can take several seconds there.
+    # These budgets bound a hang; they are not the behaviour under test.
+    await asyncio.wait_for(reconnect_started.wait(), timeout=30)
     close_task = asyncio.create_task(loop.close_mcp())
     await asyncio.sleep(0)
     finish_reconnect.set()
@@ -236,7 +282,7 @@ async def test_mcp_reconnect_during_shutdown_does_not_crash(
     asyncio.get_running_loop().set_exception_handler(capture_unhandled)
 
     try:
-        await asyncio.wait_for(asyncio.gather(call_task, close_task), timeout=15)
+        await asyncio.wait_for(asyncio.gather(call_task, close_task), timeout=60)
     except asyncio.CancelledError:
         unhandled.append(asyncio.CancelledError("main task cancelled by leaked MCP cancel scope"))
     except Exception as exc:
