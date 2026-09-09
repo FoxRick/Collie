@@ -345,6 +345,8 @@ class MCPServerConfig(Base):
     connector_trusted: bool = False
     connector_tool_overrides: dict[str, str] = Field(default_factory=dict)
     connector_approval_preference: Literal["every_time", "changes", "important"] = "important"
+    connector_allow_private_network: bool = False
+    connector_endpoint_policy: bool = False
 
 
 def _lazy_default(module_path: str, class_name: str) -> Any:

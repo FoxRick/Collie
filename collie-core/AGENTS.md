@@ -94,7 +94,8 @@ schemas; `tests/collie/test_prompt_hashes.py` covers the hash telemetry
   tools (calendar, email, notes, smart home, documents) return guidance
   toward `mcp_<service>_*` tools once a service is connected.
 - **Connections**: `collie_core/connectors/` owns the curated catalogue,
-  official-MCP OAuth lifecycle, live probe, cached tool policy, and the sole
+  official-MCP OAuth lifecycle, custom no-auth remote HTTP/SSE lifecycle,
+  shared endpoint checks/discovery (`remote.py`), cached tool policy, and the sole
   runtime `ConnectorManager`. A catalogue entry is available only after the
   exact packaged artifact passes the complete provider acceptance matrix.
   `collie_core/services/` remains for one alpha as a compatibility shim for

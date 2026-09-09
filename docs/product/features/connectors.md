@@ -28,7 +28,7 @@ Broad compatibility does not imply every service exposes an API/MCP, every accou
 
 Cline accepts remote endpoints and local server configurations, including credentials. Claude Code accepts arbitrary HTTP/stdio servers, imports MCP configurations, and supports OAuth and pre-registered clients. Collie should offer comparable interoperability behind a graphical and conversational setup flow. [Cline](https://github.com/cline/cline/blob/main/docs/mcp/mcp-overview.mdx), [Claude Code](https://code.claude.com/docs/en/mcp)
 
-The live Collie connection manager currently implements only its official MCP driver. Custom MCP, bundled MCP, and API kinds exist as declarations, but are not complete driver paths. The underlying engine already supports multiple transports. Reuse that engine; complete the connection management layer rather than creating a second agent runtime. [Manager](https://github.com/FoxRick/Collie/blob/b54311aaae24d12f92832fcfc68167c8fe2c81c6/collie-core/collie_core/connectors/manager.py), [Engine transport support](https://github.com/FoxRick/Collie/blob/b54311aaae24d12f92832fcfc68167c8fe2c81c6/collie-core/nanobot/agent/tools/mcp.py)
+The baseline connection manager implemented only its official MCP driver. Step 3 adds a custom remote MCP driver and shared remote discovery while preserving the existing engine runtime. Bundled MCP and API drivers remain later delivery steps. [Manager](https://github.com/FoxRick/Collie/blob/b54311aaae24d12f92832fcfc68167c8fe2c81c6/collie-core/collie_core/connectors/manager.py), [Engine transport support](https://github.com/FoxRick/Collie/blob/b54311aaae24d12f92832fcfc68167c8fe2c81c6/collie-core/nanobot/agent/tools/mcp.py)
 
 ## 3. Architecture and ownership
 
@@ -313,3 +313,40 @@ leave newly added metadata inconsistent. Use a V16-compatible corrective build,
 or restore the complete pre-upgrade backup with the app closed, accepting that
 post-backup user changes are lost. Export any new definitions before a deliberate
 restore. No automatic destructive downgrade is introduced.
+
+
+## 10. Remote backend delivery (Step 3)
+
+`ConnectorManager.connect_definition` accepts validated custom/imported no-auth
+remote definitions. It creates an installed account through the existing lifecycle,
+without a bundled catalogue entry. Streamable HTTP and explicitly selected legacy
+SSE share transport/discovery helpers with the official driver and runtime. The
+backend can connect, retest, restore after restart, and remove these accounts.
+Desktop and chat add/import commands remain Steps 6–7; this backend entry point is
+not yet a user-facing setup flow.
+
+Each custom account gets its own full connection namespace and permission resource,
+including when two accounts have the same endpoint or display name. Custom servers
+remain untrusted: tool hints cannot grant read authority, and imported host/tool
+trust overrides are rejected. Existing curated accounts keep their runtime names
+and pinned snapshots. No-auth accounts do not require a credential blob; custom
+token/header/OAuth strategies are rejected until Step 4 implements them.
+
+The private-network choice is an explicit boolean persisted in the immutable
+definition's existing configuration JSON; it needs no additional schema migration.
+It applies only to the selected origin, including its scheme and port. Redirects
+and discovered authorization destinations do not inherit private access merely
+because the starting endpoint has it. Direct requests connect to a validated IP
+while preserving the original HTTP host and TLS identity. Existing system-proxy
+routes retain per-request URL checks; the configured proxy controls destination
+DNS resolution on those routes.
+
+Discovery follows pagination with bounded page/tool counts. Duplicate identities,
+malformed inventories, and incomplete pagination fail discovery rather than
+publishing a partial inventory. Each server attaches independently, so one failed
+server does not prevent unrelated connections from attaching. Initialization,
+discovery, cancellation, and runtime reconnects use the shared SDK/engine path.
+
+Deterministic fake-server and transport tests establish backend behavior. They do
+not establish real-provider authentication, installer acceptance, or universal MCP
+compatibility. Steps 4–8 remain the next delivery sequence.

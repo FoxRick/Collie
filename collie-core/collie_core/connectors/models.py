@@ -68,6 +68,7 @@ class InstalledConnectorDefinition:
     trusted_hosts: tuple[str, ...] = ()
     tool_overrides: dict[str, str] = field(default_factory=dict)
     unresolved: bool = False
+    allow_private_network: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, str) or not self.id.strip():
@@ -111,6 +112,8 @@ class InstalledConnectorDefinition:
                 raise ValueError("Connector definition lists must contain non-empty strings.")
         if not isinstance(self.unresolved, bool):
             raise ValueError("unresolved must be a boolean.")
+        if not isinstance(self.allow_private_network, bool):
+            raise ValueError("allow_private_network must be a boolean.")
         if not isinstance(self.tool_overrides, dict) or not all(
             isinstance(key, str) and isinstance(value, str)
             for key, value in self.tool_overrides.items()
@@ -135,6 +138,7 @@ class InstalledConnectorDefinition:
             "trusted_hosts",
             "tool_overrides",
             "unresolved",
+            "allow_private_network",
         }
         unknown = set(value) - allowed
         if unknown:
@@ -168,6 +172,7 @@ class InstalledConnectorDefinition:
             trusted_hosts=tuple(value.get("trusted_hosts") or ()),
             tool_overrides=dict(overrides),
             unresolved=value.get("unresolved", False),
+            allow_private_network=value.get("allow_private_network", False),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -187,6 +192,7 @@ class InstalledConnectorDefinition:
             "trusted_hosts": list(self.trusted_hosts),
             "tool_overrides": dict(self.tool_overrides),
             "unresolved": self.unresolved,
+            "allow_private_network": self.allow_private_network,
         }
 
 
@@ -217,6 +223,8 @@ class ConnectorDefinition:
     note: str = ""
     trusted_hosts: tuple[str, ...] = ()
     tool_overrides: dict[str, str] = field(default_factory=dict)
+    transport: ConnectorTransport = ConnectorTransport.STREAMABLE_HTTP
+    allow_private_network: bool = False
 
 
 @dataclass(slots=True)

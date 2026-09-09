@@ -915,6 +915,8 @@ async def connect_mcp_servers(
     from mcp.client.stdio import stdio_client
     from mcp.client.streamable_http import streamable_http_client
 
+    from collie_core.connectors.remote import discover_all_tools, remote_mcp_session
+
     async def open_single_server(name: str, cfg) -> tuple[str, AsyncExitStack | None]:
         server_stack = AsyncExitStack()
         await server_stack.__aenter__()
@@ -933,7 +935,7 @@ async def connect_mcp_servers(
                     await server_stack.aclose()
                     return name, None
 
-            if transport_type in {"sse", "streamableHttp"}:
+            if transport_type in {"sse", "streamableHttp"} and not cfg.connector_endpoint_policy:
                 ok, error = validate_url_target(cfg.url)
                 if not ok:
                     logger.warning(
@@ -945,6 +947,7 @@ async def connect_mcp_servers(
                     await server_stack.aclose()
                     return name, None
 
+            session = None
             if transport_type == "stdio":
                 command, args, env = _normalize_windows_stdio_command(
                     cfg.command,
@@ -959,35 +962,47 @@ async def connect_mcp_servers(
                 )
                 read, write = await server_stack.enter_async_context(stdio_client(params))
             elif transport_type == "sse":
-                if not await _probe_http_url(cfg.url):
+                if cfg.connector_endpoint_policy:
+                    session = await server_stack.enter_async_context(
+                        remote_mcp_session(
+                            cfg.url,
+                            transport="sse",
+                            headers=cfg.headers,
+                            allow_private_network=cfg.connector_allow_private_network,
+                            timeout=float(cfg.tool_timeout),
+                            server_name=name,
+                        )
+                    )
+                elif not await _probe_http_url(cfg.url):
                     logger.warning("MCP server '{}': {} unreachable, skipping", name, _redact_url(cfg.url))
                     await server_stack.aclose()
                     return name, None
 
-                def httpx_client_factory(
-                    headers: dict[str, str] | None = None,
-                    timeout: httpx.Timeout | None = None,
-                    auth: httpx.Auth | None = None,
-                ) -> httpx.AsyncClient:
-                    merged_headers = {
-                        "Accept": "application/json, text/event-stream",
-                        **(cfg.headers or {}),
-                        **(headers or {}),
-                    }
-                    return httpx.AsyncClient(
-                        headers=merged_headers or None,
-                        event_hooks={"request": [_validate_mcp_request_url]},
-                        follow_redirects=True,
-                        timeout=timeout,
-                        auth=auth,
-                        **_pinned_transport_kwargs(),
-                    )
+                if session is None:
+                    def httpx_client_factory(
+                        headers: dict[str, str] | None = None,
+                        timeout: httpx.Timeout | None = None,
+                        auth: httpx.Auth | None = None,
+                    ) -> httpx.AsyncClient:
+                        merged_headers = {
+                            "Accept": "application/json, text/event-stream",
+                            **(cfg.headers or {}),
+                            **(headers or {}),
+                        }
+                        return httpx.AsyncClient(
+                            headers=merged_headers or None,
+                            event_hooks={"request": [_validate_mcp_request_url]},
+                            follow_redirects=True,
+                            timeout=timeout,
+                            auth=auth,
+                            **_pinned_transport_kwargs(),
+                        )
 
-                read, write = await server_stack.enter_async_context(
-                    sse_client(cfg.url, httpx_client_factory=httpx_client_factory)
-                )
+                    read, write = await server_stack.enter_async_context(
+                        sse_client(cfg.url, httpx_client_factory=httpx_client_factory)
+                    )
             elif transport_type == "streamableHttp":
-                if not await _probe_http_url(cfg.url):
+                if not cfg.connector_endpoint_policy and not await _probe_http_url(cfg.url):
                     logger.warning("MCP server '{}': {} unreachable, skipping", name, _redact_url(cfg.url))
                     await server_stack.aclose()
                     return name, None
@@ -1002,37 +1017,52 @@ async def connect_mcp_servers(
                         cfg.url,
                         CredentialStore(),
                         interactive=False,
+                        allow_private_network=cfg.connector_allow_private_network,
                     )
-                http_client = await server_stack.enter_async_context(
-                    httpx.AsyncClient(
-                        headers=cfg.headers or None,
-                        event_hooks={"request": [_validate_mcp_request_url]},
-                        follow_redirects=True,
-                        timeout=httpx.Timeout(30.0, connect=10.0),
-                        auth=oauth_auth,
-                        **_pinned_transport_kwargs(),
+                if cfg.connector_endpoint_policy:
+                    session = await server_stack.enter_async_context(
+                        remote_mcp_session(
+                            cfg.url,
+                            transport="streamable_http",
+                            headers=cfg.headers,
+                            auth=oauth_auth,
+                            allow_private_network=cfg.connector_allow_private_network,
+                            timeout=float(cfg.tool_timeout),
+                            server_name=name,
+                        )
                     )
-                )
-                read, write, _ = await server_stack.enter_async_context(
-                    streamable_http_client(cfg.url, http_client=http_client)
-                )
+                else:
+                    http_client = await server_stack.enter_async_context(
+                        httpx.AsyncClient(
+                            headers=cfg.headers or None,
+                            event_hooks={"request": [_validate_mcp_request_url]},
+                            follow_redirects=True,
+                            timeout=httpx.Timeout(30.0, connect=10.0),
+                            auth=oauth_auth,
+                            **_pinned_transport_kwargs(),
+                        )
+                    )
+                    read, write, _ = await server_stack.enter_async_context(
+                        streamable_http_client(cfg.url, http_client=http_client)
+                    )
             else:
                 logger.warning("MCP server '{}': unknown transport type '{}'", name, transport_type)
                 await server_stack.aclose()
                 return name, None
 
-            read = _filter_malformed_mcp_progress_notifications(read, name)
-            session = await server_stack.enter_async_context(ClientSession(read, write))
-            await session.initialize()
+            if session is None:
+                read = _filter_malformed_mcp_progress_notifications(read, name)
+                session = await server_stack.enter_async_context(ClientSession(read, write))
+                await session.initialize()
 
-            tools = await session.list_tools()
+            tool_defs = await discover_all_tools(session, timeout=float(cfg.tool_timeout))
             enabled_tools = set(cfg.enabled_tools)
             allow_all_tools = "*" in enabled_tools
             registered_count = 0
             matched_enabled_tools: set[str] = set()
-            available_raw_names = [tool_def.name for tool_def in tools.tools]
-            available_wrapped_names = [_sanitize_mcp_tool_name(f"mcp_{name}_{tool_def.name}") for tool_def in tools.tools]
-            for tool_def in tools.tools:
+            available_raw_names = [tool_def.name for tool_def in tool_defs]
+            available_wrapped_names = [_sanitize_mcp_tool_name(f"mcp_{name}_{tool_def.name}") for tool_def in tool_defs]
+            for tool_def in tool_defs:
                 wrapped_name = _sanitize_mcp_tool_name(f"mcp_{name}_{tool_def.name}")
                 if (
                     not allow_all_tools

@@ -70,6 +70,10 @@ class ConnectorManager:
     def _default_driver(self, definition: ConnectorDefinition) -> Any:
         if definition.driver == ConnectorDriverKind.OFFICIAL_MCP:
             return OfficialMcpDriver(self.credentials)
+        if definition.driver == ConnectorDriverKind.CUSTOM_MCP:
+            from collie_core.connectors.drivers.remote_mcp import RemoteMcpDriver
+
+            return RemoteMcpDriver(self.credentials)
         raise ValueError(f"{definition.name}'s official connection is not ready yet.")
 
     def _migrate_legacy_credentials(self) -> None:
@@ -86,11 +90,27 @@ class ConnectorManager:
         """Resolve a connection against its installed snapshot when one is complete."""
         recipe = connector_def(str(row["provider_id"]))
         stored = self.db.get_connector_definition(str(row.get("definition_id") or ""))
-        if recipe is None or stored is None or stored.get("unresolved"):
+        if stored is None or stored.get("unresolved"):
             return recipe
-        if stored.get("provenance") != ConnectorProvenance.CURATED.value:
-            return None
         config = _json_value(stored.get("config_json"), {})
+        if stored.get("provenance") != ConnectorProvenance.CURATED.value:
+            if stored["driver"] != ConnectorDriverKind.CUSTOM_MCP.value:
+                return None
+            return ConnectorDefinition(
+                id=str(row["provider_id"]),
+                name=str(row.get("display_name") or "Custom connection"),
+                category="custom",
+                description="A remote connection added by you.",
+                driver=ConnectorDriverKind.CUSTOM_MCP,
+                auth_type=str(stored["auth_strategy"]),
+                endpoint=str(config.get("endpoint") or ""),
+                transport=ConnectorTransport(str(stored["transport"])),
+                allow_private_network=config.get("allow_private_network", False),
+                available=stored["auth_strategy"] == ConnectorAuthStrategy.NONE.value,
+                release_status="alpha",
+            )
+        if recipe is None:
+            return None
         return replace(
             recipe,
             driver=ConnectorDriverKind(str(stored["driver"])),
@@ -99,6 +119,8 @@ class ConnectorManager:
             scopes=tuple(config.get("scopes") or ()),
             trusted_hosts=tuple(config.get("trusted_hosts") or ()),
             tool_overrides=dict(config.get("tool_overrides") or {}),
+            transport=ConnectorTransport(str(stored["transport"])),
+            allow_private_network=config.get("allow_private_network", False),
         )
 
     def _resolve_migrated_definitions(self) -> None:
@@ -200,6 +222,9 @@ class ConnectorManager:
         """A connection is only genuinely connected when it holds a usable
         access token. Empty records, client-info-only entries, and token
         blobs without an ``access_token`` do not count."""
+        definition = self._definition_for_row(row)
+        if definition is not None and definition.auth_type == "none":
+            return True
         data = self.credentials.load(f"connector:{row['id']}") or {}
         tokens = data.get("tokens") or {}
         return bool(tokens.get("access_token"))
@@ -252,6 +277,8 @@ class ConnectorManager:
             "capabilities": list(definition.capabilities) if definition else [],
             "route": "Official MCP"
             if definition and definition.driver == "official_mcp"
+            else "Custom MCP"
+            if definition and definition.driver == "custom_mcp"
             else "Official API",
         }
 
@@ -283,6 +310,78 @@ class ConnectorManager:
             raise ValueError(f"I don't know a connector called '{provider_id}'.")
         if not definition.available:
             raise ValueError(f"{definition.name} is coming soon in this build.")
+        return self._connect(
+            definition,
+            origin=origin,
+            replace_connection_id=replace_connection_id,
+            connection_id=connection_id,
+        )
+
+    def connect_definition(
+        self,
+        installed: InstalledConnectorDefinition,
+        *,
+        display_name: str | None = None,
+        origin: str = "custom_connection",
+    ) -> dict[str, Any]:
+        """Connect a validated custom remote definition through the shared lifecycle.
+
+        This backend entry point precedes the desktop add/import flow. Each call
+        creates a distinct account, even when the same definition is reused.
+        """
+        installed = InstalledConnectorDefinition.from_dict(installed.to_dict())
+        if (
+            installed.driver is not ConnectorDriverKind.CUSTOM_MCP
+            or installed.provenance
+            not in (ConnectorProvenance.CUSTOM, ConnectorProvenance.IMPORTED)
+            or installed.transport
+            not in (ConnectorTransport.STREAMABLE_HTTP, ConnectorTransport.SSE)
+            or installed.unresolved
+        ):
+            raise ValueError("Choose a complete custom remote connection definition.")
+        if installed.auth_strategy is not ConnectorAuthStrategy.NONE:
+            raise ValueError("Custom sign-in strategies are not available yet.")
+        if installed.tool_overrides or installed.trusted_hosts:
+            raise ValueError("Custom connections cannot grant trusted tool or host overrides.")
+        connection_id = f"con_{uuid.uuid4().hex}"
+        # Caller-provided labels/recipe IDs cannot impersonate a curated route.
+        provider_id = f"custom_{uuid.uuid4().hex}"
+        installed = replace(
+            installed,
+            id=f"def_{connection_id}",
+            provider_id=provider_id,
+            recipe_id=None,
+            recipe_version=None,
+        )
+        definition = ConnectorDefinition(
+            id=provider_id,
+            name=(display_name or "Custom connection").strip() or "Custom connection",
+            category="custom",
+            description="A remote connection added by you.",
+            driver=ConnectorDriverKind.CUSTOM_MCP,
+            auth_type="none",
+            endpoint=installed.endpoint or "",
+            transport=installed.transport,
+            allow_private_network=installed.allow_private_network,
+            available=True,
+            release_status="alpha",
+        )
+        return self._connect(
+            definition,
+            origin=origin,
+            connection_id=connection_id,
+            installed=installed,
+        )
+
+    def _connect(
+        self,
+        definition: ConnectorDefinition,
+        *,
+        origin: str,
+        replace_connection_id: str | None = None,
+        connection_id: str | None = None,
+        installed: InstalledConnectorDefinition | None = None,
+    ) -> dict[str, Any]:
         with self._lock:
             existing = next(
                 (
@@ -316,7 +415,10 @@ class ConnectorManager:
                         last_error_message="The previous sign-in was interrupted.",
                     )
             connection_id = connection_id or f"con_{uuid.uuid4().hex}"
-            self._save_definition_snapshot(definition, connection_id)
+            if installed is None:
+                self._save_definition_snapshot(definition, connection_id)
+            else:
+                self.db.save_connector_definition(installed)
             self.db.upsert_connector_connection(
                 connection_id,
                 provider_id=definition.id,
@@ -328,45 +430,46 @@ class ConnectorManager:
             )
             self._connecting.add(connection_id)
 
-        driver = self._driver_factory(definition)
         try:
+            driver = self._driver_factory(definition)
             result: ProbeResult = driver.connect_and_probe(definition, connection_id)
-            if connection_id in self._cancelled:
-                raise RuntimeError("oauth cancelled")
-            # A concurrent remove() may have deleted the row while we probed.
-            if self.db.get_connector_connection(connection_id) is None:
-                raise RuntimeError("oauth cancelled")
-            self.db.upsert_connector_connection(
-                connection_id,
-                provider_id=definition.id,
-                driver=definition.driver.value,
-                auth_type=definition.auth_type,
-                status=ConnectionStatus.TESTING.value,
-            )
-            if not result.tools:
-                raise RuntimeError("The provider connected but returned no usable tools.")
-            policy = {tool["name"]: tool["risk"] for tool in result.tools}
-            enabled_tools = [tool["name"] for tool in result.tools]
-            self.db.replace_connector_tools(connection_id, result.tools)
-            # Second cancellation check: the flag may have been set while the
-            # probe ran — the CONNECTED upsert must not win the race.
-            if connection_id in self._cancelled:
-                raise RuntimeError("oauth cancelled")
-            row = self.db.upsert_connector_connection(
-                connection_id,
-                provider_id=definition.id,
-                display_name=definition.name,
-                account_label=result.account_label,
-                driver=definition.driver.value,
-                auth_type=definition.auth_type,
-                status=ConnectionStatus.CONNECTED.value,
-                granted_scopes=result.granted_scopes,
-                enabled_capabilities=list(definition.capabilities),
-                enabled_tools=enabled_tools,
-                tool_policy=policy,
-                remote_account_id=result.remote_account_id,
-                last_verified_at=utc_now(),
-            )
+            with self._lock:
+                if connection_id in self._cancelled:
+                    raise RuntimeError("oauth cancelled")
+                # A concurrent remove() may have deleted the row while we probed.
+                if self.db.get_connector_connection(connection_id) is None:
+                    raise RuntimeError("oauth cancelled")
+                self.db.upsert_connector_connection(
+                    connection_id,
+                    provider_id=definition.id,
+                    driver=definition.driver.value,
+                    auth_type=definition.auth_type,
+                    status=ConnectionStatus.TESTING.value,
+                )
+                if not result.tools:
+                    raise RuntimeError("The provider connected but returned no usable tools.")
+                policy = {tool["name"]: tool["risk"] for tool in result.tools}
+                enabled_tools = [tool["name"] for tool in result.tools]
+                self.db.replace_connector_tools(connection_id, result.tools)
+                # Second cancellation check: the flag may have been set while the
+                # probe ran — the CONNECTED upsert must not win the race.
+                if connection_id in self._cancelled:
+                    raise RuntimeError("oauth cancelled")
+                row = self.db.upsert_connector_connection(
+                    connection_id,
+                    provider_id=definition.id,
+                    display_name=definition.name,
+                    account_label=result.account_label,
+                    driver=definition.driver.value,
+                    auth_type=definition.auth_type,
+                    status=ConnectionStatus.CONNECTED.value,
+                    granted_scopes=result.granted_scopes,
+                    enabled_capabilities=list(definition.capabilities),
+                    enabled_tools=enabled_tools,
+                    tool_policy=policy,
+                    remote_account_id=result.remote_account_id,
+                    last_verified_at=utc_now(),
+                )
             if replace_connection_id and replace_connection_id != connection_id:
                 self.remove(replace_connection_id, origin=origin)
         except Exception as error:
@@ -376,15 +479,17 @@ class ConnectorManager:
             # cancellations or auth-level refusals.
             if code in _CREDENTIAL_DELETING_CODES:
                 self.credentials.delete(f"connector:{connection_id}")
-            self.db.upsert_connector_connection(
-                connection_id,
-                provider_id=definition.id,
-                driver=definition.driver.value,
-                auth_type=definition.auth_type,
-                status=ConnectionStatus.FAILED.value,
-                last_error_code=code,
-                last_error_message=self._friendly_error(code),
-            )
+            with self._lock:
+                if self.db.get_connector_connection(connection_id) is not None:
+                    self.db.upsert_connector_connection(
+                        connection_id,
+                        provider_id=definition.id,
+                        driver=definition.driver.value,
+                        auth_type=definition.auth_type,
+                        status=ConnectionStatus.FAILED.value,
+                        last_error_code=code,
+                        last_error_message=self._friendly_error(code),
+                    )
             raise ValueError(self._friendly_error(code)) from error
         finally:
             cancelled = connection_id in self._cancelled
@@ -428,54 +533,66 @@ class ConnectorManager:
             return {"connection_id": connection_id, "cancelled": True}
 
     def test(self, connection_id: str) -> dict[str, Any]:
-        row = self.db.get_connector_connection(connection_id)
-        if row is None:
-            raise ValueError("I couldn't find that connection.")
-        definition = self._definition_for_row(row)
-        if definition is None:
-            raise ValueError("That provider is no longer in this build.")
-        if not definition.available:
-            raise ValueError(f"{definition.name} is coming soon in this build.")
-        if row["driver"] != definition.driver.value:
-            raise ValueError(
-                "This saved connection no longer matches its provider route. Reconnect?"
-            )
-        self.db.upsert_connector_connection(
-            connection_id,
-            provider_id=definition.id,
-            driver=definition.driver.value,
-            auth_type=definition.auth_type,
-            status=ConnectionStatus.TESTING.value,
-        )
-        try:
-            result = self._driver_factory(definition).probe(definition, connection_id)
-            if not result.tools:
-                raise RuntimeError("No tools returned")
-            self.db.replace_connector_tools(connection_id, result.tools)
-            updated = self.db.upsert_connector_connection(
-                connection_id,
-                provider_id=definition.id,
-                driver=definition.driver.value,
-                auth_type=definition.auth_type,
-                status=ConnectionStatus.CONNECTED.value,
-                account_label=result.account_label,
-                granted_scopes=result.granted_scopes,
-                enabled_tools=[tool["name"] for tool in result.tools],
-                tool_policy={tool["name"]: tool["risk"] for tool in result.tools},
-                remote_account_id=result.remote_account_id,
-                last_verified_at=utc_now(),
-            )
-        except Exception as error:
-            code = self._error_code(error)
+        with self._lock:
+            row = self.db.get_connector_connection(connection_id)
+            if row is None:
+                raise ValueError("I couldn't find that connection.")
+            definition = self._definition_for_row(row)
+            if definition is None:
+                raise ValueError("That provider is no longer in this build.")
+            if not definition.available:
+                raise ValueError(f"{definition.name} is coming soon in this build.")
+            if row["driver"] != definition.driver.value:
+                raise ValueError(
+                    "This saved connection no longer matches its provider route. Reconnect?"
+                )
             self.db.upsert_connector_connection(
                 connection_id,
                 provider_id=definition.id,
                 driver=definition.driver.value,
                 auth_type=definition.auth_type,
-                status=ConnectionStatus.ATTENTION.value,
-                last_error_code=code,
-                last_error_message=self._friendly_error(code),
+                status=ConnectionStatus.TESTING.value,
             )
+        try:
+            result = self._driver_factory(definition).probe(definition, connection_id)
+            if not result.tools:
+                raise RuntimeError("No tools returned")
+            with self._lock:
+                current = self.db.get_connector_connection(connection_id)
+                if current is None or current["status"] == ConnectionStatus.REVOKING.value:
+                    raise RuntimeError("Connection test cancelled")
+                policy = {tool["name"]: tool["risk"] for tool in result.tools}
+                previous = _json_value(current.get("tool_policy_json"), {})
+                if "_approval_preference" in previous:
+                    policy["_approval_preference"] = previous["_approval_preference"]
+                self.db.replace_connector_tools(connection_id, result.tools)
+                updated = self.db.upsert_connector_connection(
+                    connection_id,
+                    provider_id=definition.id,
+                    driver=definition.driver.value,
+                    auth_type=definition.auth_type,
+                    status=ConnectionStatus.CONNECTED.value,
+                    account_label=result.account_label,
+                    granted_scopes=result.granted_scopes,
+                    enabled_tools=[tool["name"] for tool in result.tools],
+                    tool_policy=policy,
+                    remote_account_id=result.remote_account_id,
+                    last_verified_at=utc_now(),
+                )
+        except Exception as error:
+            code = self._error_code(error)
+            with self._lock:
+                current = self.db.get_connector_connection(connection_id)
+                if current is not None and current["status"] != ConnectionStatus.REVOKING.value:
+                    self.db.upsert_connector_connection(
+                        connection_id,
+                        provider_id=definition.id,
+                        driver=definition.driver.value,
+                        auth_type=definition.auth_type,
+                        status=ConnectionStatus.ATTENTION.value,
+                        last_error_code=code,
+                        last_error_message=self._friendly_error(code),
+                    )
             raise ValueError(self._friendly_error(code)) from error
         return self._connection_view(updated)
 
@@ -546,7 +663,8 @@ class ConnectorManager:
                 remote_revocation = RemoteRevocationStatus.FAILED
                 logger.warning("Remote connector revocation unavailable: {}", definition.id)
         with self._lock:
-            self._cancelled.discard(connection_id)
+            if connection_id not in self._connecting:
+                self._cancelled.discard(connection_id)
             self.credentials.delete(f"connector:{connection_id}")
             self.db.delete_connector_connection(connection_id)
         logger.info("Connector removed: {}", connection_id)
@@ -569,21 +687,27 @@ class ConnectorManager:
             if (
                 not definition
                 or not definition.available
-                or definition.driver != ConnectorDriverKind.OFFICIAL_MCP
+                or definition.driver
+                not in (ConnectorDriverKind.OFFICIAL_MCP, ConnectorDriverKind.CUSTOM_MCP)
                 or row["driver"] != definition.driver.value
                 or not self._has_credentials(row)
             ):
                 continue
-            name = f"{definition.id}_{str(row['id'])[-8:]}"
+            custom = definition.driver == ConnectorDriverKind.CUSTOM_MCP
+            name = str(row["id"]) if custom else f"{definition.id}_{str(row['id'])[-8:]}"
             policy = _json_value(row.get("tool_policy_json"), {})
             servers[name] = {
-                "type": "streamableHttp",
+                "type": "sse"
+                if definition.transport == ConnectorTransport.SSE
+                else "streamableHttp",
                 "url": definition.endpoint,
                 "toolTimeout": 60,
                 "enabledTools": _json_value(row.get("enabled_tools_json"), ["*"]),
-                "oauthConnectionId": row["id"],
+                "oauthConnectionId": row["id"] if definition.auth_type == "oauth" else "",
                 "connectorProviderId": definition.id,
-                "connectorTrusted": True,
+                "connectorTrusted": not custom,
+                "connectorEndpointPolicy": True,
+                "connectorAllowPrivateNetwork": definition.allow_private_network,
                 "connectorToolOverrides": definition.tool_overrides,
                 "connectorApprovalPreference": policy.get("_approval_preference", "important"),
             }

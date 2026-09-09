@@ -98,7 +98,10 @@ React renderer
 Connection recipes remain in `collie_core/connectors/catalog.py`. Installed
 configuration snapshots and account/tool inventory live in SQLite through
 `collie_core/db.py`; `ConnectorManager` resolves existing accounts against those
-snapshots while retaining catalogue availability controls. Credential references
+snapshots while retaining catalogue availability controls for curated accounts.
+Custom no-auth HTTP/SSE accounts use the same manager;
+`connectors/remote.py` owns shared remote discovery and endpoint checks, used by
+connector drivers and the adapted MCP runtime. Credential references
 point to the existing protected store. The connection specification in
 `docs/product/features/connectors.md` separates this foundation from later driver
 and desktop delivery.

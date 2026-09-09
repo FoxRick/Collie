@@ -3110,8 +3110,9 @@ class CollieDB:
                 "scopes",
                 "trusted_hosts",
                 "tool_overrides",
+                "allow_private_network",
             )
-            if value[key] not in (None, [], "")
+            if value[key] not in (None, [], "", False)
         }
         now = utc_now()
         with self._write() as conn:
