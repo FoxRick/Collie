@@ -7,7 +7,7 @@
 | Component | Path | Version |
 | --- | --- | --- |
 | Python core | `collie-core/` | `0.2.2` |
-| Electron desktop | `collie-ui/` | `0.1.0-alpha.7.3` |
+| Electron desktop | `collie-ui/` | `0.1.0-alpha.7.4` |
 
 ## Source inventory
 
