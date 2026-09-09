@@ -97,3 +97,22 @@ test('does not expose a read endpoint or accept browser form posts', async () =>
   const form = request(); form.headers.set('Content-Type', 'text/plain')
   assert.equal((await worker.fetch(form, env())).status, 415)
 })
+
+test('uses manual redirects on every upstream call, the only mode the Workers runtime accepts', async () => {
+  // `redirect: 'error'` throws in the Workers runtime ("Invalid redirect value"),
+  // which failed every submission with a 503 in production while these mocked
+  // tests stayed green. Pin the mode on all three call sites: store, dedupe
+  // read, and email.
+  const modes = []
+  const responses = [new Response('', { status: 409 }), Response.json([{ message: body.message }]), Response.json({ id: 'mail' })]
+  globalThis.fetch = async (url, options) => { modes.push(options.redirect); return responses.shift() }
+  assert.equal((await worker.fetch(request(), env())).status, 200)
+  assert.deepEqual(modes, ['manual', 'manual', 'manual'])
+})
+
+test('fails closed when an upstream answers with a redirect instead of storing', async () => {
+  let calls = 0
+  globalThis.fetch = async () => { calls++; return new Response('', { status: 302 }) }
+  assert.equal((await worker.fetch(request(), env())).status, 503)
+  assert.equal(calls, 1)
+})
