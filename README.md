@@ -5,30 +5,51 @@
 # Collie — your personal AI. With a dog. 🐾
 
 **Collie is the first AI harness for non-coders**: a friendly, local-first
-personal AI for Windows that turns plain-English requests into real,
-reviewable work — and keeps you in control the whole way. No terminal.
-No prompt engineering. No forced subscription.
+personal AI for Windows, macOS, and Linux that turns plain-English requests
+into real, reviewable work — and keeps you in control the whole way. No
+terminal. No prompt engineering. No forced subscription.
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow" alt="License: MIT"></a>
-  <a href="https://github.com/FoxRick/Collie/releases"><img src="https://img.shields.io/badge/Platform-Windows%2011%20x64-0078d6" alt="Platform: Windows 11 x64"></a>
-  <a href="https://github.com/FoxRick/Collie/tree/v0.1.0-alpha.7.3"><img src="https://img.shields.io/badge/Alpha-v0.1.0--alpha.7.3-purple" alt="Alpha: v0.1.0-alpha.7.3"></a>
+  <a href="https://github.com/FoxRick/Collie/releases"><img src="https://img.shields.io/badge/Platform-Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-0078d6" alt="Platform: Windows, macOS, Linux"></a>
+  <a href="https://github.com/FoxRick/Collie/releases"><img src="https://img.shields.io/badge/Release-v0.1.0--alpha.7.3-purple" alt="Current release: v0.1.0-alpha.7.3"></a>
   <a href="https://github.com/FoxRick/Collie/actions/workflows/ci.yml"><img src="https://github.com/FoxRick/Collie/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
   <a href="https://heycollie.com"><img src="https://img.shields.io/badge/Website-heycollie.com-2ea44f" alt="heycollie.com"></a>
   <a href="https://github.com/FoxRick/Collie"><img src="https://img.shields.io/github/stars/FoxRick/Collie" alt="GitHub stars"></a>
 </p>
 
-> **Early access** — Collie is an invited **Windows 11 x64 alpha**. This
-> repository currently publishes **source code only**; there is **no public
-> installer or GitHub Release** yet. Join the waitlist at
-> [heycollie.com](https://heycollie.com) and you'll be first to know when the
-> installer ships.
+> **Alpha release** — this repo ships a published **alpha** (`v0.1.0-alpha.7.3`)
+> with installers for **Windows (x64), macOS (ARM64), and Linux (x64)**, plus
+> the full source. It's a real product you can install and talk to — but it's
+> early, so expect rough edges. The `main` branch is slightly ahead of the
+> published release with the newest daily features. Grab an installer from
+> [heycollie.com/download](https://heycollie.com/download) (recommended) or
+> [GitHub Releases](https://github.com/FoxRick/Collie/releases), and star the
+> repo to follow along. Join the waitlist at
+> [heycollie.com](https://heycollie.com) to hear about every new release first.
+
+## Screenshots
+
+<table>
+<tr>
+  <td align="center"><img src="docs/screenshots/chat-and-approval.webp" alt="Chat with reviewable plans, live thinking, and a clear action approval" width="500"><br><b>Plans, thinking, and approvals</b><br>Broad requests become reviewable plans; risky actions ask first.</td>
+  <td align="center"><img src="docs/screenshots/your-things.webp" alt="Deliverables are saved to a reviewable Your things panel" width="500"><br><b>Every deliverable, in one place</b><br>Files, summaries, and results land in a "Your things" panel.</td>
+</tr>
+<tr>
+  <td align="center"><img src="docs/screenshots/companion.webp" alt="A Border Collie companion sits at the corner of the window" width="500"><br><b>A friendly companion</b><br>A Border Collie lives in your corner — friendly, never in charge.</td>
+  <td align="center"><img src="docs/screenshots/sidebar-collapsed.webp" alt="Collapsible sidebar collapses to a slim icon rail" width="500"><br><b>Collapsible sidebar</b><br>Collapse to a slim icon rail to give the chat more room.</td>
+</tr>
+<tr>
+  <td align="center"><img src="docs/screenshots/connections.webp" alt="Connections screen to connect popular services" width="500"><br><b>Connect the services you use</b><br>Pick an app, sign in, and use it in chat. Unverified ones say so.</td>
+  <td align="center"><em>More screenshots as the app grows.</em></td>
+</tr>
+</table>
 
 ## What is Collie?
 
-Collie is a chat-first personal AI that lives on your PC. You talk to it the
-way you'd talk to a smart friend, and it quietly handles the technical parts
-underneath:
+Collie is a chat-first personal AI that lives on your computer. You talk to it
+the way you'd talk to a smart friend, and it quietly handles the technical
+parts underneath:
 
 - **It plans before it acts.** Big or broad requests become short, reviewable
   plans you can read and approve before anything happens.
@@ -41,9 +62,9 @@ underneath:
   Collie account, no forced monthly fee.
 - **It remembers — on your machine.** Collie keeps its notes, settings, and
   history locally. Nothing is silently shipped off your device.
-- **It has a dog.** A little Border Collie is on the way — she'll live in
-  your corner of the screen, with moods and reactions of its own. (Friendly,
-  but never in charge — the permissions always are.)
+- **It has a dog.** A Border Collie lives in the corner of your screen, with
+  moods and reactions of its own. (Friendly, but never in charge — the
+  permissions always are.)
 
 Collie is built for people who want the leverage of agentic AI *without* the
 terminals, API keys, MCP servers, or prompt-engineering vocabulary. Experts
@@ -63,6 +84,7 @@ are welcome too — but the normal path never requires them.
   about you
 - **Starter conversation** — on first run Collie greets you, learns your
   name, and you're talking; `/get-started` if you want a tour
+- **Chat-stream polish** — smoother, calmer streaming as replies build.
 
 **🧠 Real work, reviewed**
 
@@ -97,10 +119,12 @@ are welcome too — but the normal path never requires them.
 
 **🧩 Connectors & services**
 
-- **Five official connectors live in alpha**: Notion, Linear, Todoist,
-  Atlassian, and Airtable
+- **Five official connectors are available to connect in alpha**: Notion,
+  Linear, Todoist, Atlassian, and Airtable
 - A curated connector catalogue — every other entry honestly labeled
-  *Coming soon* until it passes verification
+  *Coming soon* until it passes real-account verification
+- A flexible connection model (recipes → definitions → connections) that can
+  add compatible MCP servers without a Collie release
 - Google and Microsoft service bundles in progress
 
 **📱 Collie wherever you are**
@@ -118,8 +142,8 @@ are welcome too — but the normal path never requires them.
 
 **🎨 Made for humans**
 
-- A **Border Collie companion** for your desktop — coming soon (moods and
-  reactions; friendly, never in charge)
+- A **Border Collie companion** for your desktop — moods and reactions;
+  friendly, never in charge
 - **Collapsible sidebar** — an icon rail that gives chat more room
 - Fast, calm desktop app — Electron + React
 - **Voice input/output** on the way
@@ -136,6 +160,8 @@ are welcome too — but the normal path never requires them.
 - Automatic **recovery from out-of-memory and renderer crashes**
 - **CI-qualified releases** — tagged releases pass documented clean-machine
   and immutable-artifact checks
+- **Feedback built in** — report a problem or a suggestion from inside the
+  app, and it's routed and tracked.
 
 ## What you can do with it
 
@@ -148,10 +174,10 @@ are welcome too — but the normal path never requires them.
 | **📦 Your things, in one place** | Every deliverable lands in a reviewable "Your things" panel, named in plain language. |
 | **✨ Sees you thinking** | Skeleton streaming, quick-recap cards, and the "remember" pill keep you oriented. |
 | **📝 Agents, skills & routines as files** | Specialist agents, skills, and routines are plain-text files you can read, edit, and share — no programming required. |
-| **🧩 Connect the services you use** | Five official connectors are live in alpha (Notion, Linear, Todoist, Atlassian, Airtable); every other catalogue entry stays labeled **Coming soon** until it passes verification. |
+| **🧩 Connect the services you use** | Five official connectors are available to connect in alpha (Notion, Linear, Todoist, Atlassian, Airtable); every other catalogue entry stays labeled **Coming soon** until it passes verification. |
 | **📱 Collie on your phone** | Talk to Collie from Telegram, wherever you are. WhatsApp, Slack, and Discord companions are designed and on the way. |
 | **📁 Everyday tools built in** | Files, weather, reminders, memory, and more — local capabilities that work without extra accounts. |
-| **🔁 Stays current** | Rollback-safe built-in updates mean future releases can arrive in the app, no reinstalls. |
+| **🔁 Stays current** | Rollback-safe built-in updates arrive in the app, no reinstalls. |
 
 ## Built on nanobot 🧬
 
@@ -167,12 +193,18 @@ improvements can flow both ways. Attribution and third-party notices live in
 
 ### 1. Get Collie
 
-Collie is in invited alpha on **Windows 11 x64**. Join the waitlist at
-[heycollie.com](https://heycollie.com) — invitations go out in small groups,
-and a published installer will appear on
-[GitHub Releases](https://github.com/FoxRick/Collie/releases) with release
-notes and a checksum. Until then, the source is here to explore and build
-(see [From source](#from-source-for-developers)).
+Collie ships installers for **Windows (x64)**, **macOS (ARM64)**, and
+**Linux (x64)** on the alpha channel. Download the one for your machine from
+[heycollie.com/download](https://heycollie.com/download) (recommended) or from
+[GitHub Releases](https://github.com/FoxRick/Collie/releases) — the Release
+also carries `SHA256SUMS.txt` and provenance records. Restore from a checksum
+if you like to verify before installing. The full source is here too (see
+[From source](#from-source-for-developers)).
+
+> The macOS build is **unsigned** during alpha (notarization needs an Apple
+> Developer certificate), so you'll approve it on first run. Collie's
+> built-in updater rolls new versions back automatically if they don't boot
+> healthy.
 
 ### 2. Connect your AI
 
@@ -198,9 +230,9 @@ start talking, and Collie figures out the rest.
 
 ## From source (for developers)
 
-The supported alpha platform is **Windows 11 x64** (the app also builds and
-runs from source on Linux for development; macOS is not supported). You need
-Python 3.12, Node.js, and npm:
+The alpha installers are built on **Windows (x64)**, **macOS (ARM64)**, and
+**Linux (x64)**; the app also builds and runs from source on Linux for
+development. You need Python 3.12, Node.js, and npm:
 
 > Versioning note: the repo carries two versions that move independently —
 > the desktop app (`collie-ui/package.json`, e.g. `0.1.0-alpha.7.3`) and the
@@ -210,12 +242,12 @@ Python 3.12, Node.js, and npm:
 ```powershell
 cd collie-core
 py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-.\.venv\Scripts\python.exe -m pytest tests -q
-.\.venv\Scripts\python.exe -m ruff check nanobot collie_core tests
+.\\.venv\\Scripts\\python.exe -m pip install --upgrade pip
+.\\.venv\\Scripts\\python.exe -m pip install -e ".[dev]"
+.\\.venv\\Scripts\\python.exe -m pytest tests -q
+.\\.venv\\Scripts\\python.exe -m ruff check nanobot collie_core tests
 
-cd ..\collie-ui
+cd ..\\collie-ui
 npm ci
 npm test
 npm run typecheck
@@ -238,7 +270,7 @@ collie-core/   Python 3.11+ runtime (adapted from nanobot)
   ├─ subagents, plans, Gardener, voice, desktop Border Collie pet
   └─ IPC server (localhost WebSocket) + Telegram messenger
 
-collie-ui/     Electron 43 + React 19 + Tailwind 4 (electron-vite)
+collie-ui/     Electron + React 19 + Tailwind 4 (electron-vite)
   ├─ electron-builder + electron-updater (rollback-safe)
   └─ scripts/stage-core.cjs bundles the Python runtime into the app
 ```
@@ -263,17 +295,21 @@ Public releases and announcements go through [heycollie.com](https://heycollie.c
 first; the active product decisions live in [docs/product/](docs/product/).
 Honest status of what's next:
 
-- **Shipped (alpha):** Gardener self-improvement mode; "Your things" panel;
-  one-tap undo for file changes; per-folder file consent; collapsible
+- **Shipped (alpha):** installers for Windows/macOS/Linux with rollback-safe
+  updates and crash recovery; Gardener self-improvement mode; "Your things"
+  panel; one-tap undo for file changes; per-folder file consent; collapsible
   sidebar; subagent observability; skeleton streaming, quick-recap cards, and
-  the remember pill; rollback-safe updates with crash recovery; onboarding
-  (paste-key connect + models.dev catalogue + starter conversation); five
-  connectors (Notion, Linear, Todoist, Atlassian, Airtable); Telegram
-  messenger; optional Collie account sign-in (identity only, browser
-  magic-link).
-- **In progress:** Google and Microsoft service bundles (awaiting Collie-owned
-  OAuth app registrations), the installer pipeline, the Windows release
-  itself, and voice.
+  the remember pill; the Border Collie companion; onboarding (paste-key connect
+  + models.dev catalogue + starter conversation); five connectors (Notion,
+  Linear, Todoist, Atlassian, Airtable); Telegram messenger; optional Collie
+  account sign-in (identity only, browser magic-link); in-app feedback.
+- **In progress (gated / not yet available to users):** a hosted "Collie AI"
+  managed model route (implemented, disabled by default, pilot only — no
+  public endpoint yet); requester-owned shared sessions across computers
+  (implemented behind release flags, needs sign-in + hosted acceptance);
+  Google and Microsoft service bundles (pending Collie-owned OAuth app
+  registrations); voice.
+- **Planned / not started:** notarized macOS builds; subscription billing.
 
 ## Contributing
 
