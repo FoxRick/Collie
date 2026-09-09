@@ -18,20 +18,27 @@ async function render(value= status) {
   return {api,activated}
 }
 afterEach(async()=>{await act(async()=>root.unmount());host.remove()})
-it('disabled builds cannot start sign-in or activate inference',async()=>{
+it('does not render a dead card in builds without Collie AI endpoint',async()=>{
   const {api}=await render({...status,configured:false,available:false,signedIn:false})
-  const button=host.querySelector('button')!
-  expect(button.disabled).toBe(true)
+  expect(host.querySelector('button')).toBeNull()
   expect(api.startSignIn).not.toHaveBeenCalled()
   expect(api.useInference).not.toHaveBeenCalled()
 })
-it('shows the allowance and activates the managed route',async()=>{
+it('shows the included allowance and activates the managed route when signed in',async()=>{
   const {api,activated}=await render()
-  expect(host.textContent).toContain('10 / 20 allowance units remaining')
+  expect(host.textContent).toContain('10 of 20 included allowance left')
   await act(async()=>host.querySelector('button')!.click())
   expect(api.useInference).toHaveBeenCalledOnce()
   expect(activated).toHaveBeenCalledOnce()
   expect(api.startSignIn).not.toHaveBeenCalled()
+})
+it('signing in does not silently switch the active provider',async()=>{
+  const {api}=await render({...status,signedIn:false,available:true})
+  const button=host.querySelector('button')!
+  expect(button.textContent).toContain('Sign in to Collie')
+  await act(async()=>button.click())
+  expect(api.startSignIn).toHaveBeenCalledOnce()
+  expect(api.useInference).not.toHaveBeenCalled()
 })
 it('exhausted allowances cannot activate a fallback',async()=>{
   const {api}=await render({...status,available:false,remaining:0})

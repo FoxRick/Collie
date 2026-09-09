@@ -63,6 +63,16 @@ export default function Sidebar({
 }: Props): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [feedbackOpen, setFeedbackOpen] = useState(false)
+  // "Shared conversations" is account-backed; only expose it once we know the
+  // user is signed in, so signed-out users don't get a dead first nav item.
+  const [accountSignedIn, setAccountSignedIn] = useState<boolean | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    window.account?.getState?.()
+      .then((state) => { if (!cancelled) setAccountSignedIn(Boolean(state?.signedIn)) })
+      .catch(() => { if (!cancelled) setAccountSignedIn(false) })
+    return () => { cancelled = true }
+  }, [])
   const [searchOpen, setSearchOpen] = useState(false)
   const [collapsed, setCollapsed] = useState<boolean>(() =>
     typeof localStorage === 'undefined' ? false : readSidebarCollapsed(localStorage)
@@ -315,9 +325,11 @@ export default function Sidebar({
       </div>
 
       <nav className="sidebar-primary px-3" aria-label="Primary navigation">
-        <button type="button" className={`sidebar-nav-item ${activeView === 'shared' ? 'is-active' : ''}`} onClick={() => onNavigate('shared')}>
-          <Users size={16} /> <span>Shared conversations</span>
-        </button>
+        {accountSignedIn === true && (
+          <button type="button" className={`sidebar-nav-item ${activeView === 'shared' ? 'is-active' : ''}`} onClick={() => onNavigate('shared')}>
+            <Users size={16} /> <span>Shared conversations</span>
+          </button>
+        )}
         {primaryItems.map(({ key, label, icon: Icon }) => (
           <button
             key={key}

@@ -37,13 +37,22 @@ export async function managedStatus(): Promise<ManagedStatus> {
   const empty: ManagedStatus = { configured: Boolean(endpoint), available: false, signedIn: false, remaining: 0,
     limit: 0, resetsAt: null, message: 'Collie AI is not available in this build yet.' }
   if (!endpoint) return empty
+  let token: string
   try {
-    const token = await accessToken()
+    token = await accessToken()
+  } catch {
+    // Signed out (or no saved session) — a build with an endpoint but no account.
+    // Tell the user to sign in; do not conflate this with the not-available case.
+    return { ...empty, configured: true, signedIn: false, message: 'Sign in to Collie to use Collie AI.' }
+  }
+  try {
     const response = await fetch(baseUrl() + '/v1/me/entitlements', {
       headers: { Authorization: 'Bearer ' + token },
       redirect: 'error', signal: AbortSignal.timeout(10_000)
     })
-    if (!response.ok) return { ...empty, signedIn: true, message: 'Collie AI is unavailable. Your own providers still work.' }
+    if (!response.ok) {
+      return { ...empty, configured: true, signedIn: true, message: 'Collie AI is unavailable. Your own providers still work.' }
+    }
     const data = await response.json() as Record<string, unknown>
     if (typeof data.remaining !== 'number' || typeof data.limit !== 'number' ||
         !Number.isFinite(data.remaining) || !Number.isFinite(data.limit)) throw new Error('Invalid allowance')
@@ -52,7 +61,9 @@ export async function managedStatus(): Promise<ManagedStatus> {
       resetsAt: typeof data.resetsAt === 'string' ? data.resetsAt : null,
       message: data.available === true ? 'AI included with your Collie account.' : 'Your included allowance is unavailable.' }
   } catch {
-    return { ...empty, message: 'Sign in to Collie, then refresh your included allowance.' }
+    // Transport/parse failure — the user IS signed in; don't send them through
+    // sign-in again for a transient outage.
+    return { ...empty, configured: true, signedIn: true, message: "We couldn't check your included allowance right now. Try again in a moment." }
   }
 }
 
