@@ -69,14 +69,16 @@ export default {
         headers.Authorization = `Bearer ${env.SUPABASE_SECRET_KEY}`
       }
       const stored = await fetch(endpoint, {
+        // Workers fetch only accepts 'follow' or 'manual' — 'error' throws at
+        // runtime, so every submission failed with a 503 until this was fixed.
         method: 'POST', headers: { ...headers, Prefer: 'return=minimal' },
-        body: JSON.stringify({ id, message }), redirect: 'error', signal: AbortSignal.timeout(8000)
+        body: JSON.stringify({ id, message }), redirect: 'manual', signal: AbortSignal.timeout(8000)
       })
       if (stored.status === 409) {
         // A retry must use the original content. Never overwrite an accepted message.
         endpoint.search = new URLSearchParams({ id: `eq.${id}`, select: 'message' }).toString()
         const existing = await fetch(endpoint, {
-          headers, redirect: 'error', signal: AbortSignal.timeout(8000)
+          headers, redirect: 'manual', signal: AbortSignal.timeout(8000)
         })
         if (!existing.ok) return json({ ok: false }, 503)
         const rows = await existing.json()
@@ -87,7 +89,7 @@ export default {
         return json({ ok: false }, 503)
       }
       const emailed = await fetch('https://api.resend.com/emails', {
-        method: 'POST', redirect: 'error', signal: AbortSignal.timeout(8000),
+        method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(8000),
         headers: {
           Authorization: `Bearer ${env.RESEND_API_KEY}`,
           'Content-Type': 'application/json',

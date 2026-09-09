@@ -1,6 +1,6 @@
 # In-app feedback
 
-**Status:** implemented; backend provisioning and live inbox verification required before release.
+**Status:** implemented; backend provisioning and app-to-Resend acceptance reported verified. Mailbox receipt and the remaining release checks below still require confirmation.
 
 The desktop sidebar has a **Submit Feedback** button, including when collapsed.
 The footer stacks Collapse navigation, Submit Feedback, and Settings in that
@@ -44,6 +44,17 @@ reviewed together in the main app repository, but deployed separately.
 5. From a preview/packaged app, submit a test message and confirm one database
    row and one email, then check offline failure/retry and collapsed navigation.
    Do not release the desktop feature until this live check passes.
+
+The provisioning report in PR #172 records the table, Worker secrets, custom
+domain, and a submission from the running app that stored one row and was
+accepted by Resend. This does not establish mailbox receipt or completion of
+every release check: confirm rate-limit namespace uniqueness, both client-role
+access checks, and the mailbox/offline-retry checks above before release.
+
+Workers `fetch` accepts only `redirect: 'follow'` or `'manual'`; `'error'` throws
+at runtime before the request is sent. Keep the upstream calls on `'manual'` and
+let the response-status check fail closed, otherwise every submission returns 503
+even though the mocked unit tests pass.
 
 The endpoint fails closed when secrets or rate limiting are unavailable. IPs
 are used transiently by the Cloudflare limiter and are not stored in the feedback
