@@ -33,6 +33,8 @@ import {
 } from './core-client'
 import { startKeychainServer, stopKeychainServer } from './keychain-server'
 import { getAccountState, signOut, startAccountSignIn } from './account-auth'
+import { managedStatus } from './managed-inference'
+import { commandWithCore as managedCoreCommand } from './core-client'
 import { submitFeedback } from './feedback'
 import {
   enableSync,
@@ -391,6 +393,12 @@ function registerIpc(): void {
   handle('account:start-sign-in', () => startAccountSignIn())
   handle('collie:submit-feedback', (submission: unknown) => submitFeedback(submission))
   handle('account:get-state', () => getAccountState())
+  handle('account:inference-status', () => managedStatus())
+  handle('account:use-inference', async () => {
+    const status = await managedStatus()
+    if (!status.available) return { configured: false, error: status.message }
+    return managedCoreCommand('activate_managed_provider', {})
+  })
   handle('account:sign-out', () => signOut())
   // Account cloud sync (account-cloud-sync.md): per-device snapshots,
   // opt-in. Payloads never include secrets; RLS scopes every REST call.

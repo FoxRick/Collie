@@ -156,6 +156,12 @@ def build_config(db: CollieDB, *, mcp_servers: dict[str, Any] | None = None) -> 
     api_base = settings.get("provider.api_base") or None
 
     provider_section: dict[str, Any] = {"apiKey": _api_key_for(secret_name)}
+    if settings.get("provider.auth") == "collie-managed":
+        # No personal key/base/model may leak into managed inference or tools.
+        from collie_core.providers.managed import MODEL
+
+        provider_name, model, api_base = "custom", MODEL, None
+        provider_section = {"apiKey": None}
     if api_base:
         provider_section["apiBase"] = api_base
 

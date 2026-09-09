@@ -1055,7 +1055,38 @@ class CollieIPCServer:
             self._apply_provider_settings(self.db.get_provider(provider_id))
         return {"provider": self.db.get_provider(provider_id)}
 
+    async def _cmd_activate_managed_provider(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
+        from collie_core.providers.managed import MODEL, managed_transport
+
+        managed_transport()
+        if any(not task.done() for task in self._chat_tasks.values()):
+            raise ValueError("Finish or stop the current task before switching providers.")
+        if self._on_configure is None:
+            raise ValueError("Provider configuration is not available.")
+        previous = self.db.default_provider()
+        created = self.db.get_provider("collie-managed") is None
+        if created:
+            self.db.upsert_provider(
+                "collie-managed", name="Collie AI", auth_type="collie-managed",
+                model=MODEL, runtime_name="custom", protocol="openai",
+                api_base=None, secret_name="collie-managed", is_default=False,
+            )
+        result = await self._cmd_activate_provider(
+            connection, {"provider_id": "collie-managed"}
+        )
+        if not result.get("configured") and created:
+            self.db.delete_provider("collie-managed")
+            self._apply_provider_settings(previous)
+            if previous:
+                self.db.set_default_provider(str(previous["id"]))
+            await self._on_configure()
+        return result
+
     async def _cmd_activate_provider(self, connection: ServerConnection, frame: dict) -> dict:
+        if any(not task.done() for task in self._chat_tasks.values()):
+            raise ValueError("Finish or stop the current task before switching providers.")
         provider_id = str(frame.get("provider_id") or "").strip()
         provider = self.db.get_provider(provider_id)
         if provider is None:

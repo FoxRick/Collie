@@ -86,6 +86,8 @@ describe('main-process keychain bridge', () => {
     const { port, token } = (await startKeychainServer())!
     const noAuth = await call(port, 'wrong-token', '/encrypt', { data: 'AA==' })
     expect(noAuth.status).toBe(401)
+    const noInferenceAuth = await call(port, 'wrong-token', '/inference/v1/chat/completions', { data: 'AA==' })
+    expect(noInferenceAuth.status).toBe(401)
     const badPath = await call(port, token, '/nope', { data: 'AA==' })
     expect(badPath.status).toBe(404)
   })

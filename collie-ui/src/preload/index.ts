@@ -148,6 +148,10 @@ const api = {
 }
 
 const accountApi = {
+  inferenceStatus: (): Promise<{ configured: boolean; available: boolean; signedIn: boolean; remaining: number; limit: number; resetsAt: string | null; message: string }> =>
+    ipcRenderer.invoke('account:inference-status'),
+  useInference: (): Promise<{ configured: boolean; error?: string }> =>
+    ipcRenderer.invoke('account:use-inference'),
   startSignIn: (): Promise<AccountState> => ipcRenderer.invoke('account:start-sign-in'),
   getState: (): Promise<AccountState> => ipcRenderer.invoke('account:get-state'),
   signOut: (): Promise<AccountState> => ipcRenderer.invoke('account:sign-out'),

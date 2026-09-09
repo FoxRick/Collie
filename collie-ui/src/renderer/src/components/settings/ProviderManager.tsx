@@ -12,6 +12,7 @@ import {
   configureProvider
 } from '../../lib/providerConfiguration'
 import BrandLogo from '../BrandLogo'
+import ManagedInferenceCard from '../ManagedInferenceCard'
 
 interface Props {
   status: RuntimeStatus
@@ -303,6 +304,7 @@ export default function ProviderManager({
 
   return (
     <section className="settings-card provider-manager">
+      <ManagedInferenceCard onActivated={onRefresh} />
       <div className="provider-heading">
         <div>
           <h3>Models & providers</h3>

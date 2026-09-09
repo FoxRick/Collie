@@ -11,11 +11,11 @@
 
 ## Source inventory
 
-- Core Python files: **528**
-- Core Python test files: **243**
-- Desktop TypeScript/TSX files: **190**
-- Desktop test files: **70**
-- Active Markdown docs: **36**
+- Core Python files: **530**
+- Core Python test files: **244**
+- Desktop TypeScript/TSX files: **194**
+- Desktop test files: **72**
+- Active Markdown docs: **37**
 - Archived Markdown docs: **0**
 
 ## Collie-owned core module groups

@@ -129,6 +129,17 @@ ends).
 Full local-file access remains session-only and does not grant connector,
 network, or external-write authority.
 
+### Managed inference pilot
+
+`tools/inference/` owns the disabled-by-default hosted Collie AI worker,
+separate backend allowance schema, and offline verification. Electron's
+`src/main/managed-inference.ts` forwards core requests through the authenticated
+keychain bridge using a Collie account session; supplier credentials remain
+server-only. The core's `providers/managed.py` adds a fixed hosted provider
+alongside saved BYOK records. See
+[managed inference](product/features/managed-inference.md) for the zero-cost
+deployment gate and current context/capacity limits.
+
 ## Documentation ownership
 
 - `docs/VISION.md`: durable product intent.
