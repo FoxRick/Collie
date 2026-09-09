@@ -28,6 +28,10 @@ from collie_core import settings as collie_settings
 from collie_core.automations.scheduler import AutomationScheduler
 from collie_core.commands import CommandController
 from collie_core.connectors.manager import ConnectorManager
+from collie_core.connectors.policy import (
+    ConnectorToolAuthority,
+    bind_connector_tool_authority,
+)
 from collie_core.db import CollieDB, collie_home
 from collie_core.ipc.server import CollieIPCServer
 from collie_core.memory.profile import ProfileStore
@@ -101,8 +105,12 @@ class CollieRuntime:
         bind_things(store=self.things)
         # The connector manager keeps the old ServiceManager-shaped facade for
         # one transition release, so existing life-tool bridges stay bootable.
-        self.services = ConnectorManager(self.db)
+        self._runtime_event_loop: asyncio.AbstractEventLoop | None = None
+        self._connector_reconcile_generation = 0
+        self._connector_reconcile_task: asyncio.Task[Any] | None = None
+        self.services = ConnectorManager(self.db, on_runtime_change=self._connections_changed)
         bind_service_manager(self.services)
+        bind_connector_tool_authority(self._connector_tool_authority)
         self.subagents = SubagentLoader(self.workspace, self.db)
         self.subagents.seed_bundled_once()
         self.subagents.sync()
@@ -183,6 +191,73 @@ class CollieRuntime:
         )
 
     # -- agent lifecycle ----------------------------------------------------
+
+    def _connections_changed(self) -> None:
+        """Schedule an account-local MCP reconcile on the runtime event loop."""
+        event_loop = self._runtime_event_loop
+        if event_loop is None or event_loop.is_closed() or self.loop is None:
+            return
+        self._connector_reconcile_generation += 1
+
+        def schedule() -> None:
+            if self.loop is None:
+                return
+            if self._connector_reconcile_task is None or self._connector_reconcile_task.done():
+                self._connector_reconcile_task = event_loop.create_task(
+                    self._reconcile_connections()
+                )
+
+        event_loop.call_soon_threadsafe(schedule)
+
+    async def _reconcile_connections(self) -> None:
+        from nanobot.agent.tools.mcp import reload_servers
+
+        while self.loop is not None:
+            generation = self._connector_reconcile_generation
+            config = collie_settings.build_config(
+                self.db, mcp_servers=self.services.mcp_servers_for_config()
+            )
+            await reload_servers(
+                self.loop,
+                self.loop.tools,
+                dict(config.tools.mcp_servers),
+            )
+            if generation == self._connector_reconcile_generation:
+                return
+
+    def _connector_tool_authority(
+        self, connection_id: str, tool_name: str
+    ) -> ConnectorToolAuthority | None:
+        connection = self.db.get_connector_connection(connection_id)
+        if connection is None:
+            return None
+        row = self.db.get_connector_tool(connection_id, tool_name)
+        if row is None:
+            return None
+        try:
+            policy = json.loads(str(connection.get("tool_policy_json") or "{}"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            policy = {}
+        from collie_core.connectors.policy import connector_tool_material_hash
+
+        annotations = json.loads(str(row.get("annotations_json") or "{}"))
+        material_hash = ""
+        if row.get("input_schema_json") is not None:
+            material_hash = connector_tool_material_hash(
+                tool_name,
+                json.loads(str(row.get("input_schema_json") or "{}")),
+                str(row.get("description") or ""),
+                annotations,
+                str(row.get("risk") or "change"),
+            )
+        return ConnectorToolAuthority(
+            connected=str(connection.get("status") or "") == "connected",
+            enabled=bool(row.get("enabled")),
+            schema_hash=str(row.get("schema_hash") or ""),
+            risk=str(row.get("risk") or "change"),
+            approval_preference=str(policy.get("_approval_preference") or "important"),
+            material_hash=material_hash,
+        )
 
     def _build_loop(self) -> Any:
         import collie_core.tools as collie_tools
@@ -1509,6 +1584,7 @@ class CollieRuntime:
             await asyncio.sleep(30)
 
     async def run(self) -> None:
+        self._runtime_event_loop = asyncio.get_running_loop()
         logs_dir = collie_home() / "logs"
         if os.environ.get("COLLIE_DEBUG"):
             logs_dir.mkdir(parents=True, exist_ok=True)
@@ -1576,6 +1652,8 @@ class CollieRuntime:
             if recorder is not None:
                 recorder.shutdown()
             self.db.close()
+            bind_connector_tool_authority(None)
+            self._runtime_event_loop = None
 
 
 def _env_port(default: int = 3818) -> int:

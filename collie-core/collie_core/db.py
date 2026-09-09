@@ -3107,6 +3107,11 @@ class CollieDB:
                 "endpoint",
                 "oauth_registration",
                 "client_id",
+                "redirect_uri",
+                "issuer",
+                "resource",
+                "client_metadata_url",
+                "header_name",
                 "scopes",
                 "trusted_hosts",
                 "tool_overrides",
@@ -3189,7 +3194,19 @@ class CollieDB:
                 raise ValueError("The connection changed or no longer exists.")
         return expected_revision + 1
 
-    def replace_connector_tools(self, connection_id: str, tools: list[dict[str, Any]]) -> None:
+    def replace_connector_tools(
+        self, connection_id: str, tools: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Replace an account inventory and describe material identity/schema changes."""
+        normalized = {
+            str(tool["name"]): {
+                "schema_hash": str(tool["schema_hash"]),
+                "risk": str(tool["risk"]),
+                "description": str(tool.get("description") or ""),
+                "annotations": tool.get("annotations") or {},
+            }
+            for tool in tools
+        }
         with self._write() as conn:
             account = conn.execute(
                 "SELECT enabled_tools_json FROM connector_connections WHERE id = ?",
@@ -3200,6 +3217,21 @@ class CollieDB:
                 if (account and account["enabled_tools_json"] is not None)
                 else None
             )
+            previous_rows = conn.execute(
+                "SELECT remote_tool_name, schema_hash, risk, description, annotations_json "
+                "FROM connector_tool_cache "
+                "WHERE connection_id = ?",
+                (connection_id,),
+            ).fetchall()
+            previous = {
+                str(row["remote_tool_name"]): {
+                    "schema_hash": str(row["schema_hash"]),
+                    "risk": str(row["risk"]),
+                    "description": str(row["description"] or ""),
+                    "annotations": json.loads(str(row["annotations_json"] or "{}")),
+                }
+                for row in previous_rows
+            }
             conn.execute(
                 "DELETE FROM connector_tool_cache WHERE connection_id = ?",
                 (connection_id,),
@@ -3240,10 +3272,76 @@ class CollieDB:
                 ],
             )
 
+        new_tools = sorted(set(normalized) - set(previous))
+        removed_tools = sorted(set(previous) - set(normalized))
+        changed_tools = sorted(
+            name for name in set(previous) & set(normalized) if previous[name] != normalized[name]
+        )
+        fingerprint_payload = [
+            (
+                name,
+                value["schema_hash"],
+                value["risk"],
+                value["description"],
+                value["annotations"],
+            )
+            for name, value in sorted(normalized.items())
+        ]
+        fingerprint = hashlib.sha256(
+            json.dumps(fingerprint_payload, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        return {
+            "material_change": bool(previous and (new_tools or removed_tools or changed_tools)),
+            "new_tools": new_tools,
+            "removed_tools": removed_tools,
+            "changed_tools": changed_tools,
+            "inventory_fingerprint": fingerprint,
+        }
+
     def list_connector_tools(self, connection_id: str) -> list[dict[str, Any]]:
         return self._rows(
             "SELECT * FROM connector_tool_cache WHERE connection_id = ? ORDER BY remote_tool_name",
             (connection_id,),
+        )
+
+    def get_connector_tool(
+        self, connection_id: str, remote_tool_name: str
+    ) -> dict[str, Any] | None:
+        return self._row(
+            "SELECT * FROM connector_tool_cache WHERE connection_id = ? AND remote_tool_name = ?",
+            (connection_id, remote_tool_name),
+        )
+
+    def search_connector_tools(
+        self,
+        connection_id: str | None = None,
+        query: str = "",
+        limit: int = 20,
+        enabled_only: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Return a bounded, account-scoped inventory view for tool selection."""
+        bounded_limit = max(1, min(int(limit), 100))
+        clauses: list[str] = []
+        values: list[Any] = []
+        if connection_id:
+            clauses.append("connection_id = ?")
+            values.append(connection_id)
+        if enabled_only:
+            clauses.append("enabled = 1")
+        needle = query.strip().lower()
+        if needle:
+            clauses.append(
+                "(lower(remote_tool_name) LIKE ? OR lower(COALESCE(description, '')) LIKE ?)"
+            )
+            pattern = f"%{needle}%"
+            values.extend((pattern, pattern))
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        values.append(bounded_limit)
+        return self._rows(
+            "SELECT * FROM connector_tool_cache"
+            + where
+            + " ORDER BY connection_id, remote_tool_name LIMIT ?",
+            tuple(values),
         )
 
     # -- subagents ----------------------------------------------------------------------------

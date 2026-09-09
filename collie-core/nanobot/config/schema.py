@@ -342,6 +342,13 @@ class MCPServerConfig(Base):
     enabled_tools: list[str] = Field(default_factory=lambda: ["*"])  # Only register these tools; accepts raw MCP names or wrapped mcp_<server>_<tool> names; ["*"] = all capabilities (tools, resources, prompts); any restriction = only listed tools, no resources/prompts
     oauth_connection_id: str = ""  # Collie connector credential binding; never a token
     connector_provider_id: str = ""
+    connector_connection_id: str = ""
+    connector_tool_inventory: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    connector_inventory_fingerprint: str = ""
+    connector_account_label: str = ""
+    connector_auth_type: str = "none"
+    connector_header_name: str = ""
+    connector_oauth_config: dict[str, Any] = Field(default_factory=dict)
     connector_trusted: bool = False
     connector_tool_overrides: dict[str, str] = Field(default_factory=dict)
     connector_approval_preference: Literal["every_time", "changes", "important"] = "important"

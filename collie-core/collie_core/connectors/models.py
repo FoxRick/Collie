@@ -64,6 +64,11 @@ class InstalledConnectorDefinition:
     endpoint: str | None = None
     oauth_registration: str | None = None
     client_id: str | None = None
+    redirect_uri: str | None = None
+    issuer: str | None = None
+    resource: str | None = None
+    client_metadata_url: str | None = None
+    header_name: str | None = None
     scopes: tuple[str, ...] = ()
     trusted_hosts: tuple[str, ...] = ()
     tool_overrides: dict[str, str] = field(default_factory=dict)
@@ -80,6 +85,11 @@ class InstalledConnectorDefinition:
             "endpoint",
             "oauth_registration",
             "client_id",
+            "redirect_uri",
+            "issuer",
+            "resource",
+            "client_metadata_url",
+            "header_name",
         ):
             item = getattr(self, name)
             if item is not None and not isinstance(item, str):
@@ -91,6 +101,32 @@ class InstalledConnectorDefinition:
                 raise ValueError("OAuth definitions require a registration mode.")
             if self.oauth_registration == "preregistered" and not self.client_id:
                 raise ValueError("Pre-registered OAuth definitions require a public client id.")
+        elif any(
+            (
+                self.oauth_registration,
+                self.client_id,
+                self.redirect_uri,
+                self.issuer,
+                self.resource,
+                self.client_metadata_url,
+            )
+        ):
+            raise ValueError("OAuth client fields require the OAuth strategy.")
+        if self.auth_strategy is ConnectorAuthStrategy.HEADERS and not self.header_name:
+            raise ValueError("Custom-header authentication requires a header name.")
+        if self.header_name:
+            if any(ch in self.header_name for ch in "\r\n:") or not self.header_name.strip():
+                raise ValueError("Custom header name is invalid.")
+            if self.header_name.lower() in {"host", "content-length", "connection", "cookie"}:
+                raise ValueError("That header cannot be used for connector authentication.")
+        for name in ("redirect_uri", "issuer", "resource", "client_metadata_url"):
+            url = getattr(self, name)
+            if url:
+                parsed_url = urlsplit(url)
+                if parsed_url.scheme not in ("http", "https") or not parsed_url.hostname:
+                    raise ValueError(f"{name} must be an HTTP(S) URL.")
+                if parsed_url.username or parsed_url.password or parsed_url.fragment:
+                    raise ValueError(f"{name} must not contain credentials or a fragment.")
         if (
             self.transport in (ConnectorTransport.STREAMABLE_HTTP, ConnectorTransport.SSE)
             and not self.endpoint
@@ -134,6 +170,11 @@ class InstalledConnectorDefinition:
             "endpoint",
             "oauth_registration",
             "client_id",
+            "redirect_uri",
+            "issuer",
+            "resource",
+            "client_metadata_url",
+            "header_name",
             "scopes",
             "trusted_hosts",
             "tool_overrides",
@@ -168,6 +209,11 @@ class InstalledConnectorDefinition:
             endpoint=value.get("endpoint"),
             oauth_registration=value.get("oauth_registration"),
             client_id=value.get("client_id"),
+            redirect_uri=value.get("redirect_uri"),
+            issuer=value.get("issuer"),
+            resource=value.get("resource"),
+            client_metadata_url=value.get("client_metadata_url"),
+            header_name=value.get("header_name"),
             scopes=tuple(value.get("scopes") or ()),
             trusted_hosts=tuple(value.get("trusted_hosts") or ()),
             tool_overrides=dict(overrides),
@@ -188,6 +234,11 @@ class InstalledConnectorDefinition:
             "endpoint": self.endpoint,
             "oauth_registration": self.oauth_registration,
             "client_id": self.client_id,
+            "redirect_uri": self.redirect_uri,
+            "issuer": self.issuer,
+            "resource": self.resource,
+            "client_metadata_url": self.client_metadata_url,
+            "header_name": self.header_name,
             "scopes": list(self.scopes),
             "trusted_hosts": list(self.trusted_hosts),
             "tool_overrides": dict(self.tool_overrides),
@@ -225,6 +276,13 @@ class ConnectorDefinition:
     tool_overrides: dict[str, str] = field(default_factory=dict)
     transport: ConnectorTransport = ConnectorTransport.STREAMABLE_HTTP
     allow_private_network: bool = False
+    oauth_registration: str | None = None
+    client_id: str | None = None
+    redirect_uri: str | None = None
+    issuer: str | None = None
+    resource: str | None = None
+    client_metadata_url: str | None = None
+    header_name: str | None = None
 
 
 @dataclass(slots=True)
