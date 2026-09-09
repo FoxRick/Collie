@@ -5,6 +5,7 @@ import { FEEDBACK_MAX_LENGTH } from '../../../shared/feedback'
 export default function FeedbackDialog({ onClose }: { onClose: () => void }): React.JSX.Element {
   const dialog = useRef<HTMLDialogElement>(null)
   const closeButton = useRef<HTMLButtonElement>(null)
+  const textarea = useRef<HTMLTextAreaElement>(null)
   const inFlight = useRef(false)
   const submissionId = useRef<string | null>(null)
   const [message, setMessage] = useState('')
@@ -21,6 +22,14 @@ export default function FeedbackDialog({ onClose }: { onClose: () => void }): Re
   useEffect(() => {
     if (sent) closeButton.current?.focus()
   }, [sent])
+
+  // A failed send can leave focus on <body>: the focused Send button is
+  // disabled while the request is in flight, and Chromium drops focus when the
+  // focused control becomes disabled. Put the user back in the dialog so
+  // Escape/Tab keep working and the preserved draft is ready to edit.
+  useEffect(() => {
+    if (error) textarea.current?.focus()
+  }, [error])
 
   async function send(): Promise<void> {
     if (inFlight.current || !message.trim()) return
@@ -62,7 +71,7 @@ export default function FeedbackDialog({ onClose }: { onClose: () => void }): Re
         </p>
         {sent ? <p role="status" className="mt-4">Thanks! Your feedback has been sent.</p> : <>
           <label className="form-field" htmlFor="feedback-message">Your feedback
-            <textarea id="feedback-message" rows={6} maxLength={FEEDBACK_MAX_LENGTH}
+            <textarea ref={textarea} id="feedback-message" rows={6} maxLength={FEEDBACK_MAX_LENGTH}
               value={message} disabled={sending} required
               onChange={(event) => {
                 setMessage(event.target.value)

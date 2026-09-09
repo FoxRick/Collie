@@ -91,3 +91,15 @@ it('preserves text when the bridge rejects', async () => {
   expect(document.querySelector('textarea')!.value).toBe('Still here')
   expect(document.querySelector('[role=alert]')).not.toBeNull()
 })
+
+it('keeps keyboard focus inside the dialog after a failed submit', async () => {
+  // The in-flight Send button is disabled, so Chromium drops focus to <body>
+  // unless the dialog reclaims it. Focus must land back on the textarea.
+  submitFeedback.mockResolvedValue({ ok: false, error: 'unavailable' })
+  input('Focus must stay here')
+  await send()
+  const dialog = document.querySelector('dialog')!
+  expect(document.querySelector('[role=alert]')).not.toBeNull()
+  expect(dialog.contains(document.activeElement)).toBe(true)
+  expect(document.activeElement?.tagName).toBe('TEXTAREA')
+})
