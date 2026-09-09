@@ -42,7 +42,7 @@ class _FakeConn:
 
 
 def test_v14_creates_artifact_versions_on_fresh_db(db: CollieDB) -> None:
-    assert db.schema_version == 15
+    assert db.schema_version == 16
     rows = db._rows(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='artifact_versions'"
     )
@@ -78,7 +78,7 @@ def test_v13_db_upgrades_to_v14_preserving_data(tmp_path: Path) -> None:
 
     upgraded = CollieDB(path)
     try:
-        assert upgraded.schema_version == 15
+        assert upgraded.schema_version == 16
         assert upgraded._rows(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='artifact_versions'"
         )
