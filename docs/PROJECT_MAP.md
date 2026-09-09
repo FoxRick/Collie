@@ -99,12 +99,16 @@ Connection recipes remain in `collie_core/connectors/catalog.py`. Installed
 configuration snapshots and account/tool inventory live in SQLite through
 `collie_core/db.py`; `ConnectorManager` resolves existing accounts against those
 snapshots while retaining catalogue availability controls for curated accounts.
-Custom no-auth HTTP/SSE accounts use the same manager;
-`connectors/remote.py` owns shared remote discovery and endpoint checks, used by
-connector drivers and the adapted MCP runtime. Credential references
-point to the existing protected store. The connection specification in
-`docs/product/features/connectors.md` separates this foundation from later driver
-and desktop delivery.
+`connectors/remote.py` owns shared remote discovery and endpoint checks, while
+`connectors/auth.py` owns the MCP OAuth adapter and
+`connectors/import_config.py` owns secret-safe import parsing. Both feed the
+authoritative manager and existing protected credential path; they do not create
+a second token store or connection lifecycle. The desktop add/import surface is
+implemented in `collie-ui/src/renderer/src/components/connectors/`, with typed
+shared models in `collie-ui/src/shared/connectors.ts` and secret submission
+handled by Electron main. The connection specification in
+`docs/product/features/connectors.md` separates this foundation from later
+provider, local-package, and packaged acceptance work.
 
 Electron owns OS integration and protected secret storage. Python owns agent
 behavior, durable product state, tool execution, and central permission
