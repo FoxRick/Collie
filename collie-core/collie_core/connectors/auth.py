@@ -75,7 +75,9 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 class LoopbackOAuthReceiver:
     """Single-use loopback receiver with an OS-assigned random port."""
 
-    def __init__(self) -> None:
+    def __init__(self, server_url: str, *, allow_private_network: bool = False) -> None:
+        self.server_url = server_url
+        self.allow_private_network = allow_private_network
         handler = type(
             "_ConnectorCallback",
             (_CallbackHandler,),
@@ -87,6 +89,13 @@ class LoopbackOAuthReceiver:
         self._started = False
 
     async def redirect(self, authorization_url: str) -> None:
+        from collie_core.connectors.remote import validate_remote_endpoint
+
+        validate_remote_endpoint(
+            self.server_url,
+            authorization_url,
+            allow_private_network=self.allow_private_network,
+        )
         if not self._started:
             self._started = True
             threading.Thread(target=self.server.serve_forever, daemon=True).start()
@@ -116,6 +125,7 @@ def build_oauth_provider(
     *,
     scopes: tuple[str, ...] = (),
     interactive: bool,
+    allow_private_network: bool = False,
 ) -> Any:
     """Build the Python MCP SDK OAuth provider.
 
@@ -128,7 +138,10 @@ def build_oauth_provider(
 
     storage = CredentialStoreTokenStorage(store, connection_id)
     if interactive:
-        receiver = LoopbackOAuthReceiver()
+        receiver = LoopbackOAuthReceiver(
+            server_url,
+            allow_private_network=allow_private_network,
+        )
         redirect_uris = [receiver.redirect_uri]
         redirect_handler = receiver.redirect
         callback_handler = receiver.callback

@@ -5,8 +5,6 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-import httpx
-
 from collie_core.connectors.auth import build_oauth_provider
 from collie_core.connectors.models import (
     ConnectorDefinition,
@@ -14,6 +12,7 @@ from collie_core.connectors.models import (
     RemoteRevocationStatus,
 )
 from collie_core.connectors.policy import cached_tool
+from collie_core.connectors.remote import discover_all_tools, remote_mcp_session
 from collie_core.services.credentials import CredentialStore
 
 
@@ -34,35 +33,30 @@ class OfficialMcpDriver:
         *,
         interactive: bool,
     ) -> ProbeResult:
-        from mcp import ClientSession
-        from mcp.client.streamable_http import streamable_http_client
-
         auth = build_oauth_provider(
             connection_id,
             definition.endpoint,
             self.credentials,
             scopes=definition.scopes,
             interactive=interactive,
+            allow_private_network=definition.allow_private_network,
         )
-        async with (
-            httpx.AsyncClient(
-                auth=auth,
-                follow_redirects=True,
-                timeout=httpx.Timeout(30, connect=10),
-                headers={"Accept": "application/json, text/event-stream"},
-            ) as client,
-            streamable_http_client(definition.endpoint, http_client=client) as (read, write, _),
-            ClientSession(read, write) as session,
-        ):
-            await session.initialize()
-            result = await session.list_tools()
+        async with remote_mcp_session(
+            definition.endpoint,
+            transport=definition.transport.value,
+            auth=auth,
+            allow_private_network=definition.allow_private_network,
+            server_name=definition.id,
+            timeout=300.0 if interactive else 30.0,
+        ) as session:
+            discovered = await discover_all_tools(session)
             tools: list[dict[str, Any]] = [
                 cached_tool(
                     tool,
                     trusted=True,
                     overrides=definition.tool_overrides,
                 )
-                for tool in result.tools
+                for tool in discovered
             ]
         granted = list(definition.scopes)
         # Record the scopes the authorization server actually granted from
