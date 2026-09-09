@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { FeedbackResult, FeedbackSubmission } from '../shared/feedback'
+import type { CollaborationBridge } from '../shared/collaboration'
 
 export type UpdatePhase =
   | 'idle'
@@ -164,7 +165,45 @@ const accountApi = {
     ipcRenderer.invoke('account:sync-upload'),
   syncList: (): Promise<SyncSnapshotSummary[]> => ipcRenderer.invoke('account:sync-list'),
   syncRestore: (deviceId: string): Promise<void> =>
-    ipcRenderer.invoke('account:sync-restore', deviceId)
+    ipcRenderer.invoke('account:sync-restore', deviceId),
+  collaboration: {
+    bootstrap: () => ipcRenderer.invoke('collaboration:bootstrap'),
+    createOrganization: (name: string) => ipcRenderer.invoke('collaboration:create-organization', name),
+    inviteOrganization: (organizationId: string, userId: string, displayName: string) => ipcRenderer.invoke('collaboration:invite-organization', organizationId, userId, displayName),
+    acceptOrganizationInvite: (inviteId: string) => ipcRenderer.invoke('collaboration:accept-organization-invite', inviteId),
+    directory: (organizationId: string, query: string) => ipcRenderer.invoke('collaboration:directory', organizationId, query),
+    createSession: (organizationId: string, title: string) => ipcRenderer.invoke('collaboration:create-session', organizationId, title),
+    invite: (sessionId: string, memberId: string, audiencePolicy: import('../shared/collaboration').SharedAudiencePolicy) => ipcRenderer.invoke('collaboration:invite', sessionId, memberId, audiencePolicy),
+    acceptInvite: (inviteId: string, audienceConsent: boolean, policyVersion: number) => ipcRenderer.invoke('collaboration:accept-invite', inviteId, audienceConsent, policyVersion),
+    openSession: (sessionId: string) => ipcRenderer.invoke('collaboration:open-session', sessionId),
+    sendMessage: (sessionId: string, content: string, expectedRevision?: number, mentionedUserIds?: string[]) => ipcRenderer.invoke('collaboration:send-message', sessionId, content, expectedRevision, mentionedUserIds),
+    editMessage: (sessionId: string, messageId: string, content: string, expectedRevision: number) => ipcRenderer.invoke('collaboration:edit-message', sessionId, messageId, content, expectedRevision),
+    deleteMessage: (sessionId: string, messageId: string, expectedRevision: number) => ipcRenderer.invoke('collaboration:delete-message', sessionId, messageId, expectedRevision),
+    uploadFile: (sessionId: string, expectedSessionRevision: number, membershipRevision: number) => ipcRenderer.invoke('collaboration:upload-file', sessionId, expectedSessionRevision, membershipRevision),
+    listFiles: (sessionId: string) => ipcRenderer.invoke('collaboration:list-files', sessionId),
+    downloadFile: (sessionId: string, fileId: string) => ipcRenderer.invoke('collaboration:download-file', sessionId, fileId),
+    runPrivate: (sessionId: string, content: string) => ipcRenderer.invoke('collaboration:run-private', sessionId, content),
+    publishDraft: (draftId: string, content: string) => ipcRenderer.invoke('collaboration:publish-draft', draftId, content),
+    listPrivateDrafts: () => ipcRenderer.invoke('collaboration:list-private-drafts'),
+    stopSessionRun: (sessionId: string) => ipcRenderer.invoke('collaboration:stop-session-run', sessionId),
+    resolveReconciliation: (runId: string) => ipcRenderer.invoke('collaboration:resolve-reconciliation', runId),
+    requestArchive: (sessionId: string) => ipcRenderer.invoke('collaboration:request-archive', sessionId),
+    archiveStatus: (sessionId: string) => ipcRenderer.invoke('collaboration:archive-status', sessionId),
+    saveArchive: (sessionId: string) => ipcRenderer.invoke('collaboration:save-archive', sessionId),
+    exportArchive: (archivePath: string) => ipcRenderer.invoke('collaboration:export-archive', archivePath),
+    importArchive: () => ipcRenderer.invoke('collaboration:import-archive'),
+    listLocalArchives: () => ipcRenderer.invoke('collaboration:list-local-archives'),
+    continueSession: (sessionId: string, title?: string) => ipcRenderer.invoke('collaboration:continue-session', sessionId, title),
+    revokeMember: (sessionId: string, memberId: string) => ipcRenderer.invoke('collaboration:revoke-member', sessionId, memberId),
+    installSlack: (organizationId: string) => ipcRenderer.invoke('collaboration:install-slack', organizationId),
+    linkSlackSender: (installationId: string) => ipcRenderer.invoke('collaboration:link-slack-sender', installationId),
+    selectSlackChannel: (organizationId: string, installationId: string, channelId: string) => ipcRenderer.invoke('collaboration:select-slack-channel', organizationId, installationId, channelId),
+    notifications: (cursor?: number) => ipcRenderer.invoke('collaboration:notifications', cursor),
+    ackNotifications: (through: number) => ipcRenderer.invoke('collaboration:ack-notifications', through),
+    setRoutineDelivery: (routineId: string, sessionId: string | null, audienceRevision?: number) => ipcRenderer.invoke('collaboration:set-routine-delivery', routineId, sessionId, audienceRevision),
+    slackSettings: (organizationId: string) => ipcRenderer.invoke('collaboration:slack-settings', organizationId),
+    linkSlackChannel: (sessionId: string, installationId: string, channelId: string) => ipcRenderer.invoke('collaboration:link-slack-channel', sessionId, installationId, channelId)
+  } satisfies CollaborationBridge
 }
 
 contextBridge.exposeInMainWorld('collie', api)

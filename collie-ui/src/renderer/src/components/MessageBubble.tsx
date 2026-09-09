@@ -20,6 +20,8 @@ interface Props {
   cardData?: Record<string, unknown> | null
   attachments?: MessageAttachment[] | null
   taskState?: TaskState | null
+  authorName?: string
+  syncStatus?: 'local' | 'pending' | 'synced' | 'error'
 }
 
 const PREVIEWABLE_IMAGE_TYPES = new Set([
@@ -35,7 +37,7 @@ function attachmentPreviewSource(attachment: MessageAttachment): string | null {
   return /^data:image\/(?:png|jpeg|webp|gif);base64,/i.test(source) ? source : null
 }
 
-function MessageBubble({ role, content, streaming, settled = true, cardType, cardData, attachments, taskState }: Props): React.JSX.Element {
+function MessageBubble({ role, content, streaming, settled = true, cardType, cardData, attachments, taskState, authorName, syncStatus }: Props): React.JSX.Element {
   const t = useT()
   const [preview, setPreview] = useState<{ name: string; source: string } | null>(null)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
@@ -72,6 +74,7 @@ function MessageBubble({ role, content, streaming, settled = true, cardType, car
     <div
       className={`message-row ${streaming ? 'message-row--streaming' : 'collie-reveal'} ${isUser ? 'message-row--user' : 'message-row--assistant'}`}
     >
+      {authorName || syncStatus ? <div className={`message-attribution ${isUser ? 'is-user' : ''}`}><span>{authorName || (isUser ? 'You' : 'Collie')}</span>{syncStatus ? <span className={`message-sync-status is-${syncStatus}`}>{syncStatus === 'synced' ? 'Saved to shared chat' : syncStatus === 'pending' ? 'Saving…' : syncStatus === 'error' ? 'Needs sync' : 'Saved locally'}</span> : null}</div> : null}
       <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
         <div
           className={`message-bubble max-w-[80%] whitespace-pre-wrap px-4 py-3 text-[15px] leading-relaxed ${writing ? 'message-bubble--writing' : ''}`}

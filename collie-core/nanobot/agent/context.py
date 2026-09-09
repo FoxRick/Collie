@@ -72,8 +72,17 @@ class ContextBuilder:
         include_memory_recent_history: bool = True,
         session_key: str | None = None,
         unified_session: bool = False,
+        audience_mode: str = "private",
     ) -> str:
         """Build the system prompt from identity, bootstrap files, memory, and skills."""
+        if audience_mode == "shared":
+            return (
+                "You are Collie, helping in a shared conversation. Use only the published "
+                "conversation content provided in this prompt. Do not infer or reveal personal "
+                "memory, private workspace instructions, credentials, local paths, tool details, "
+                "or private drafts. Private-resource work may happen locally, but publish only a "
+                "result the requester explicitly authorized for this audience."
+            )
         root = workspace or self.workspace
         parts = [self._get_identity(channel=channel, workspace=root)]
 
@@ -207,6 +216,26 @@ class ContextBuilder:
     ) -> list[dict[str, Any]]:
         """Build the complete message list for an LLM call."""
         root = workspace or self.workspace
+        audience_mode = str((session_metadata or {}).get("audience_mode") or "private")
+        if audience_mode in {"shared", "private_result"}:
+            canonical = (session_metadata or {}).get("published_history")
+            if not isinstance(canonical, list):
+                raise ValueError("Shared turns require canonical published history.")
+            history = [
+                {
+                    "role": str(item.get("role") or ""),
+                    "content": (
+                        f"[Author: {str(item.get('author_id') or 'unknown')}]\n"
+                        f"{str(item.get('content') or '')}"
+                    ),
+                }
+                for item in canonical
+                if isinstance(item, Mapping) and item.get("role") in {"user", "assistant"}
+            ]
+            if audience_mode == "shared":
+                include_memory_recent_history = False
+                session_summary = None
+                skill_names = None
         user_content = self._build_user_content(current_message, media)
         blocks = list(runtime_context_blocks or ()) if current_role == "user" else []
         merged, runtime_context_meta = append_runtime_context(user_content, blocks)
@@ -221,6 +250,7 @@ class ContextBuilder:
                     include_memory_recent_history=include_memory_recent_history,
                     session_key=session_key,
                     unified_session=unified_session,
+                    audience_mode=audience_mode,
                 ),
             },
             *history,

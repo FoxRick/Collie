@@ -82,6 +82,18 @@ the existing Supabase project and notifies the team through Resend; server
 credentials remain in Worker secrets. See [in-app feedback](product/feedback.md)
 for deployment ownership and the live verification gate.
 
+### Shared conversations
+
+`collie-core/collie_core/collaboration/` owns durable local shared-event storage
+and verified local archives. Electron main owns authenticated collaboration
+transport; the renderer receives product data without account tokens.
+`supabase/migrations/` owns membership, canonical event order, requester device
+leases, quota reservations, and archive receipts. `supabase/functions/` owns
+Slack OAuth, signed event intake, and bounded workers. See
+[shared session authority and recovery](engineering/architecture/shared-sessions.md)
+for privacy boundaries and release gates. An offline participant blocks cloud
+purge until their durable archive is verified.
+
 ## Primary data flow
 
 ```text

@@ -142,7 +142,10 @@ class CallSubagentTool(Tool):
             if isinstance(request_ctx.metadata, dict)
             else {}
         )
-        for inherited_key in ("run_id", "approve_all_for_run", "plan_id", "plan_version"):
+        inherited_keys = ["approve_all_for_run", "plan_id", "plan_version"]
+        if not permission_context.get("shared_session_id"):
+            inherited_keys.append("run_id")
+        for inherited_key in inherited_keys:
             permission_context.pop(inherited_key, None)
         return await self._manager.spawn(
             task=composite,

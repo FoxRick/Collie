@@ -26,6 +26,7 @@ vi.mock('lucide-react', () => ({
   Search: () => null,
   Settings: () => null,
   Shapes: () => null,
+  Users: () => null,
   Trash2: () => null
 }))
 vi.mock('../lib/i18n', () => ({

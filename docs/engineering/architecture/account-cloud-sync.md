@@ -9,6 +9,11 @@
 
 ## 1. Product rules (the promises we make users)
 
+Opt-in [shared sessions](shared-sessions.md) use a separate coordination service
+for explicitly published conversation content. This snapshot feature continues
+to exclude conversations, plans, and approvals; enabling one feature does not
+enable the other.
+
 1. **Opt-in only.** Sync is OFF by default. The toggle lives in
    Settings → Account, next to the sign-in state, in plain language.
 2. **Per-device snapshots.** Each computer uploads its own snapshot under its
