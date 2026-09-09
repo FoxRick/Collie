@@ -6,7 +6,7 @@ Active product truth is organized by purpose:
   first-run direction.
 - `features/agent-system.md` - chat-first configuration, Guide, Doctor, and
   evidence-driven Gardener direction.
-- `features/connectors.md` - target connector experience and initial provider
+- `features/connectors.md` - accepted connection architecture, staged delivery and provider
   stack.
 - `features/planning-ui-and-more/` - accepted checklist and reviewed-plan
   behavior.
