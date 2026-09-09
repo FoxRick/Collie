@@ -491,11 +491,19 @@ class CollieIPCServer:
         if kind.startswith("collaboration_"):
             expected = str(os.environ.get("COLLIE_IDENTITY_BIND_TOKEN") or "")
             supplied = str(frame.get("identity_token") or frame.get("bind_token") or "")
-            if not expected or not supplied or not __import__("hmac").compare_digest(expected, supplied):
-                await self._send(connection, {
-                    "type": "error", "id": req_id,
-                    "message": "Shared-session access was not authorized.",
-                })
+            if (
+                not expected
+                or not supplied
+                or not __import__("hmac").compare_digest(expected, supplied)
+            ):
+                await self._send(
+                    connection,
+                    {
+                        "type": "error",
+                        "id": req_id,
+                        "message": "Shared-session access was not authorized.",
+                    },
+                )
                 return
         handler = getattr(self, f"_cmd_{kind}", None)
         if handler is None:
@@ -573,14 +581,22 @@ class CollieIPCServer:
             "cursor": self._collaboration_store.cursor(session_id) if bound and session_id else 0,
             "pending": self._collaboration_store.pending(
                 _bounded_list_limit(frame.get("limit"), default=100) or 100
-            ) if bound else [],
+            )
+            if bound
+            else [],
             "archives": self._archive_manager.list() if self._archive_manager and bound else [],
         }
 
-    async def _cmd_collaboration_bind_identity(self, connection: ServerConnection, frame: dict) -> dict:
+    async def _cmd_collaboration_bind_identity(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
         expected = str(os.environ.get("COLLIE_IDENTITY_BIND_TOKEN") or "")
         supplied = str(frame.get("bind_token") or "")
-        if not expected or not supplied or not __import__("hmac").compare_digest(expected, supplied):
+        if (
+            not expected
+            or not supplied
+            or not __import__("hmac").compare_digest(expected, supplied)
+        ):
             raise ValueError("Shared-session identity binding was not authorized.")
         if self._collaboration_identity_binder is None:
             raise ValueError("Shared sessions are unavailable.")
@@ -591,14 +607,18 @@ class CollieIPCServer:
         self._collaboration_identity_binder(account_id, device_id)
         return {"bound": bool(account_id)}
 
-    async def _cmd_collaboration_queue_event(self, connection: ServerConnection, frame: dict) -> dict:
+    async def _cmd_collaboration_queue_event(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
         if self._collaboration_store is None:
             raise ValueError("Shared sessions are unavailable.")
         return self._collaboration_store.queue_event(
             str(frame.get("session_id") or ""), dict(frame.get("event") or {})
         )
 
-    async def _cmd_collaboration_cache_bootstrap(self, connection: ServerConnection, frame: dict) -> dict:
+    async def _cmd_collaboration_cache_bootstrap(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
         if self._collaboration_store is None:
             raise ValueError("Shared sessions are unavailable.")
         snapshot = frame.get("snapshot")
@@ -607,12 +627,16 @@ class CollieIPCServer:
         self._collaboration_store.cache_bootstrap(snapshot)
         return {"cached": True}
 
-    async def _cmd_collaboration_get_cached_bootstrap(self, connection: ServerConnection, frame: dict) -> dict:
+    async def _cmd_collaboration_get_cached_bootstrap(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
         if self._collaboration_store is None:
             raise ValueError("Shared sessions are unavailable.")
         return {"snapshot": self._collaboration_store.cached_bootstrap()}
 
-    async def _cmd_collaboration_set_routine_delivery(self, connection: ServerConnection, frame: dict) -> dict:
+    async def _cmd_collaboration_set_routine_delivery(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
         if self._collaboration_store is None or not self._collaboration_store.is_bound:
             raise ValueError("Sign in before sharing a routine result.")
         routine_id = str(frame.get("routine_id") or "")
@@ -627,12 +651,15 @@ class CollieIPCServer:
         if not session_id or revision < 1 or creator != self._collaboration_store.account_id:
             raise ValueError("Shared routine delivery identity or audience is invalid.")
         normalized = {
-            "session_id": session_id, "audience_revision": revision,
+            "session_id": session_id,
+            "audience_revision": revision,
             "creator_account_id": creator,
         }
         return {"routine": self.db.set_routine_shared_delivery(routine_id, normalized)}
 
-    async def _cmd_collaboration_mark_routine_delivery(self, connection: ServerConnection, frame: dict) -> dict:
+    async def _cmd_collaboration_mark_routine_delivery(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
         routine_id = str(frame.get("routine_id") or "")
         event_id = str(frame.get("event_id") or "")
         status = str(frame.get("status") or "")
@@ -646,25 +673,35 @@ class CollieIPCServer:
             self._collaboration_store.settle_outbox(event_id, status, error)
         return {"recorded": True}
 
-    async def _cmd_collaboration_apply_page(self, connection: ServerConnection, frame: dict) -> dict:
+    async def _cmd_collaboration_apply_page(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
         if self._collaboration_store is None:
             raise ValueError("Shared sessions are unavailable.")
         session_id = str(frame.get("session_id") or "")
         cursor = self._collaboration_store.apply_page(
-            session_id, list(frame.get("events") or []), next_cursor=int(frame.get("next_cursor") or 0)
+            session_id,
+            list(frame.get("events") or []),
+            next_cursor=int(frame.get("next_cursor") or 0),
         )
         return {"cursor": cursor}
 
-    async def _cmd_collaboration_list_messages(self, connection: ServerConnection, frame: dict) -> dict:
+    async def _cmd_collaboration_list_messages(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
         if self._collaboration_store is None:
             raise ValueError("Shared sessions are unavailable.")
         session_id = str(frame.get("session_id") or "")
         through = frame.get("through")
-        return {"messages": self._collaboration_store.materialized_messages(
-            session_id, through=int(through) if through is not None else None
-        )}
+        return {
+            "messages": self._collaboration_store.materialized_messages(
+                session_id, through=int(through) if through is not None else None
+            )
+        }
 
-    async def _cmd_collaboration_write_archive(self, connection: ServerConnection, frame: dict) -> dict:
+    async def _cmd_collaboration_write_archive(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
         if self._archive_manager is None:
             raise ValueError("Local archives are unavailable.")
         attachments = {
@@ -672,35 +709,48 @@ class CollieIPCServer:
             for item in list(frame.get("attachments") or [])
         }
         return self._archive_manager.write(
-            str(frame.get("manifest_json") or ""), str(frame.get("digest") or ""),
+            str(frame.get("manifest_json") or ""),
+            str(frame.get("digest") or ""),
             attachments=attachments,
         )
 
-    async def _cmd_collaboration_export_archive(self, connection: ServerConnection, frame: dict) -> dict:
+    async def _cmd_collaboration_export_archive(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
         if self._archive_manager is None:
             raise ValueError("Local archives are unavailable.")
-        output = self._archive_manager.export(Path(str(frame.get("archive_path") or "")), Path(str(frame.get("destination") or "")))
+        output = self._archive_manager.export(
+            Path(str(frame.get("archive_path") or "")), Path(str(frame.get("destination") or ""))
+        )
         return {"path": str(output)}
 
-    async def _cmd_collaboration_import_archive(self, connection: ServerConnection, frame: dict) -> dict:
+    async def _cmd_collaboration_import_archive(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
         if self._archive_manager is None:
             raise ValueError("Local archives are unavailable.")
         return self._archive_manager.import_bundle(Path(str(frame.get("source") or "")))
 
-    async def _cmd_collaboration_run_shared(self, connection: ServerConnection, frame: dict) -> dict:
+    async def _cmd_collaboration_run_shared(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
         if self._shared_chat_runner is None:
             raise ValueError("Shared execution is unavailable.")
         return await self._shared_chat_runner(
-            content=str(frame.get("content") or ""), claim=dict(frame.get("claim") or {}),
+            content=str(frame.get("content") or ""),
+            claim=dict(frame.get("claim") or {}),
             published_history=list(frame.get("published_history") or []),
             mode=str(frame.get("mode") or "shared"),
         )
 
-    async def _cmd_collaboration_control_run(self, connection: ServerConnection, frame: dict) -> dict:
+    async def _cmd_collaboration_control_run(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
         if self._collaboration_run_controller is None:
             raise ValueError("Shared execution is unavailable.")
         return await self._collaboration_run_controller(
-            run_id=str(frame.get("run_id") or ""), action=str(frame.get("action") or ""),
+            run_id=str(frame.get("run_id") or ""),
+            action=str(frame.get("action") or ""),
             lease_token=str(frame.get("lease_token") or ""),
             lease_expires_at=str(frame.get("lease_expires_at") or ""),
         )

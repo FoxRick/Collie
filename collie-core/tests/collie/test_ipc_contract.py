@@ -44,13 +44,19 @@ _SERVER_ONLY_ALLOWLIST: dict[str, str] = {
     **{
         command: "main-only authenticated collaboration coordinator"
         for command in (
-            "collaboration_apply_page", "collaboration_bind_identity",
-            "collaboration_cache_bootstrap", "collaboration_control_run",
-            "collaboration_export_archive", "collaboration_get_cached_bootstrap",
-            "collaboration_import_archive", "collaboration_list_messages",
+            "collaboration_apply_page",
+            "collaboration_bind_identity",
+            "collaboration_cache_bootstrap",
+            "collaboration_control_run",
+            "collaboration_export_archive",
+            "collaboration_get_cached_bootstrap",
+            "collaboration_import_archive",
+            "collaboration_list_messages",
             "collaboration_mark_routine_delivery",
-            "collaboration_queue_event", "collaboration_run_shared",
-            "collaboration_status", "collaboration_write_archive",
+            "collaboration_queue_event",
+            "collaboration_run_shared",
+            "collaboration_status",
+            "collaboration_write_archive",
             "collaboration_set_routine_delivery",
         )
     },

@@ -193,7 +193,10 @@ class ApprovalBroker:
         rows = []
         for row in self.db.list_pending_approvals():
             display = row.get("display") if isinstance(row.get("display"), dict) else {}
-            if display.get("private_to_requester") and str(display.get("requester_id") or "") == requester_id:
+            if (
+                display.get("private_to_requester")
+                and str(display.get("requester_id") or "") == requester_id
+            ):
                 rows.append(row)
         for row in rows:
             request_id = str(row["id"])

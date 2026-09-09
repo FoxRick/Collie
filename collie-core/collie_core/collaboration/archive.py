@@ -32,7 +32,6 @@ def _durable_replace(source: Path, destination: Path) -> None:
         _fsync_directory(destination.parent)
         return
     import ctypes
-
     from ctypes import wintypes
 
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -40,7 +39,9 @@ def _durable_replace(source: Path, destination: Path) -> None:
     kernel32.MoveFileExW.restype = wintypes.BOOL
     # MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH
     if not kernel32.MoveFileExW(str(source), str(destination), 0x1 | 0x8):
-        raise OSError(ctypes.get_last_error(), f"Could not durably install archive at {destination}")
+        raise OSError(
+            ctypes.get_last_error(), f"Could not durably install archive at {destination}"
+        )
 
 
 class ArchiveManager:
@@ -53,7 +54,10 @@ class ArchiveManager:
 
     def bind_account(self, account_id: str) -> None:
         value = str(account_id).strip()
-        if value and any(ch not in "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_" for ch in value):
+        if value and any(
+            ch not in "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_"
+            for ch in value
+        ):
             raise ArchiveError("The archive account ID is invalid.")
         self._account_id = value
 
@@ -83,8 +87,12 @@ class ArchiveManager:
     @staticmethod
     def _validate_manifest(manifest: dict[str, Any]) -> None:
         required = (
-            "version", "session_id", "membership_revision",
-            "recipients", "events", "files",
+            "version",
+            "session_id",
+            "membership_revision",
+            "recipients",
+            "events",
+            "files",
         )
         if any(key not in manifest for key in required):
             raise ArchiveError("The archive manifest is incomplete.")
@@ -103,17 +111,27 @@ class ArchiveManager:
             raise ArchiveError("The archive event sequence is incomplete or unordered.")
         file_ids = [str(item.get("file_id") or "") for item in manifest["files"]]
         if len(file_ids) != len(set(file_ids)) or any(
-            not item or any(ch not in "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_" for ch in item)
+            not item
+            or any(
+                ch not in "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_"
+                for ch in item
+            )
             for item in file_ids
         ):
             raise ArchiveError("The archive contains invalid or duplicate file IDs.")
         sizes = [int(item.get("byte_length") or 0) for item in manifest["files"]]
-        if any(size < 0 or size > 5 * 1024 * 1024 for size in sizes) or sum(sizes) > 20 * 1024 * 1024:
+        if (
+            any(size < 0 or size > 5 * 1024 * 1024 for size in sizes)
+            or sum(sizes) > 20 * 1024 * 1024
+        ):
             raise ArchiveError("The archive files exceed the supported size limits.")
 
     def session_path(self, session_id: str) -> Path:
         safe = str(session_id).strip()
-        if not safe or any(ch not in "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_" for ch in safe):
+        if not safe or any(
+            ch not in "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_"
+            for ch in safe
+        ):
             raise ArchiveError("The archive session ID is invalid.")
         return self.root / safe
 
@@ -178,8 +196,10 @@ class ArchiveManager:
             self.verify(final)
             return {
                 "session_id": str(manifest["session_id"]),
-                "digest": expected_digest.lower(), "byte_length": len(raw),
-                "final_seq": self._final_seq(manifest), "path": str(final),
+                "digest": expected_digest.lower(),
+                "byte_length": len(raw),
+                "final_seq": self._final_seq(manifest),
+                "path": str(final),
             }
         except Exception:
             shutil.rmtree(temp_dir, ignore_errors=True)
@@ -195,7 +215,10 @@ class ArchiveManager:
         for descriptor in manifest["files"]:
             candidate = path / "files" / str(descriptor["file_id"])
             data = candidate.read_bytes()
-            if len(data) != int(descriptor["byte_length"]) or self.digest(data) != str(descriptor["sha256"]).lower():
+            if (
+                len(data) != int(descriptor["byte_length"])
+                or self.digest(data) != str(descriptor["sha256"]).lower()
+            ):
                 raise ArchiveError("A local archive file is corrupt or missing.")
         return manifest
 
@@ -210,7 +233,9 @@ class ArchiveManager:
                         manifest = self.verify(archive)
                     except (ArchiveError, OSError, ValueError):
                         continue
-                    result.append({"path": str(archive), "manifest": manifest, "digest": archive.name})
+                    result.append(
+                        {"path": str(archive), "manifest": manifest, "digest": archive.name}
+                    )
         return result
 
     def export(self, archive_dir: Path, destination: Path) -> Path:

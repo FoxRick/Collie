@@ -10,18 +10,24 @@ from collie_core.collaboration import (
     ArchiveManager,
     CollaborationStore,
     SharedExecutionContext,
-    SyncConflict,
+    SyncConflictError,
 )
+from collie_core.db import CollieDB
 from collie_core.permissions.evaluator import PermissionEvaluator
 from collie_core.permissions.models import Effect, ExecutionContext, PermissionRequest, Risk
-from collie_core.db import CollieDB
 
 
 def _event(seq: int, *, event_id: str | None = None, content: str = "hello") -> dict:
     return {
-        "event_id": event_id or f"event-{seq}", "session_id": "session-1", "seq": seq,
-        "kind": "message", "message_id": f"message-{seq}", "author_id": "alice",
-        "role": "user", "content": content, "revision": 1,
+        "event_id": event_id or f"event-{seq}",
+        "session_id": "session-1",
+        "seq": seq,
+        "kind": "message",
+        "message_id": f"message-{seq}",
+        "author_id": "alice",
+        "role": "user",
+        "content": content,
+        "revision": 1,
         "created_at": "2026-09-09T00:00:00+00:00",
     }
 
@@ -31,8 +37,10 @@ def test_page_and_cursor_commit_atomically_and_deduplicate(tmp_path):
     store.bind_account("alice")
     assert store.apply_page("session-1", [_event(1)], next_cursor=1) == 1
     assert store.apply_page("session-1", [_event(1)], next_cursor=1) == 1
-    with pytest.raises(SyncConflict):
-        store.apply_page("session-1", [_event(2, event_id="event-1", content="changed")], next_cursor=2)
+    with pytest.raises(SyncConflictError):
+        store.apply_page(
+            "session-1", [_event(2, event_id="event-1", content="changed")], next_cursor=2
+        )
     assert store.cursor("session-1") == 1
     assert [item["content"] for item in store.materialized_messages("session-1")] == ["hello"]
 
@@ -42,7 +50,7 @@ def test_outbox_rejects_event_id_reuse(tmp_path):
     store.bind_account("alice")
     draft = _event(0)
     store.queue_event("session-1", draft)
-    with pytest.raises(SyncConflict):
+    with pytest.raises(SyncConflictError):
         store.queue_event("session-1", draft | {"content": "different"})
     assert store.materialized_messages("session-1")[0]["sync_state"] == "local"
 
@@ -82,8 +90,13 @@ def test_archive_ack_data_requires_durable_verified_readback(tmp_path):
     manager = ArchiveManager(tmp_path / "archives")
     manager.bind_account("alice")
     manifest = {
-        "version": 1, "session_id": "session-1", "membership_revision": 2,
-        "final_seq": 1, "recipients": ["alice"], "events": [_event(1)], "files": [],
+        "version": 1,
+        "session_id": "session-1",
+        "membership_revision": 2,
+        "final_seq": 1,
+        "recipients": ["alice"],
+        "events": [_event(1)],
+        "files": [],
     }
     raw = json.dumps(manifest, separators=(",", ":"))
     digest = hashlib.sha256(raw.encode()).hexdigest()
@@ -98,8 +111,13 @@ def test_archive_accepts_draft_final_sequence_alias_without_changing_digest(tmp_
     manager = ArchiveManager(tmp_path / "archives")
     manager.bind_account("alice")
     manifest = {
-        "version": 1, "session_id": "session-legacy", "membership_revision": 1,
-        "final_sequence": 1, "recipients": ["alice"], "events": [_event(1)], "files": [],
+        "version": 1,
+        "session_id": "session-legacy",
+        "membership_revision": 1,
+        "final_sequence": 1,
+        "recipients": ["alice"],
+        "events": [_event(1)],
+        "files": [],
     }
     raw = json.dumps(manifest, separators=(",", ":"))
     receipt = manager.write(raw, hashlib.sha256(raw.encode()).hexdigest())
@@ -108,9 +126,14 @@ def test_archive_accepts_draft_final_sequence_alias_without_changing_digest(tmp_
 
 def test_shared_claim_must_match_enrolled_requester_and_device():
     claim = {
-        "session_id": "s", "requester_id": "alice", "credential_owner_id": "alice",
-        "executor_device_id": "device-a", "audience_revision": 1, "context_cutoff": 4,
-        "run_id": "run", "lease_token": "fence",
+        "session_id": "s",
+        "requester_id": "alice",
+        "credential_owner_id": "alice",
+        "executor_device_id": "device-a",
+        "audience_revision": 1,
+        "context_cutoff": 4,
+        "run_id": "run",
+        "lease_token": "fence",
         "lease_expires_at": "2099-01-01T00:00:00+00:00",
     }
     SharedExecutionContext.from_claim(
@@ -124,13 +147,22 @@ def test_shared_claim_must_match_enrolled_requester_and_device():
 
 def test_shared_memory_write_always_requires_requester_approval():
     context = ExecutionContext(
-        run_id="run", requester_id="alice", credential_owner_id="alice",
-        executor_device_id="device", shared_session_id="session",
-        audience_revision=1, context_cutoff=2, lease_token="lease",
+        run_id="run",
+        requester_id="alice",
+        credential_owner_id="alice",
+        executor_device_id="device",
+        shared_session_id="session",
+        audience_revision=1,
+        context_cutoff=2,
+        lease_token="lease",
     )
     request = PermissionRequest(
-        action="memory.write", resource="profile", risk=Risk.LOCAL_WRITE,
-        summary="Remember", reversible=True, approval_free=True,
+        action="memory.write",
+        resource="profile",
+        risk=Risk.LOCAL_WRITE,
+        summary="Remember",
+        reversible=True,
+        approval_free=True,
     )
     assert PermissionEvaluator().evaluate(context, request).effect == Effect.ASK
 
@@ -138,10 +170,14 @@ def test_shared_memory_write_always_requires_requester_approval():
 def test_routine_shared_delivery_config_and_status_are_separate_from_run(tmp_path):
     db = CollieDB(tmp_path / "collie.db")
     routine = db.add_automation("Daily note", automation_id="routine-1")
-    configured = db.set_routine_shared_delivery(routine["id"], {
-        "session_id": "session-1", "audience_revision": 3,
-        "creator_account_id": "alice",
-    })
+    configured = db.set_routine_shared_delivery(
+        routine["id"],
+        {
+            "session_id": "session-1",
+            "audience_revision": 3,
+            "creator_account_id": "alice",
+        },
+    )
     assert json.loads(configured["shared_delivery"])["audience_revision"] == 3
     db.mark_routine_result(routine["id"], success=True)
     db.record_routine_shared_delivery(

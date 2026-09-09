@@ -1468,7 +1468,8 @@ class CollieDB:
                 (
                     json.dumps(delivery, sort_keys=True) if delivery else None,
                     "ready" if delivery else None,
-                    utc_now(), automation_id,
+                    utc_now(),
+                    automation_id,
                 ),
             )
             if cursor.rowcount != 1:

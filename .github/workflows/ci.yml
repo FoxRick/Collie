@@ -15,6 +15,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  collaboration-backend:
+    name: Collaboration SQL and Edge functions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: 22
+      - name: Install isolated SQL test runtime
+        run: npm install --prefix .tmp/collaboration-validation --no-save --no-audit --no-fund @electric-sql/pglite@0.3.14
+      - name: SQL authority, quota, and archive regressions
+        run: node tools/test_collaboration_backend.mjs
+      - name: Edge signature, upload, and purge regressions
+        run: npm exec --yes --package=deno@2.5.6 -- deno test --allow-env supabase/functions/_shared/slack-security.test.ts supabase/functions/slack-events/index.test.ts supabase/functions/archive-worker/index.test.ts supabase/functions/collaboration-files/index.test.ts
+      - name: Check all Edge entry points
+        run: npm exec --yes --package=deno@2.5.6 -- deno check supabase/functions/slack-install/index.ts supabase/functions/slack-callback/index.ts supabase/functions/slack-events/index.ts supabase/functions/slack-interactions/index.ts supabase/functions/slack-worker/index.ts supabase/functions/archive-worker/index.ts supabase/functions/collaboration-files/index.ts
+
   collie-core:
     name: collie-core (Python 3.11)
     runs-on: ubuntu-latest

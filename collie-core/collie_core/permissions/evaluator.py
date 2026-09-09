@@ -86,10 +86,7 @@ class PermissionEvaluator:
             return PermissionDecision(
                 Effect.DENY, "Shared execution identity is incomplete, so this action is blocked."
             )
-        if (
-            context.shared_session_id
-            and context.requester_id != context.credential_owner_id
-        ):
+        if context.shared_session_id and context.requester_id != context.credential_owner_id:
             return PermissionDecision(
                 Effect.DENY, "Shared work cannot use another person's credentials."
             )

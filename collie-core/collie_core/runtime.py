@@ -26,8 +26,8 @@ from loguru import logger
 
 from collie_core import settings as collie_settings
 from collie_core.automations.scheduler import AutomationScheduler
-from collie_core.commands import CommandController
 from collie_core.collaboration import ArchiveManager, CollaborationStore, SharedExecutionContext
+from collie_core.commands import CommandController
 from collie_core.connectors.manager import ConnectorManager
 from collie_core.db import CollieDB, collie_home, utc_now
 from collie_core.ipc.server import CollieIPCServer
@@ -190,7 +190,9 @@ class CollieRuntime:
             collaboration_run_controller=self._control_shared_run,
         )
         self.approvals = ApprovalBroker(
-            self.db, self.permission_evaluator, self.ipc.broadcast,
+            self.db,
+            self.permission_evaluator,
+            self.ipc.broadcast,
             context_validator=self._validate_execution_context,
         )
         self.ipc.approval_broker = self.approvals
@@ -1126,26 +1128,44 @@ class CollieRuntime:
         routine_id = str(auto.get("id") or "")
         creator = str(raw.get("creator_account_id") or "")
         session_id = str(raw.get("session_id") or "")
-        event_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"collie:routine:{routine_id}:{assistant.get('id')}"))
+        event_id = str(
+            uuid.uuid5(uuid.NAMESPACE_URL, f"collie:routine:{routine_id}:{assistant.get('id')}")
+        )
         try:
             revision = int(raw.get("audience_revision") or 0)
             if not creator or not session_id or revision < 1:
                 raise ValueError("The routine shared-delivery configuration is invalid.")
-            self.collaboration.queue_event_for_account(creator, session_id, {
-                "event_id": event_id, "session_id": session_id,
-                "kind": "message", "publication_kind": "routine_result",
-                "message_id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{event_id}:message")),
-                "author_id": creator, "role": "assistant", "content": content,
-                "revision": 1, "audience_revision": revision,
-                "routine_id": routine_id, "created_at": utc_now(),
-            })
+            self.collaboration.queue_event_for_account(
+                creator,
+                session_id,
+                {
+                    "event_id": event_id,
+                    "session_id": session_id,
+                    "kind": "message",
+                    "publication_kind": "routine_result",
+                    "message_id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{event_id}:message")),
+                    "author_id": creator,
+                    "role": "assistant",
+                    "content": content,
+                    "revision": 1,
+                    "audience_revision": revision,
+                    "routine_id": routine_id,
+                    "created_at": utc_now(),
+                },
+            )
             self.db.record_routine_shared_delivery(
                 routine_id, status="pending", event_id=event_id, error=None
             )
-            asyncio.create_task(self.ipc.broadcast({
-                "type": "collaboration_outbox_pending", "routine_id": routine_id,
-                "session_id": session_id, "event_id": event_id,
-            }))
+            asyncio.create_task(
+                self.ipc.broadcast(
+                    {
+                        "type": "collaboration_outbox_pending",
+                        "routine_id": routine_id,
+                        "session_id": session_id,
+                        "event_id": event_id,
+                    }
+                )
+            )
         except Exception as error:
             self.db.record_routine_shared_delivery(
                 routine_id, status="pending", event_id=event_id, error=str(error)[:300]
@@ -1537,12 +1557,22 @@ class CollieRuntime:
                 raise ValueError("Shared history contains another session.")
             previous_seq = seq
         supplied_projection = [
-            (str(item.get("message_id") or ""), str(item.get("role") or ""), str(item.get("content") or ""))
-            for item in published_history if not bool(item.get("deleted"))
+            (
+                str(item.get("message_id") or ""),
+                str(item.get("role") or ""),
+                str(item.get("content") or ""),
+            )
+            for item in published_history
+            if not bool(item.get("deleted"))
         ]
         canonical_projection = [
-            (str(item.get("message_id") or ""), str(item.get("role") or ""), str(item.get("content") or ""))
-            for item in canonical_history if not bool(item.get("deleted"))
+            (
+                str(item.get("message_id") or ""),
+                str(item.get("role") or ""),
+                str(item.get("content") or ""),
+            )
+            for item in canonical_history
+            if not bool(item.get("deleted"))
         ]
         if supplied_projection and supplied_projection != canonical_projection:
             raise ValueError("Shared history does not match the synchronized canonical copy.")
@@ -1557,25 +1587,35 @@ class CollieRuntime:
         # These capabilities consume private profile/specialist context or can
         # continue after the fenced parent run. They stay fail-closed until an
         # explicit requester-only flow supplies scoped input and publication review.
-        private_context_tools = {"remember", "suggest_profile", "call_subagent"} if mode == "shared" else set()
+        private_context_tools = (
+            {"remember", "suggest_profile", "call_subagent"} if mode == "shared" else set()
+        )
         for name in self.loop.tools.tool_names:
             tool = self.loop.tools.get(name)
             if tool is not None and name not in private_context_tools:
                 shared_tools.register(tool)
 
         async def private_stream(delta: str = "", **_kwargs: Any) -> None:
-            await self.ipc.broadcast({
-                "type": "collaboration_private_delta", "run_id": context.run_id,
-                "requester_id": context.requester_id, "delta": str(delta),
-            })
+            await self.ipc.broadcast(
+                {
+                    "type": "collaboration_private_delta",
+                    "run_id": context.run_id,
+                    "requester_id": context.requester_id,
+                    "delta": str(delta),
+                }
+            )
 
         async def private_progress(text: str = "", **kwargs: Any) -> None:
             # Private local frame: Electron must never forward this to the shared publisher.
-            await self.ipc.broadcast({
-                "type": "collaboration_private_progress", "run_id": context.run_id,
-                "requester_id": context.requester_id, "text": str(text),
-                "state": str(kwargs.get("state") or "working"),
-            })
+            await self.ipc.broadcast(
+                {
+                    "type": "collaboration_private_progress",
+                    "run_id": context.run_id,
+                    "requester_id": context.requester_id,
+                    "text": str(text),
+                    "state": str(kwargs.get("state") or "working"),
+                }
+            )
 
         prompt_content = content
         if published_history:
@@ -1587,7 +1627,8 @@ class CollieRuntime:
         if context.run_id in self._active_shared_runs:
             raise ValueError("This shared run is already active on this device.")
         self._active_shared_runs[context.run_id] = {
-            "lease_token": context.lease_token, "session_key": session_key,
+            "lease_token": context.lease_token,
+            "session_key": session_key,
             "lease_expires_at": context.lease_expires_at,
         }
         try:
@@ -1632,9 +1673,12 @@ class CollieRuntime:
 
     def _bind_collaboration_identity(self, account_id: str, device_id: str) -> None:
         previous_account = self._collaboration_account_id
-        if (account_id, device_id) != (
-            self._collaboration_account_id, self._collaboration_device_id
-        ) and self._active_shared_runs and self.loop is not None:
+        if (
+            (account_id, device_id)
+            != (self._collaboration_account_id, self._collaboration_device_id)
+            and self._active_shared_runs
+            and self.loop is not None
+        ):
             for active in list(self._active_shared_runs.values()):
                 asyncio.create_task(self.loop.cancel_session(active["session_key"]))
         if previous_account and previous_account != str(account_id).strip():

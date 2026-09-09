@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,10 +27,17 @@ class SharedExecutionContext:
         *,
         enrolled_account_id: str,
         enrolled_device_id: str,
-    ) -> "SharedExecutionContext":
+    ) -> SharedExecutionContext:
         required = (
-            "session_id", "requester_id", "credential_owner_id", "executor_device_id",
-            "audience_revision", "context_cutoff", "run_id", "lease_token", "lease_expires_at",
+            "session_id",
+            "requester_id",
+            "credential_owner_id",
+            "executor_device_id",
+            "audience_revision",
+            "context_cutoff",
+            "run_id",
+            "lease_token",
+            "lease_expires_at",
         )
         if any(claim.get(key) in (None, "") for key in required):
             raise ValueError("The shared run claim is incomplete.")
@@ -47,9 +55,13 @@ class SharedExecutionContext:
         if revision < 1 or cutoff < 0:
             raise ValueError("The shared run claim has an invalid revision.")
         return cls(
-            session_id=str(claim["session_id"]), requester_id=requester,
-            credential_owner_id=credential_owner, executor_device_id=executor,
-            audience_revision=revision, context_cutoff=cutoff, run_id=str(claim["run_id"]),
+            session_id=str(claim["session_id"]),
+            requester_id=requester,
+            credential_owner_id=credential_owner,
+            executor_device_id=executor,
+            audience_revision=revision,
+            context_cutoff=cutoff,
+            run_id=str(claim["run_id"]),
             lease_token=str(claim["lease_token"]),
             lease_expires_at=str(claim["lease_expires_at"]),
             publication_authorized=bool(claim.get("publication_authorized", False)),

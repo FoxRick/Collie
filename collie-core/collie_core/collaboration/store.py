@@ -6,13 +6,14 @@ import json
 import sqlite3
 import threading
 import uuid
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from collie_core.db import utc_now
 
 
-class SyncConflict(ValueError):
+class SyncConflictError(ValueError):
     pass
 
 
@@ -111,7 +112,7 @@ class CollaborationStore:
         event.setdefault("session_id", session_id)
         event.setdefault("created_at", utc_now())
         if event["session_id"] != session_id:
-            raise SyncConflict("The event session does not match its outbox session.")
+            raise SyncConflictError("The event session does not match its outbox session.")
         for key in ("event_id", "message_id", "author_id", "role", "kind"):
             if not str(event.get(key) or ""):
                 raise ValueError(f"Shared event requires {key}.")
@@ -122,10 +123,11 @@ class CollaborationStore:
         raw = self._canonical(event)
         with self._lock, self._connection:
             prior = self._connection.execute(
-                "SELECT payload_json FROM shared_outbox WHERE account_id=? AND event_id=?", (account, event["event_id"])
+                "SELECT payload_json FROM shared_outbox WHERE account_id=? AND event_id=?",
+                (account, event["event_id"]),
             ).fetchone()
             if prior and prior[0] != raw:
-                raise SyncConflict("An event ID cannot be reused with a different payload.")
+                raise SyncConflictError("An event ID cannot be reused with a different payload.")
             self._connection.execute(
                 "INSERT OR IGNORE INTO shared_outbox(account_id,event_id,session_id,payload_json,created_at) VALUES(?,?,?,?,?)",
                 (account, event["event_id"], session_id, raw, event["created_at"]),
@@ -167,26 +169,38 @@ class CollaborationStore:
             expected = current + 1
             for event in page:
                 if str(event.get("session_id") or "") != session_id:
-                    raise SyncConflict("A remote page contained another session.")
+                    raise SyncConflictError("A remote page contained another session.")
                 seq = int(event.get("seq") or 0)
                 raw = self._canonical(event)
                 prior = self._connection.execute(
-                    "SELECT payload_json,seq FROM shared_events WHERE account_id=? AND event_id=?", (account, event.get("event_id"))
+                    "SELECT payload_json,seq FROM shared_events WHERE account_id=? AND event_id=?",
+                    (account, event.get("event_id")),
                 ).fetchone()
                 if prior:
                     if prior[0] != raw:
-                        raise SyncConflict("A remote event changed after acceptance.")
+                        raise SyncConflictError("A remote event changed after acceptance.")
                     expected = max(expected, int(prior[1]) + 1)
                     continue
                 if seq != expected:
-                    raise SyncConflict(f"Expected shared sequence {expected}, received {seq}.")
+                    raise SyncConflictError(f"Expected shared sequence {expected}, received {seq}.")
                 self._connection.execute(
                     """INSERT INTO shared_events
                     (account_id,event_id,session_id,seq,kind,message_id,author_id,role,content,revision,created_at,payload_json)
                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (account, event["event_id"], session_id, seq, event["kind"], event["message_id"],
-                     event["author_id"], event["role"], str(event.get("content") or ""),
-                     int(event.get("revision") or 1), event["created_at"], raw),
+                    (
+                        account,
+                        event["event_id"],
+                        session_id,
+                        seq,
+                        event["kind"],
+                        event["message_id"],
+                        event["author_id"],
+                        event["role"],
+                        str(event.get("content") or ""),
+                        int(event.get("revision") or 1),
+                        event["created_at"],
+                        raw,
+                    ),
                 )
                 self._connection.execute(
                     "UPDATE shared_outbox SET state='acknowledged',cloud_seq=?,last_error=NULL WHERE account_id=? AND event_id=?",
@@ -194,9 +208,9 @@ class CollaborationStore:
                 )
                 expected += 1
             if next_cursor < current or (page and next_cursor != int(page[-1]["seq"])):
-                raise SyncConflict("The remote page cursor does not match its last event.")
+                raise SyncConflictError("The remote page cursor does not match its last event.")
             if not page and next_cursor != current:
-                raise SyncConflict("An empty remote page cannot advance the cursor.")
+                raise SyncConflictError("An empty remote page cannot advance the cursor.")
             self._connection.execute(
                 """INSERT INTO shared_cursors(account_id,session_id,high_water,updated_at) VALUES(?,?,?,?)
                 ON CONFLICT(account_id,session_id) DO UPDATE SET high_water=excluded.high_water,updated_at=excluded.updated_at""",
@@ -206,7 +220,8 @@ class CollaborationStore:
 
     def cursor(self, session_id: str) -> int:
         row = self._connection.execute(
-            "SELECT high_water FROM shared_cursors WHERE account_id=? AND session_id=?", (self._account(), session_id)
+            "SELECT high_water FROM shared_cursors WHERE account_id=? AND session_id=?",
+            (self._account(), session_id),
         ).fetchone()
         return int(row[0]) if row else 0
 
@@ -219,7 +234,9 @@ class CollaborationStore:
         rows = self._connection.execute(sql + " ORDER BY seq", args).fetchall()
         return [json.loads(row[0]) for row in rows]
 
-    def materialized_messages(self, session_id: str, *, through: int | None = None) -> list[dict[str, Any]]:
+    def materialized_messages(
+        self, session_id: str, *, through: int | None = None
+    ) -> list[dict[str, Any]]:
         messages: dict[str, dict[str, Any]] = {}
         order: list[str] = []
         events = self.events(session_id, through=through)
@@ -236,7 +253,9 @@ class CollaborationStore:
                 if mid not in messages:
                     order.append(mid)
                 messages[mid] = event | {"deleted": False}
-            elif mid in messages and int(event.get("revision", 0)) > int(messages[mid].get("revision", 0)):
+            elif mid in messages and int(event.get("revision", 0)) > int(
+                messages[mid].get("revision", 0)
+            ):
                 messages[mid]["content"] = str(event.get("content") or "")
                 messages[mid]["revision"] = int(event.get("revision") or 0)
                 messages[mid]["last_event_seq"] = int(event.get("seq") or 0)
