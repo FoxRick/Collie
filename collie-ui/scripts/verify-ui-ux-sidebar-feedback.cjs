@@ -280,6 +280,7 @@ async function main() {
 
   // -------------------------------------------------------------- collapse rail
   await realClick(collapseToggle)
+  await waitUntil(`(${asideWidth}) > 0 && (${asideWidth}) <= 80`)
   state = await evaluate(footerState)
   const collapsedWidth = state.width
   record('collapse hides the rail to ~64px', state.collapsed && state.width <= 80, { collapsed: state.collapsed, width: state.width })
@@ -321,6 +322,7 @@ async function main() {
 
   // ----------------------------------------------------------- restore expanded
   await realClick(collapseToggle)
+  await waitUntil(`(${asideWidth}) >= 200`)
   state = await evaluate(footerState)
   record('expand restores the ~288px rail and clears storage', !state.collapsed && state.width >= 200 && state.stored === '0', { collapsed: state.collapsed, width: state.width, stored: state.stored })
 
@@ -427,7 +429,7 @@ async function main() {
         ? audit.chatVisible && audit.heading === 'New conversation'
         : label === 'General Chat'
           ? audit.chatVisible && audit.currentDestinations.includes(label)
-          : audit.heading === label && audit.currentDestinations.includes(label)
+          : audit.heading === (label === 'Settings' ? '⚙️ Settings' : label) && audit.currentDestinations.includes(label)
       record(`navigation to ${label} renders content`, correctDestination && audit.textLength > 20 && !audit.horizontalOverflow, audit)
     } catch (error) {
       navigation[label] = { error: error.message }
