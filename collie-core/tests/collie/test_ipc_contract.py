@@ -16,7 +16,10 @@ below with a reason — that list is the reviewable record of intent, so
 adding a command is a conscious act on both sides of the wire.
 
 Mechanics:
-- Server side: ``async def _cmd_<kind>(`` in ``ipc/server.py``.
+- Server side: ``async def _cmd_<kind>(`` in any module under
+  ``ipc/``: ``server.py`` plus the command modules in ``ipc/commands/``
+  (the groups are mixed back into ``CollieIPCServer``, so dispatch through
+  ``getattr(self, f"_cmd_{kind}")`` is unchanged).
 - Client side: every ``.command(<kind>)`` and ``commandWithCore(<kind>)``
   literal across ``collie-ui/src``
   (the renderer also calls ``command`` directly in components, e.g.
@@ -29,7 +32,7 @@ import re
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-_SERVER_FILE = _REPO_ROOT / "collie-core" / "collie_core" / "ipc" / "server.py"
+_SERVER_DIR = _REPO_ROOT / "collie-core" / "collie_core" / "ipc"
 _UI_SRC = _REPO_ROOT / "collie-ui" / "src"
 
 # Server commands with no caller anywhere in the UI. Keeping a command
@@ -86,7 +89,16 @@ _COMMAND_RE = re.compile(r"(?:\.command|\bcommandWithCore)(?:<[^>]*>)?\(\s*['\"]
 
 
 def _server_command_kinds() -> set[str]:
-    return set(_SERVER_RE.findall(_SERVER_FILE.read_text(encoding="utf-8")))
+    """Every handler defined anywhere in the ipc package.
+
+    The handlers used to live in one file; they are grouped into
+    ``ipc/commands/`` now, so the scan is over the package. A handler that
+    moves between modules cannot change the wire contract by itself.
+    """
+    kinds: set[str] = set()
+    for path in sorted(_SERVER_DIR.rglob("*.py")):
+        kinds.update(_SERVER_RE.findall(path.read_text(encoding="utf-8")))
+    return kinds
 
 
 def _ui_wire_commands() -> set[str]:
@@ -106,7 +118,8 @@ def test_every_ui_command_has_a_server_handler() -> None:
     assert not missing, (
         "UI sends IPC commands with no server handler — these die with "
         f"'unknown command' at runtime: {missing}. Add _cmd_<kind> in "
-        "collie_core/collie_core/ipc/server.py (or fix the client)."
+        "collie_core/collie_core/ipc/ (server.py or the matching module under "
+        "ipc/commands/), or fix the client."
     )
 
 

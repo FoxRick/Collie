@@ -69,6 +69,13 @@ are not part of this public source tree.
 
 - `nanobot/` contains the adapted upstream engine. Changes should remain
   surgical and preserve third-party attribution.
+- **IPC surface** (architecture: `docs/engineering/architecture/ipc-command-modules.md`):
+  `collie_core/ipc/server.py` owns the connection, the frame dispatch and the
+  shared server state, and `collie_core/ipc/commands/` holds the `_cmd_<kind>`
+  handlers grouped one module per command family (collaboration, memory,
+  routines, providers, connectors, files, agents, messengers). They are mixed
+  into `CollieIPCServer`, so dispatch through `getattr(self, f"_cmd_{kind}")`
+  and the renderer's wire contract are unchanged.
 - `tests/` contains Python unit, integration, IPC, safety, and end-to-end
   checks.
 - `AGENTS.md` contains core-specific contributor instructions.

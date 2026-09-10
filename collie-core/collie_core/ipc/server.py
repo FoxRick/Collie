@@ -49,10 +49,8 @@ import json
 import os
 import re
 import urllib.parse
-import uuid
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
-from dataclasses import dataclass
 from datetime import UTC
 from pathlib import Path
 from typing import Any
@@ -61,6 +59,18 @@ from loguru import logger
 from websockets.asyncio.server import ServerConnection, serve
 
 from collie_core.db import CollieDB, collie_home
+from collie_core.ipc.command_support import _bounded_list_limit
+from collie_core.ipc.commands import (
+    AgentCommands,
+    CollaborationCommands,
+    ConnectorCommands,
+    FileCommands,
+    MemoryCommands,
+    MessengerCommands,
+    ProviderCommands,
+    RoutineCommands,
+)
+from collie_core.ipc.commands.providers import _OAuthAttemptState
 from collie_core.ipc.thinking import phrase_for_state, thinking_state_for_tool
 from collie_core.onboarding import (
     capture_starter_name,
@@ -69,7 +79,6 @@ from collie_core.onboarding import (
 from collie_core.permissions.classifier import classify_tool
 from collie_core.permissions.models import Risk
 from collie_core.providers.storage import legacy_oauth_data_root
-from collie_core.routines.timezone import local_timezone
 from collie_core.session_identity import desktop_session_key
 from collie_core.voice import LocalVoiceService, VoiceInputError
 from nanobot.security.workspace_access import (
@@ -79,13 +88,11 @@ from nanobot.security.workspace_access import (
 )
 from nanobot.webui.attachment_ingress import store_inbound_attachments
 from nanobot.webui.ingress_policy import DEFAULT_WEBUI_INGRESS_POLICY
-from nanobot.webui.skills_api import webui_skill_detail_payload, webui_skills_payload
 
 __all__ = ["CollieIPCServer"]
 
 _MAX_FRAME_BYTES = DEFAULT_WEBUI_INGRESS_POLICY.minimum_full_policy_frame_bytes()
 _GENERIC_ERROR_MESSAGE = "Uh oh. That didn't go as planned. Try again?"
-_MAX_LIST_LIMIT = 500
 
 _MAX_PREVIEW_BYTES = 256 * 1024
 _SAFE_PREVIEW_MIMES = frozenset({"image/png", "image/jpeg", "image/webp", "image/gif"})
@@ -127,10 +134,6 @@ _IPC_SETTABLE_SETTINGS = {
 
 _ALLOWED_ORIGIN_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
-_PERSON_FIELDS = frozenset(
-    {"relationship", "birthday", "allergies", "preferences", "gift_ideas", "notes"}
-)
-
 
 def _public_error_message(
     error: object,
@@ -141,30 +144,6 @@ def _public_error_message(
     if isinstance(error, (ValueError, VoiceInputError)):
         return str(error)
     return fallback
-
-
-def _bounded_list_limit(
-    value: Any,
-    *,
-    default: int | None,
-    maximum: int = _MAX_LIST_LIMIT,
-) -> int | None:
-    """Parse a renderer list limit without allowing unbounded SQLite LIMITs."""
-    if value is None:
-        return default
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return default if default is not None else maximum
-    return max(1, min(parsed, maximum))
-
-
-@dataclass
-class _OAuthAttemptState:
-    generation: int
-    attempt_id: str
-    login: Any
-    task: asyncio.Task | None = None
 
 
 def _fallback_chat_title(content: str) -> str:
@@ -205,8 +184,23 @@ def _safe_preview_data_url(attachment: dict[str, Any]) -> str | None:
     return preview
 
 
-class CollieIPCServer:
-    """Serve the Collie IPC protocol on 127.0.0.1."""
+class CollieIPCServer(
+    CollaborationCommands,
+    MemoryCommands,
+    RoutineCommands,
+    ProviderCommands,
+    ConnectorCommands,
+    FileCommands,
+    AgentCommands,
+    MessengerCommands,
+):
+    """WebSocket IPC server bridging the Electron shell to the Collie core.
+
+    Connection handling, frame dispatch and the shared server state live here.
+    The ``_cmd_<kind>`` handlers are grouped into the command modules under
+    :mod:`collie_core.ipc.commands` and mixed in, so the wire contract and the
+    ``getattr(self, f"_cmd_{kind}")`` dispatch are unchanged.
+    """
 
     def __init__(
         self,
@@ -550,210 +544,7 @@ class CollieIPCServer:
             status.update(self._status_provider())
         return status
 
-    async def _cmd_get_subagent_activity(self, connection: ServerConnection, frame: dict) -> dict:
-        """Cheap subagent roster for poll-heavy surfaces (Agents tab).
-
-        Prefers the dedicated activity provider (runtime.subagent_activity,
-        which reads the manager's active + settled collections directly);
-        falls back to the status provider's roster keys when no dedicated
-        provider was wired in. Either way the payload is just the two
-        roster arrays — never the full status payload.
-        """
-        provider = self._activity_provider or self._status_provider
-        if provider is None:
-            return {"active_agents": [], "recent_agents": []}
-        status = provider()
-        return {
-            "active_agents": status.get("active_agents") or [],
-            "recent_agents": status.get("recent_agents") or [],
-        }
-
     # -- local shared-session transport -----------------------------------------------
-
-    async def _cmd_collaboration_status(self, connection: ServerConnection, frame: dict) -> dict:
-        if self._collaboration_store is None:
-            return {"available": False}
-        session_id = str(frame.get("session_id") or "")
-        bound = bool(self._collaboration_store.is_bound)
-        return {
-            "available": True,
-            "signed_in": bound,
-            "cursor": self._collaboration_store.cursor(session_id) if bound and session_id else 0,
-            "pending": self._collaboration_store.pending(
-                _bounded_list_limit(frame.get("limit"), default=100) or 100
-            )
-            if bound
-            else [],
-            "archives": self._archive_manager.list() if self._archive_manager and bound else [],
-        }
-
-    async def _cmd_collaboration_bind_identity(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
-        expected = str(os.environ.get("COLLIE_IDENTITY_BIND_TOKEN") or "")
-        supplied = str(frame.get("bind_token") or "")
-        if (
-            not expected
-            or not supplied
-            or not __import__("hmac").compare_digest(expected, supplied)
-        ):
-            raise ValueError("Shared-session identity binding was not authorized.")
-        if self._collaboration_identity_binder is None:
-            raise ValueError("Shared sessions are unavailable.")
-        account_id = str(frame.get("account_id") or "")
-        device_id = str(frame.get("device_id") or "")
-        if bool(account_id) != bool(device_id):
-            raise ValueError("Account and device identity must be bound together.")
-        self._collaboration_identity_binder(account_id, device_id)
-        return {"bound": bool(account_id)}
-
-    async def _cmd_collaboration_queue_event(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
-        if self._collaboration_store is None:
-            raise ValueError("Shared sessions are unavailable.")
-        return self._collaboration_store.queue_event(
-            str(frame.get("session_id") or ""), dict(frame.get("event") or {})
-        )
-
-    async def _cmd_collaboration_cache_bootstrap(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
-        if self._collaboration_store is None:
-            raise ValueError("Shared sessions are unavailable.")
-        snapshot = frame.get("snapshot")
-        if not isinstance(snapshot, dict):
-            raise ValueError("A collaboration bootstrap snapshot is required.")
-        self._collaboration_store.cache_bootstrap(snapshot)
-        return {"cached": True}
-
-    async def _cmd_collaboration_get_cached_bootstrap(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
-        if self._collaboration_store is None:
-            raise ValueError("Shared sessions are unavailable.")
-        return {"snapshot": self._collaboration_store.cached_bootstrap()}
-
-    async def _cmd_collaboration_set_routine_delivery(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
-        if self._collaboration_store is None or not self._collaboration_store.is_bound:
-            raise ValueError("Sign in before sharing a routine result.")
-        routine_id = str(frame.get("routine_id") or "")
-        delivery = frame.get("shared_delivery")
-        if delivery is None:
-            return {"routine": self.db.set_routine_shared_delivery(routine_id, None)}
-        if not isinstance(delivery, dict):
-            raise ValueError("Shared routine delivery must be an object.")
-        session_id = str(delivery.get("session_id") or "")
-        revision = int(delivery.get("audience_revision") or 0)
-        creator = str(delivery.get("creator_account_id") or "")
-        if not session_id or revision < 1 or creator != self._collaboration_store.account_id:
-            raise ValueError("Shared routine delivery identity or audience is invalid.")
-        normalized = {
-            "session_id": session_id,
-            "audience_revision": revision,
-            "creator_account_id": creator,
-        }
-        return {"routine": self.db.set_routine_shared_delivery(routine_id, normalized)}
-
-    async def _cmd_collaboration_mark_routine_delivery(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
-        routine_id = str(frame.get("routine_id") or "")
-        event_id = str(frame.get("event_id") or "")
-        status = str(frame.get("status") or "")
-        if status not in {"acknowledged", "rejected", "pending"}:
-            raise ValueError("Invalid routine delivery status.")
-        error = str(frame.get("error") or "")[:300] or None
-        self.db.record_routine_shared_delivery(
-            routine_id, status=status, event_id=event_id or None, error=error
-        )
-        if event_id and self._collaboration_store is not None and status != "pending":
-            self._collaboration_store.settle_outbox(event_id, status, error)
-        return {"recorded": True}
-
-    async def _cmd_collaboration_apply_page(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
-        if self._collaboration_store is None:
-            raise ValueError("Shared sessions are unavailable.")
-        session_id = str(frame.get("session_id") or "")
-        cursor = self._collaboration_store.apply_page(
-            session_id,
-            list(frame.get("events") or []),
-            next_cursor=int(frame.get("next_cursor") or 0),
-        )
-        return {"cursor": cursor}
-
-    async def _cmd_collaboration_list_messages(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
-        if self._collaboration_store is None:
-            raise ValueError("Shared sessions are unavailable.")
-        session_id = str(frame.get("session_id") or "")
-        through = frame.get("through")
-        return {
-            "messages": self._collaboration_store.materialized_messages(
-                session_id, through=int(through) if through is not None else None
-            )
-        }
-
-    async def _cmd_collaboration_write_archive(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
-        if self._archive_manager is None:
-            raise ValueError("Local archives are unavailable.")
-        attachments = {
-            str(item["file_id"]): Path(str(item["path"]))
-            for item in list(frame.get("attachments") or [])
-        }
-        return self._archive_manager.write(
-            str(frame.get("manifest_json") or ""),
-            str(frame.get("digest") or ""),
-            attachments=attachments,
-        )
-
-    async def _cmd_collaboration_export_archive(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
-        if self._archive_manager is None:
-            raise ValueError("Local archives are unavailable.")
-        output = self._archive_manager.export(
-            Path(str(frame.get("archive_path") or "")), Path(str(frame.get("destination") or ""))
-        )
-        return {"path": str(output)}
-
-    async def _cmd_collaboration_import_archive(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
-        if self._archive_manager is None:
-            raise ValueError("Local archives are unavailable.")
-        return self._archive_manager.import_bundle(Path(str(frame.get("source") or "")))
-
-    async def _cmd_collaboration_run_shared(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
-        if self._shared_chat_runner is None:
-            raise ValueError("Shared execution is unavailable.")
-        return await self._shared_chat_runner(
-            content=str(frame.get("content") or ""),
-            claim=dict(frame.get("claim") or {}),
-            published_history=list(frame.get("published_history") or []),
-            mode=str(frame.get("mode") or "shared"),
-        )
-
-    async def _cmd_collaboration_control_run(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
-        if self._collaboration_run_controller is None:
-            raise ValueError("Shared execution is unavailable.")
-        return await self._collaboration_run_controller(
-            run_id=str(frame.get("run_id") or ""),
-            action=str(frame.get("action") or ""),
-            lease_token=str(frame.get("lease_token") or ""),
-            lease_expires_at=str(frame.get("lease_expires_at") or ""),
-        )
 
     async def _cmd_list_commands(self, connection: ServerConnection, frame: dict) -> dict:
         if self._command_catalog is None:
@@ -766,50 +557,6 @@ class CollieIPCServer:
         from collie_core.catalog import CatalogueStore
 
         return CatalogueStore(settings=self.db)
-
-    async def _cmd_get_provider_catalogue(self, connection: ServerConnection, frame: dict) -> dict:
-        catalogue = self._catalogue()
-        return {
-            "providers": catalogue.providers(),
-            "snapshot": catalogue.snapshot_metadata(),
-            "refresh": catalogue.refresh_state(),
-        }
-
-    async def _cmd_refresh_provider_catalogue(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
-        catalogue = self._catalogue()
-        return await catalogue.refresh(url=frame.get("url") or None)
-
-    async def _cmd_rollback_provider_catalogue(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
-        catalogue = self._catalogue()
-        return catalogue.rollback()
-
-    # -- connect-time validation helpers ------------------------------------------------
-
-    async def _cmd_detect_provider_for_key(self, connection: ServerConnection, frame: dict) -> dict:
-        from collie_core.providers.validation import detect_provider_for_key
-
-        api_key = str(frame.get("api_key") or "")
-        if not api_key:
-            return {"detected": False, "provider_id": None, "reason": "empty_key"}
-        return await detect_provider_for_key(api_key, catalogue=self._catalogue())
-
-    async def _cmd_detect_models(self, connection: ServerConnection, frame: dict) -> dict:
-        from collie_core.providers.validation import detect_models_for_base_url
-
-        return await detect_models_for_base_url(
-            str(frame.get("api_base") or ""),
-            protocol=str(frame.get("protocol") or "openai"),
-            api_key=str(frame.get("api_key") or "") or None,
-        )
-
-    async def _cmd_detect_local_models(self, connection: ServerConnection, frame: dict) -> dict:
-        from collie_core.providers.validation import detect_local_ollama
-
-        return await detect_local_ollama()
 
     # -- starter conversation -------------------------------------------------------------
 
@@ -834,30 +581,6 @@ class CollieIPCServer:
         """Turn a renderer-captured WAV into English text without a cloud service."""
         text = await self._voice.transcribe_data_url(str(frame.get("audio") or ""))
         return {"text": text}
-
-    async def _cmd_list_skills(self, connection: ServerConnection, frame: dict) -> dict:
-        if self._skills_workspace is None:
-            return {"skills": []}
-        disabled = set(self.db.get_setting("agent.disabled_skills", []) or [])
-        return webui_skills_payload(self._skills_workspace, disabled_skills=disabled)
-
-    async def _cmd_get_skill(self, connection: ServerConnection, frame: dict) -> dict:
-        if self._skills_workspace is None:
-            raise ValueError("Skills are not available yet.")
-        name = str(frame.get("name") or "").strip()
-        if not name:
-            raise ValueError("Pick a skill to inspect.")
-        disabled = set(self.db.get_setting("agent.disabled_skills", []) or [])
-        skill = webui_skill_detail_payload(
-            self._skills_workspace,
-            name,
-            disabled_skills=disabled,
-        )
-        if skill is None:
-            raise ValueError(f"Skill not found: {name}")
-        # Collie's UI needs a useful overview, not the full local instruction file.
-        skill.pop("raw_markdown", None)
-        return {"skill": skill}
 
     async def _cmd_new_conversation(self, connection: ServerConnection, frame: dict) -> dict:
         conversation = self.db.create_conversation(str(frame.get("title") or "New chat"))
@@ -1199,227 +922,6 @@ class CollieIPCServer:
             self.db.set_setting(key, frame.get("value"))
         return {"saved": True}
 
-    async def _cmd_set_api_key(self, connection: ServerConnection, frame: dict) -> dict:
-        provider = str(frame.get("provider") or "").strip()
-        key = str(frame.get("key") or "")
-        if not provider or not key:
-            raise ValueError("set_api_key requires 'provider' and 'key'")
-        if self._on_set_api_key is not None:
-            self._on_set_api_key(provider, key)
-        provider_key = provider.casefold()
-        existing = next(
-            (
-                item
-                for item in self.db.list_providers()
-                if str(item.get("auth_type") or "").replace("_", "-") == "api-key"
-                and any(
-                    str(item.get(field) or "").strip().casefold() == provider_key
-                    for field in ("secret_name", "name")
-                )
-            ),
-            None,
-        )
-        if existing is None:
-            current_name = str(self.db.get_setting("provider.name", "") or "")
-            current_auth = str(self.db.get_setting("provider.auth", "") or "")
-            is_default = current_name == provider and current_auth == "api-key"
-            self.db.upsert_provider(
-                f"api-{provider}",
-                name=provider,
-                auth_type="api-key",
-                model=(
-                    str(self.db.get_setting("provider.model") or "") or None if is_default else None
-                ),
-                is_default=is_default,
-            )
-        return {"saved": True}
-
-    async def _cmd_upsert_provider(self, connection: ServerConnection, frame: dict) -> dict:
-        provider_id = str(frame.get("provider_id") or "").strip()
-        name = str(frame.get("name") or "").strip()
-        auth_type = str(frame.get("auth_type") or "").strip()
-        if not provider_id or not name or not auth_type:
-            raise ValueError("provider_id, name, and auth_type are required")
-        is_default = bool(frame.get("is_default"))
-        model = str(frame.get("model") or "").strip() or None
-        protocol = str(frame.get("protocol") or "openai").strip().lower()
-        if protocol not in {"openai", "anthropic"}:
-            raise ValueError("protocol must be openai or anthropic")
-        api_base = str(frame.get("api_base") or "").strip() or None
-        if api_base is not None:
-            parsed = urllib.parse.urlparse(api_base)
-            if parsed.scheme not in ("http", "https") or not parsed.netloc:
-                raise ValueError("api_base must be an http(s) URL")
-        runtime_name = str(frame.get("runtime_name") or name).strip().lower()
-        secret_name = str(frame.get("secret_name") or name).strip()
-        if auth_type == "api-key" and api_base:
-            runtime_name = "anthropic" if protocol == "anthropic" else "custom"
-        self.db.upsert_provider(
-            provider_id,
-            name=name,
-            auth_type=auth_type,
-            model=model,
-            runtime_name=runtime_name,
-            protocol=protocol,
-            api_base=api_base,
-            secret_name=secret_name,
-            is_default=is_default,
-        )
-        if is_default:
-            self._apply_provider_settings(self.db.get_provider(provider_id))
-        return {"provider": self.db.get_provider(provider_id)}
-
-    async def _cmd_activate_managed_provider(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
-        from collie_core.providers.managed import MODEL, managed_transport
-
-        managed_transport()
-        if any(not task.done() for task in self._chat_tasks.values()):
-            raise ValueError("Finish or stop the current task before switching providers.")
-        if self._on_configure is None:
-            raise ValueError("Provider configuration is not available.")
-        previous = self.db.default_provider()
-        created = self.db.get_provider("collie-managed") is None
-        if created:
-            self.db.upsert_provider(
-                "collie-managed",
-                name="Collie AI",
-                auth_type="collie-managed",
-                model=MODEL,
-                runtime_name="custom",
-                protocol="openai",
-                api_base=None,
-                secret_name="collie-managed",
-                is_default=False,
-            )
-        result = await self._cmd_activate_provider(connection, {"provider_id": "collie-managed"})
-        if not result.get("configured") and created:
-            self.db.delete_provider("collie-managed")
-            self._apply_provider_settings(previous)
-            if previous:
-                self.db.set_default_provider(str(previous["id"]))
-            await self._on_configure()
-        return result
-
-    async def _cmd_activate_provider(self, connection: ServerConnection, frame: dict) -> dict:
-        if any(not task.done() for task in self._chat_tasks.values()):
-            raise ValueError("Finish or stop the current task before switching providers.")
-        provider_id = str(frame.get("provider_id") or "").strip()
-        provider = self.db.get_provider(provider_id)
-        if provider is None:
-            raise ValueError("That provider is no longer available.")
-        if (
-            provider.get("auth_type") == "api-key"
-            and self._on_configure_provider_candidate is not None
-        ):
-            result = await self._on_configure_provider_candidate(
-                {
-                    "provider_id": provider["id"],
-                    "name": provider["name"],
-                    "auth_type": provider["auth_type"],
-                    "model": provider.get("model"),
-                    "runtime_name": provider.get("runtime_name"),
-                    "protocol": provider.get("protocol"),
-                    "api_base": provider.get("api_base"),
-                    "secret_name": provider.get("secret_name"),
-                }
-            )
-            transaction_id = str(result.get("transaction_id") or "")
-            if (
-                result.get("configured")
-                and transaction_id
-                and self._on_finalize_provider_candidate is not None
-            ):
-                finalized = await self._on_finalize_provider_candidate(transaction_id)
-                result.pop("transaction_id", None)
-                if not finalized.get("finalized"):
-                    rollback = (
-                        await self._on_rollback_provider_candidate(transaction_id)
-                        if self._on_rollback_provider_candidate is not None
-                        else {
-                            "rolled_back": False,
-                            "rollback_error": "provider rollback is not available",
-                        }
-                    )
-                    result.update(
-                        {
-                            "configured": False,
-                            "error": "Provider activation could not be finalized.",
-                            **rollback,
-                        }
-                    )
-            return result
-        previous = self.db.default_provider()
-        self.db.set_default_provider(provider_id)
-        self._apply_provider_settings(provider)
-        if self._on_configure is None:
-            return {"provider": provider, "configured": False}
-        configured = await self._on_configure()
-        if not configured.get("configured") and previous is not None:
-            self.db.set_default_provider(str(previous["id"]))
-            self._apply_provider_settings(previous)
-            await self._on_configure()
-        return {"provider": self.db.get_provider(provider_id), **configured}
-
-    async def _cmd_configure_provider_candidate(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
-        if self._on_configure_provider_candidate is None:
-            raise ValueError("provider configuration is not available")
-        candidate = {
-            key: frame.get(key)
-            for key in (
-                "provider_id",
-                "name",
-                "auth_type",
-                "model",
-                "runtime_name",
-                "protocol",
-                "api_base",
-                "secret_name",
-                "api_key",
-            )
-        }
-        return await self._on_configure_provider_candidate(candidate)
-
-    async def _cmd_finalize_provider_candidate(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
-        transaction_id = str(frame.get("transaction_id") or "").strip()
-        if not transaction_id:
-            raise ValueError("transaction_id is required")
-        if self._on_finalize_provider_candidate is None:
-            raise ValueError("provider finalization is not available")
-        return await self._on_finalize_provider_candidate(transaction_id)
-
-    async def _cmd_rollback_provider_candidate(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
-        transaction_id = str(frame.get("transaction_id") or "").strip()
-        if not transaction_id:
-            raise ValueError("transaction_id is required")
-        if self._on_rollback_provider_candidate is None:
-            raise ValueError("provider rollback is not available")
-        return await self._on_rollback_provider_candidate(transaction_id)
-
-    async def _cmd_delete_provider(self, connection: ServerConnection, frame: dict) -> dict:
-        provider_id = str(frame.get("provider_id") or "").strip()
-        provider = self.db.get_provider(provider_id)
-        if provider is None:
-            return {"deleted": False}
-        self.db.delete_provider(provider_id)
-        if provider.get("auth_type") == "api-key" and self._on_delete_api_key is not None:
-            self._on_delete_api_key(str(provider.get("name") or ""))
-        replacement = self.db.default_provider()
-        if replacement is not None and not replacement.get("is_default"):
-            self.db.set_default_provider(str(replacement["id"]))
-            replacement = self.db.get_provider(str(replacement["id"]))
-        self._apply_provider_settings(replacement)
-        if self._on_configure is not None:
-            await self._on_configure()
-        return {"deleted": True, "default_provider": replacement}
-
     def _apply_provider_settings(self, provider: dict[str, Any] | None) -> None:
         if provider is None:
             self.db.set_setting("provider.auth", "")
@@ -1434,159 +936,6 @@ class CollieIPCServer:
         self.db.set_setting("provider.api_base", provider.get("api_base"))
         self.db.set_setting("provider.secret_name", provider.get("secret_name") or provider["name"])
 
-    async def _cmd_oauth_login(self, connection: ServerConnection, frame: dict) -> None:
-        provider = str(frame.get("provider") or "").strip().lower()
-        if provider not in ("chatgpt", "claude"):
-            raise ValueError(f"unknown OAuth provider: {provider!r}")
-
-        req_id = frame.get("id")
-
-        # A new click owns a fresh generation. The old worker thread may keep
-        # running because oauth_cli_kit has no callback-server cancellation
-        # hook, but its staged token storage is invalidated before replacement.
-        existing = self._oauth_attempts.pop(provider, None)
-        if existing is not None:
-            existing.login.cancel()
-
-        from collie_core.providers.auth import OAuthLoginAttempt
-
-        generation = self._oauth_generations.get(provider, 0) + 1
-        self._oauth_generations[provider] = generation
-        attempt = _OAuthAttemptState(
-            generation=generation,
-            attempt_id=f"{provider}:{generation}",
-            login=OAuthLoginAttempt(provider),
-        )
-        self._oauth_attempts[provider] = attempt
-
-        def is_current() -> bool:
-            return self._oauth_attempts.get(provider) is attempt and not attempt.login.cancelled
-
-        async def _run_oauth() -> None:
-            try:
-                result = await asyncio.to_thread(attempt.login.run)
-            except asyncio.CancelledError:
-                attempt.login.cancel()
-                await self._send(
-                    connection,
-                    {
-                        "type": "error",
-                        "id": req_id,
-                        "message": "Sign-in cancelled.",
-                    },
-                )
-                return
-            except Exception as e:
-                attempt.login.discard()
-                if attempt.login.cancelled or not is_current():
-                    await self._send(
-                        connection,
-                        {
-                            "type": "error",
-                            "id": req_id,
-                            "message": "Sign-in cancelled.",
-                        },
-                    )
-                    return
-                logger.error("OAuth sign-in failed for {}: {}", provider, e)
-                await self._send(
-                    connection,
-                    {
-                        "type": "error",
-                        "id": req_id,
-                        "message": str(e)
-                        if isinstance(e, ValueError)
-                        else "Uh oh. That didn't go as planned. Try again?",
-                        "detail": str(e),
-                    },
-                )
-                return
-
-            # Keep the final ownership check, token commit, and provider-state
-            # writes await-free so another IPC cancel cannot interleave here.
-            if not is_current() or not attempt.login.commit():
-                attempt.login.discard()
-                await self._send(
-                    connection,
-                    {
-                        "type": "error",
-                        "id": req_id,
-                        "message": "Sign-in cancelled.",
-                    },
-                )
-                return
-            if result.get("signed_in"):
-                canonical = str(result.get("provider") or "")
-                is_claude = canonical == "claude"
-                provider_record = self.db.configure_provider_candidate_record(
-                    f"oauth-{canonical}",
-                    name="anthropic" if is_claude else "openai_codex",
-                    auth_type="claude-oauth" if is_claude else "chatgpt-oauth",
-                    model=("claude-sonnet-4-6" if is_claude else "openai-codex/gpt-5.4"),
-                    runtime_name="anthropic" if is_claude else "openai_codex",
-                    protocol="anthropic" if is_claude else "openai",
-                    api_base=None,
-                    secret_name="anthropic" if is_claude else "openai_codex",
-                )
-                result["provider_record"] = provider_record
-            result["attempt_id"] = attempt.attempt_id
-            result["generation"] = attempt.generation
-            if self._oauth_attempts.get(provider) is attempt:
-                self._oauth_attempts.pop(provider, None)
-            attempt.login.discard()
-            await self._send(connection, {"type": "ok", "id": req_id, "data": result})
-
-        task = asyncio.create_task(_run_oauth())
-        attempt.task = task
-        self._oauth_worker_tasks.add(task)
-
-        def remove_finished(_task: asyncio.Task) -> None:
-            # A stale completion must not remove the active replacement.
-            self._oauth_worker_tasks.discard(_task)
-            if self._oauth_attempts.get(provider) is attempt:
-                self._oauth_attempts.pop(provider, None)
-
-        task.add_done_callback(remove_finished)
-        # Return None: the background task sends the ok/error reply.
-
-    async def _cmd_cancel_oauth(self, connection: ServerConnection, frame: dict) -> dict:
-        provider = str(frame.get("provider") or "").strip().lower()
-        if provider not in ("chatgpt", "claude"):
-            raise ValueError(f"unknown OAuth provider: {provider!r}")
-        attempt = self._oauth_attempts.get(provider)
-        requested_id = str(frame.get("attempt_id") or "").strip()
-        requested_generation = frame.get("generation")
-        if (
-            attempt is None
-            or (requested_id and requested_id != attempt.attempt_id)
-            or (
-                requested_generation is not None and int(requested_generation) != attempt.generation
-            )
-        ):
-            return {"cancelled": False}
-        self._oauth_attempts.pop(provider, None)
-        attempt.login.cancel()
-        return {
-            "cancelled": True,
-            "attempt_id": attempt.attempt_id,
-            "generation": attempt.generation,
-        }
-
-    async def _cmd_oauth_logout(self, connection: ServerConnection, frame: dict) -> dict:
-        from collie_core.providers import auth as collie_auth
-
-        provider = str(frame.get("provider") or "")
-        result = await asyncio.to_thread(collie_auth.logout_provider, provider)
-        # Only clear the current provider when it is the OAuth path being
-        # signed out of — never clobber an API-key provider.
-        canonical = str(result.get("provider") or "")
-        expected = "claude-oauth" if canonical == "claude" else "chatgpt-oauth"
-        if str(self.db.get_setting("provider.auth", "") or "") == expected:
-            self.db.set_setting("provider.auth", "")
-            self.db.set_setting("provider.name", "")
-            self.db.set_setting("provider.model", None)
-        return result
-
     async def _cmd_auth_status(self, connection: ServerConnection, frame: dict) -> dict:
         from collie_core.providers import auth as collie_auth
 
@@ -1597,69 +946,6 @@ class CollieIPCServer:
         if self._on_configure is None:
             raise ValueError("configure is not available")
         return await self._on_configure()
-
-    async def _cmd_get_profile(self, connection: ServerConnection, frame: dict) -> dict:
-        return {"profile": self.db.all_profile()}
-
-    async def _cmd_get_memory_journal(self, connection: ServerConnection, frame: dict) -> dict:
-        """Recent memory mutations (Settings -> Memory -> Recent activity)."""
-        limit = frame.get("limit")
-        try:
-            limit = int(limit) if limit is not None else 50
-        except (TypeError, ValueError):
-            limit = 50
-        return {"entries": self.db.list_memory_journal(limit=max(1, min(limit, 500)))}
-
-    async def _cmd_run_dream(self, connection: ServerConnection, frame: dict) -> dict:
-        """Manual trigger: run one Dream consolidation pass now."""
-        if self._dream_runner is None:
-            raise ValueError("The memory review isn't available right now.")
-        outcome = await self._dream_runner()
-        return dict(outcome or {})
-
-    async def _cmd_get_dream_history(self, connection: ServerConnection, frame: dict) -> dict:
-        """Past Dream consolidations (memory_dream versions), newest first."""
-        versions = await asyncio.to_thread(
-            self.db.list_artifact_versions,
-            artifact_type="memory_dream",
-            limit=50,
-        )
-        return {"versions": versions}
-
-    async def _cmd_get_dream_pending(self, connection: ServerConnection, frame: dict) -> dict:
-        """Pending Dream proposal state (Settings → Memory self-review)."""
-        from collie_core.memory.dream import get_dream_pending
-
-        return await asyncio.to_thread(
-            get_dream_pending,
-            workspace=collie_home() / "workspace",
-        )
-
-    async def _cmd_apply_dream_proposal(self, connection: ServerConnection, frame: dict) -> dict:
-        """Approve the pending Dream proposal: re-validate, write, version."""
-        from collie_core.memory.dream import apply_dream_proposal
-        from collie_core.versions import VersionStore, artifact_lock
-
-        def _apply() -> dict:
-            # Same-artifact serialization as the rollback path (memory_dream /
-            # MEMORY.md). Lock held on the worker thread; no await inside the
-            # lock, so a concurrent rollback can't clobber the write.
-            with artifact_lock("memory_dream", "MEMORY.md"):
-                return apply_dream_proposal(
-                    workspace=collie_home() / "workspace",
-                    version_store=VersionStore(self.db),
-                )
-
-        return await asyncio.to_thread(_apply)
-
-    async def _cmd_dismiss_dream_proposal(self, connection: ServerConnection, frame: dict) -> dict:
-        """Dismiss the pending Dream proposal without applying it."""
-        from collie_core.memory.dream import dismiss_dream_proposal
-
-        return await asyncio.to_thread(
-            dismiss_dream_proposal,
-            workspace=collie_home() / "workspace",
-        )
 
     async def _cmd_run_gardener(self, connection: ServerConnection, frame: dict) -> dict:
         """Manual trigger: run one Gardener pass (evidence → suggestions)."""
@@ -1708,130 +994,12 @@ class CollieIPCServer:
             raise ValueError("memory is not available")
         return self._profile_store
 
-    async def _cmd_set_profile_memory(self, connection: ServerConnection, frame: dict) -> dict:
-        key = str(frame.get("key") or "").strip()
-        value = str(frame.get("value") or "").strip()
-        if not key:
-            raise ValueError("A memory key is required")
-        if value:
-            self._memory().set(key, value)
-        else:
-            self._memory().delete(key)
-        return {"profile": self._memory().all()}
-
-    async def _cmd_delete_profile_memory(self, connection: ServerConnection, frame: dict) -> dict:
-        key = str(frame.get("key") or "").strip()
-        if not key:
-            raise ValueError("A memory key is required")
-        self._memory().delete(key)
-        return {"profile": self._memory().all()}
-
-    async def _cmd_add_person_memory(self, connection: ServerConnection, frame: dict) -> dict:
-        fields = frame.get("fields") if isinstance(frame.get("fields"), dict) else {}
-        name = str(fields.get("name") or "").strip()
-        if not name:
-            raise ValueError("A person's name is required")
-        person = self._memory().add_person(
-            name,
-            **{
-                key: value
-                for key, value in fields.items()
-                if key in _PERSON_FIELDS and value not in (None, "")
-            },
-        )
-        return {"person": person}
-
-    async def _cmd_update_person_memory(self, connection: ServerConnection, frame: dict) -> dict:
-        person_id = str(frame.get("person_id") or "").strip()
-        fields = frame.get("fields") if isinstance(frame.get("fields"), dict) else {}
-        if not person_id:
-            raise ValueError("A person is required")
-        self._memory().update_person(person_id, **fields)
-        return {"person": self._memory().get_person(person_id)}
-
-    async def _cmd_delete_person_memory(self, connection: ServerConnection, frame: dict) -> dict:
-        person_id = str(frame.get("person_id") or "").strip()
-        if not person_id:
-            raise ValueError("A person is required")
-        self._memory().delete_person(person_id)
-        return {"deleted": True}
-
-    async def _cmd_add_date_memory(self, connection: ServerConnection, frame: dict) -> dict:
-        date = str(frame.get("date") or "").strip()
-        label = str(frame.get("label") or "").strip()
-        if not date or not label:
-            raise ValueError("A date and label are required")
-        entry = self._memory().add_date(
-            date,
-            label,
-            recurring=bool(frame.get("recurring")),
-        )
-        return {"date": entry}
-
-    async def _cmd_update_date_memory(self, connection: ServerConnection, frame: dict) -> dict:
-        date_id = str(frame.get("date_id") or "").strip()
-        fields = frame.get("fields") if isinstance(frame.get("fields"), dict) else {}
-        if not date_id:
-            raise ValueError("A date is required")
-        self._memory().update_date(date_id, **fields)
-        return {"dates": self._memory().list_dates()}
-
-    async def _cmd_delete_date_memory(self, connection: ServerConnection, frame: dict) -> dict:
-        date_id = str(frame.get("date_id") or "").strip()
-        if not date_id:
-            raise ValueError("A date is required")
-        self._memory().delete_date(date_id)
-        return {"deleted": True}
-
     # -- messengers (Settings -> Phone) -------------------------------------------
 
     def _messengers(self) -> Any:
         if self._messenger_manager is None:
             raise ValueError("messengers are not available")
         return self._messenger_manager
-
-    async def _cmd_get_messengers(self, connection: ServerConnection, frame: dict) -> dict:
-        return {"messengers": self._messengers().status()}
-
-    async def _cmd_set_messenger(self, connection: ServerConnection, frame: dict) -> dict:
-        from collie_core.messengers import MESSENGERS
-
-        manager = self._messengers()
-        name = str(frame.get("messenger") or "").lower()
-        has_updates = "enabled" in frame or "deliver_automations" in frame
-        if has_updates and name not in MESSENGERS:
-            raise ValueError(f"unknown messenger: {name or '(none)'}")
-        if "enabled" in frame:
-            enabled = bool(frame.get("enabled"))
-            manager.set_enabled(name, enabled)
-            if not enabled:
-                manager.clear_local_connection(name)
-        if "deliver_automations" in frame:
-            manager.set_deliver_automations(name, bool(frame.get("deliver_automations")))
-        await manager.restart()
-        return {"messengers": manager.status()}
-
-    async def _cmd_set_messenger_secret(self, connection: ServerConnection, frame: dict) -> dict:
-        manager = self._messengers()
-        name = str(frame.get("messenger") or "").lower()
-        key = str(frame.get("key") or "")
-        value = str(frame.get("value") or "")
-        if not name or not key:
-            raise ValueError("set_messenger_secret requires 'messenger' and 'key'")
-        if name == "telegram" and key == "token":
-            if not value or ":" not in value:
-                raise ValueError("That Telegram token doesn't look right. Copy it from @BotFather.")
-            try:
-                from telegram import Bot
-
-                async with Bot(value) as bot:
-                    await bot.get_me()
-            except Exception as error:
-                raise ValueError(
-                    "Telegram didn't accept that token. Copy the latest token from @BotFather."
-                ) from error
-        manager.set_secret(name, key, value)
-        return {"saved": True}
 
     async def _cmd_approve_pairing(self, connection: ServerConnection, frame: dict) -> dict:
         from nanobot.pairing import approve_code
@@ -1855,19 +1023,6 @@ class CollieIPCServer:
 
         code = str(frame.get("code") or "").strip().upper()
         return {"denied": deny_code(code)}
-
-    async def _cmd_revoke_messenger_sender(self, connection: ServerConnection, frame: dict) -> dict:
-        from nanobot.pairing import revoke
-
-        name = str(frame.get("messenger") or "").lower()
-        sender_id = str(frame.get("sender_id") or "")
-        return {"revoked": revoke(name, sender_id)}
-
-    async def _cmd_get_people(self, connection: ServerConnection, frame: dict) -> dict:
-        return {"people": self.db.list_people()}
-
-    async def _cmd_get_dates(self, connection: ServerConnection, frame: dict) -> dict:
-        return {"dates": self.db.list_dates()}
 
     async def _cmd_stop(self, connection: ServerConnection, frame: dict) -> dict:
         conv_id = str(frame.get("conversation_id") or "")
@@ -1963,67 +1118,6 @@ class CollieIPCServer:
             return final
         return candidate
 
-    async def _cmd_read_file(self, connection: ServerConnection, frame: dict) -> dict:
-        file_path = self._resolve_workspace_path(str(frame.get("path") or ""))
-        if not file_path.exists():
-            return {"content": ""}
-        return {"content": file_path.read_text(encoding="utf-8")}
-
-    async def _cmd_undo_file_changes(self, connection: ServerConnection, frame: dict) -> dict:
-        """One-tap undo: restore files Collie changed in a conversation.
-
-        Restores the pre-write bytes (or removes created files) from the
-        shadow journal. Scope is strictly the entries recorded for this
-        conversation; ``entry_ids`` narrows to a subset (all when omitted).
-        """
-        from collie_core.undo.journal import undo_entries
-
-        conversation_id = str(frame.get("conversation_id") or "")
-        raw_ids = frame.get("entry_ids")
-        if raw_ids is None:
-            # Field omitted: undo every journaled entry for this conversation.
-            entry_ids = None
-        elif isinstance(raw_ids, list):
-            # Explicit list (even empty) selects exactly those entries — an
-            # empty list is a deliberate no-op, never a blanket undo.
-            entry_ids = [str(entry_id) for entry_id in raw_ids if str(entry_id)]
-        else:
-            entry_ids = None
-        return undo_entries(conversation_id, entry_ids)
-
-    async def _cmd_write_file(self, connection: ServerConnection, frame: dict) -> dict:
-        file_path = self._resolve_workspace_path(str(frame.get("path") or ""))
-        content = str(frame.get("content") or "")
-        artifact = self._classify_workspace_artifact(file_path)
-        if artifact is not None:
-            # Serialize with any concurrent rollback/apply on this artifact.
-            from collie_core.versions import VersionStore, artifact_lock, make_diff
-
-            with artifact_lock(artifact[0], artifact[1]):
-                file_path.parent.mkdir(parents=True, exist_ok=True)
-                before = file_path.read_text(encoding="utf-8") if file_path.exists() else ""
-                version_id: str | None = None
-                diff_text: str | None = None
-                if before != content:
-                    version_id = VersionStore(self.db).snapshot(
-                        artifact[0], artifact[1], before, content, source="user"
-                    )
-                    if version_id is not None:
-                        diff_text = make_diff(before, content, artifact[1])
-                file_path.write_text(content, encoding="utf-8")
-                return {
-                    "saved": True,
-                    "version_id": version_id,
-                    "diff_text": diff_text,
-                }
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        file_path.write_text(content, encoding="utf-8")
-        return {
-            "saved": True,
-            "version_id": None,
-            "diff_text": None,
-        }
-
     def _classify_workspace_artifact(self, file_path: Path) -> tuple[str, str] | None:
         """Map a workspace file to a versioned artifact type, if it is one."""
         workspace = Path(os.path.normpath(collie_home() / "workspace"))
@@ -2061,328 +1155,7 @@ class CollieIPCServer:
             raise ValueError("Invalid artifact path")
         return target
 
-    async def _cmd_list_versions(self, connection: ServerConnection, frame: dict) -> dict:
-        """List artifact versions (most recent first) — read-only rollback rail."""
-        artifact_type = str(frame.get("artifact_type") or "") or None
-        artifact_key = str(frame.get("artifact_key") or "") or None
-        limit = frame.get("limit")
-        try:
-            limit = int(limit) if limit is not None else 100
-        except (TypeError, ValueError):
-            limit = 100
-        versions = await asyncio.to_thread(
-            self.db.list_artifact_versions,
-            artifact_type=artifact_type,
-            artifact_key=artifact_key,
-            limit=max(1, min(limit, 500)),
-        )
-        return {"versions": versions}
-
-    async def _cmd_rollback_artifact(self, connection: ServerConnection, frame: dict) -> dict:
-        """Undo one artifact version (no-clobber guarded) and re-sync state."""
-        from collie_core.versions import VersionConflictError, VersionStore, artifact_lock
-
-        version_id = str(frame.get("version_id") or "")
-        row = self.db.get_artifact_version(version_id)
-        if row is None:
-            raise ValueError("I can't find that change — it may have been cleaned up.")
-        artifact_type = str(row["artifact_type"])
-        key = str(row["artifact_key"])
-        target = self._artifact_target(artifact_type, key)
-        # Serialize with any concurrent Gardener/Dream apply on the same
-        # artifact. Read -> validate -> write -> mark must be atomic against a
-        # concurrent apply, otherwise a newer edit could be clobbered between
-        # the read and the write. The mark is covered too so a failed write
-        # leaves the row applied (artifact unchanged) — never desynced.
-        with artifact_lock(artifact_type, key):
-            current = target.read_text(encoding="utf-8") if target.exists() else ""
-            try:
-                result = VersionStore(self.db).rollback(
-                    artifact_type,
-                    key,
-                    to_version=int(row["version"]),
-                    current_text=current,
-                )
-            except VersionConflictError as exc:
-                raise ValueError(str(exc)) from exc
-            restored = result["restored_text"]
-            if restored:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(restored, encoding="utf-8")
-            elif target.exists():
-                target.unlink()
-            VersionStore(self.db).mark_rolled_back(result["version_id"])
-        # A subagent rollback also restores the database row (or renames it
-        # back): the loader reconciles disk -> DB. Done outside the lock — it
-        # only reads the file we just wrote and reconciles the DB mirror.
-        if artifact_type == "subagent" and self._subagent_loader is not None:
-            await asyncio.to_thread(self._subagent_loader.sync)
-        return {
-            "rolled_back": True,
-            "version_id": result["version_id"],
-            "artifact_type": artifact_type,
-            "artifact_key": key,
-            "version": result["version"],
-        }
-
-    async def _cmd_list_automations(self, connection: ServerConnection, frame: dict) -> dict:
-        return {"automations": self.db.list_automations()}
-
-    async def _cmd_toggle_automation(self, connection: ServerConnection, frame: dict) -> dict:
-        auto_id = str(frame.get("automation_id") or "")
-        enabled = bool(frame.get("enabled"))
-        self.db.toggle_automation(auto_id, enabled)
-        return {"toggled": True}
-
-    async def _cmd_create_automation(self, connection: ServerConnection, frame: dict) -> dict:
-        from collie_core.automations.custom import create_custom_automation
-
-        row = create_custom_automation(
-            self.db,
-            str(frame.get("description") or ""),
-            name=(str(frame["name"]) if frame.get("name") else None),
-            timezone_name=str(frame.get("timezone") or local_timezone()),
-        )
-        return {"automation": row}
-
-    async def _cmd_delete_automation(self, connection: ServerConnection, frame: dict) -> dict:
-        auto_id = str(frame.get("automation_id") or "")
-        if auto_id.startswith("collie-"):
-            raise ValueError("That one's built in — flip it off instead of deleting it!")
-        self.db.delete_automation(auto_id)
-        return {"deleted": True}
-
-    async def _cmd_update_automation(self, connection: ServerConnection, frame: dict) -> dict:
-        from collie_core.automations.custom import update_custom_automation
-
-        row = update_custom_automation(
-            self.db,
-            str(frame.get("automation_id") or ""),
-            str(frame.get("description") or ""),
-            name=(str(frame["name"]) if frame.get("name") else None),
-            timezone_name=str(frame["timezone"]) if frame.get("timezone") else None,
-        )
-        return {"automation": row}
-
     # -- routines, plans, runs, and approvals ----------------------------------------
-
-    async def _cmd_list_routines(self, connection: ServerConnection, frame: dict) -> dict:
-        return {"routines": self.db.list_automations()}
-
-    async def _cmd_create_routine(self, connection: ServerConnection, frame: dict) -> dict:
-        from datetime import datetime
-
-        from collie_core.routines.schedule import next_occurrence, parse_schedule
-
-        plan_id = str(frame.get("plan_id") or "")
-        version = int(frame.get("version") or 0)
-        plan = self.db.approve_plan(plan_id, version, str(frame.get("plan_hash") or ""))
-        zone = str(frame.get("timezone") or local_timezone())
-        schedule = parse_schedule(str(frame.get("schedule_description") or ""), zone)
-        upcoming = next_occurrence(schedule, datetime.now(UTC))
-        routine = self.db.add_automation(
-            str(frame.get("name") or plan["title"]),
-            description=str(plan["goal"]),
-            schedule=schedule.time.strftime("%H:%M"),
-            action_type="approved_plan",
-            action_config={"plan_id": plan_id, "plan_version": version},
-            enabled=True,
-            timezone_name=zone,
-            schedule_json=schedule.to_dict(),
-            next_run_at=upcoming.isoformat(timespec="seconds") if upcoming else None,
-            plan_id=plan_id,
-            plan_version=version,
-        )
-        self.db.attach_plan_to_routine(plan_id, version, str(routine["id"]))
-        await self.broadcast({"type": "routine_updated", "routine": routine})
-        return {"routine": routine}
-
-    async def _cmd_get_routine(self, connection: ServerConnection, frame: dict) -> dict:
-        row = self.db.get_automation(str(frame.get("routine_id") or ""))
-        if row is None:
-            raise ValueError("routine not found")
-        return {"routine": row}
-
-    async def _cmd_update_routine(self, connection: ServerConnection, frame: dict) -> dict:
-        from datetime import datetime
-
-        from collie_core.routines.schedule import next_occurrence, parse_schedule
-
-        routine_id = str(frame.get("routine_id") or "")
-        updates = dict(frame.get("updates") or {})
-        row = self.db.get_automation(routine_id)
-        if row is None:
-            raise ValueError("routine not found")
-        description = updates.pop("schedule_description", None)
-        if description is not None or "timezone" in updates:
-            from dataclasses import replace
-
-            from collie_core.automations.scheduler import AutomationScheduler
-
-            zone = str(
-                updates.get("timezone")
-                or frame.get("timezone")
-                or row.get("timezone")
-                or local_timezone()
-            )
-            if description is not None:
-                schedule = parse_schedule(str(description), zone)
-            else:
-                existing = AutomationScheduler._structured_schedule(row)
-                if existing is None:
-                    raise ValueError(
-                        "This routine needs a valid schedule before changing timezone."
-                    )
-                schedule = replace(existing, timezone=zone)
-            upcoming = next_occurrence(schedule, datetime.now(UTC))
-            updates.update(
-                {
-                    "schedule_json": schedule.to_dict(),
-                    "timezone": zone,
-                    "next_run_at": (upcoming.isoformat(timespec="seconds") if upcoming else None),
-                }
-            )
-        return {"routine": self.db.update_automation(routine_id, **updates)}
-
-    async def _cmd_pause_routine(self, connection: ServerConnection, frame: dict) -> dict:
-        routine_id = str(frame.get("routine_id") or "")
-        self.db.toggle_automation(routine_id, False)
-        return {"routine": self.db.get_automation(routine_id)}
-
-    async def _cmd_resume_routine(self, connection: ServerConnection, frame: dict) -> dict:
-        routine_id = str(frame.get("routine_id") or "")
-        row = self.db.get_automation(routine_id)
-        if row is None:
-            raise ValueError("routine not found")
-        if row.get("action_type") == "approved_plan" and (
-            not row.get("plan_id") or not row.get("plan_version")
-        ):
-            raise ValueError("Review and approve this routine's plan before enabling it.")
-        self.db.toggle_automation(routine_id, True)
-        return {"routine": self.db.get_automation(routine_id)}
-
-    async def _cmd_delete_routine(self, connection: ServerConnection, frame: dict) -> dict:
-        return await self._cmd_delete_automation(
-            connection, {"automation_id": frame.get("routine_id")}
-        )
-
-    async def _cmd_run_routine_now(self, connection: ServerConnection, frame: dict) -> dict:
-        routine_id = str(frame.get("routine_id") or "")
-        row = self.db.get_automation(routine_id)
-        if row is None:
-            raise ValueError("routine not found")
-        plan = None
-        if row.get("action_type") == "approved_plan":
-            if not row.get("plan_id") or not row.get("plan_version"):
-                raise ValueError("This routine needs an approved plan first.")
-            plan = self.db.get_plan(str(row["plan_id"]), int(row["plan_version"]))
-            if plan is None or plan.get("status") != "approved":
-                raise ValueError("This routine's plan changed and needs review.")
-        conv_key = f"automations.{routine_id}.conversation_id"
-        conv_id = str(self.db.get_setting(conv_key, "") or "")
-        if not conv_id or self.db.get_conversation(conv_id) is None:
-            conv_id = str(self.db.create_conversation(f"Routine: {row['name']}")["id"])
-            self.db.set_setting(conv_key, conv_id)
-        if conv_id in self._chat_tasks and not self._chat_tasks[conv_id].done():
-            raise ValueError("This routine is already running.")
-        run = self.db.create_run(
-            trigger_type="manual",
-            idempotency_key=f"manual:{routine_id}:{uuid.uuid4().hex}",
-            plan_id=row.get("plan_id"),
-            plan_version=row.get("plan_version"),
-            routine_id=routine_id,
-            conversation_id=conv_id,
-        )
-        if row.get("action_type") != "approved_plan":
-            action_config = row.get("action_config")
-            if isinstance(action_config, str):
-                try:
-                    action_config = json.loads(action_config)
-                except (TypeError, json.JSONDecodeError):
-                    action_config = {}
-            instruction = str(
-                action_config.get("prompt") if isinstance(action_config, dict) else ""
-            ).strip()
-            if not instruction:
-                raise ValueError("This routine has no instruction to run.")
-        else:
-            instruction = (
-                "Execute this approved routine plan sequentially. Do not take material "
-                f"actions outside it. Verify the result.\n\n{plan['plan_json']}"
-            )
-        task = asyncio.create_task(
-            self._run_chat_turn(
-                conv_id,
-                instruction,
-                execution_mode="execute",
-                run_id=str(run["id"]),
-                plan_id=str(row["plan_id"]) if row.get("plan_id") else None,
-                plan_version=int(row["plan_version"]) if row.get("plan_version") else None,
-            )
-        )
-        self._chat_tasks[conv_id] = task
-        task.add_done_callback(lambda _task, cid=conv_id: self._chat_tasks.pop(cid, None))
-        return {"run": run}
-
-    async def _cmd_test_routine(self, connection: ServerConnection, frame: dict) -> dict:
-        row = self.db.get_automation(str(frame.get("routine_id") or ""))
-        if row is None:
-            raise ValueError("routine not found")
-        return {
-            "safe": bool(row.get("plan_id") and row.get("plan_version")),
-            "services_available": True,
-            "side_effects_performed": False,
-        }
-
-    async def _cmd_list_routine_runs(self, connection: ServerConnection, frame: dict) -> dict:
-        limit = _bounded_list_limit(frame.get("limit"), default=100)
-        return {
-            "runs": self.db.list_runs(
-                routine_id=str(frame.get("routine_id") or ""),
-                limit=limit,
-            )
-        }
-
-    async def _cmd_retry_routine_run(self, connection: ServerConnection, frame: dict) -> dict:
-        previous = self.db.get_run(str(frame.get("run_id") or ""))
-        if previous is None or previous.get("status") != "failed":
-            raise ValueError("Only a failed run can be retried.")
-        plan = self.db.get_plan(
-            str(previous.get("plan_id") or ""),
-            int(previous.get("plan_version") or 0),
-        )
-        if plan is None or plan.get("status") != "approved":
-            raise ValueError("The plan changed and needs review before retrying.")
-        conv_id = str(previous.get("conversation_id") or "")
-        if not conv_id or self.db.get_conversation(conv_id) is None:
-            conv_id = str(self.db.create_conversation("Retried routine")["id"])
-        if conv_id in self._chat_tasks and not self._chat_tasks[conv_id].done():
-            raise ValueError("This routine is already running.")
-        run = self.db.create_run(
-            trigger_type="retry",
-            idempotency_key=f"retry:{previous['id']}:{uuid.uuid4().hex}",
-            plan_id=previous.get("plan_id"),
-            plan_version=previous.get("plan_version"),
-            routine_id=previous.get("routine_id"),
-            conversation_id=conv_id,
-        )
-        instruction = (
-            "Retry this approved routine plan sequentially. Do not take material "
-            f"actions outside it. Verify the result.\n\n{plan['plan_json']}"
-        )
-        task = asyncio.create_task(
-            self._run_chat_turn(
-                conv_id,
-                instruction,
-                execution_mode="execute",
-                run_id=str(run["id"]),
-                plan_id=str(previous["plan_id"]),
-                plan_version=int(previous["plan_version"]),
-            )
-        )
-        self._chat_tasks[conv_id] = task
-        task.add_done_callback(lambda _task, cid=conv_id: self._chat_tasks.pop(cid, None))
-        return {"run": run}
 
     async def _cmd_create_plan(self, connection: ServerConnection, frame: dict) -> dict:
         from collie_core.plans.models import validate_plan
@@ -2614,239 +1387,7 @@ class CollieIPCServer:
         )
         return {"rule": rule}
 
-    async def _cmd_list_subagents(self, connection: ServerConnection, frame: dict) -> dict:
-        from collie_core.subagents.loader import STARTERS
-
-        if self._subagent_loader is not None:
-            subagents = self._subagent_loader.sync()
-        else:
-            subagents = self.db.list_subagents()
-        return {"subagents": subagents, "starters": list(STARTERS)}
-
-    async def _cmd_create_subagent(self, connection: ServerConnection, frame: dict) -> dict:
-        from collie_core.subagents.loader import draft_system_prompt
-
-        if self._subagent_loader is None:
-            raise ValueError("subagents aren't available yet")
-        name = str(frame.get("name") or "").strip()
-        description = str(frame.get("description") or "").strip()
-        system_prompt = str(frame.get("system_prompt") or "").strip()
-        execution_posture = str(frame.get("execution_posture") or "read_only").strip()
-        if execution_posture not in {"read_only", "inherit"}:
-            execution_posture = "read_only"
-        if not name:
-            raise ValueError("Every helper needs a name!")
-        generated = False
-        if not system_prompt:
-            if self._prompt_writer is not None:
-                try:
-                    system_prompt = (await self._prompt_writer(name, description)).strip()
-                    generated = bool(system_prompt)
-                except Exception:
-                    logger.exception("LLM prompt writing failed; using template")
-            if not system_prompt:
-                system_prompt = draft_system_prompt(name, description)
-        row = self._subagent_loader.create(
-            name,
-            description=description,
-            system_prompt=system_prompt,
-            execution_posture=execution_posture,
-        )
-        return {"subagent": row, "prompt_written_by_collie": generated}
-
-    async def _cmd_update_subagent(self, connection: ServerConnection, frame: dict) -> dict:
-        if self._subagent_loader is None:
-            raise ValueError("subagents aren't available yet")
-        row = self._subagent_loader.update(
-            str(frame.get("subagent_id") or ""),
-            name=frame.get("name"),
-            description=frame.get("description"),
-            system_prompt=frame.get("system_prompt"),
-            execution_posture=frame.get("execution_posture"),
-        )
-        return {"subagent": row}
-
-    async def _cmd_delete_subagent(self, connection: ServerConnection, frame: dict) -> dict:
-        if self._subagent_loader is None:
-            raise ValueError("subagents aren't available yet")
-        self._subagent_loader.delete(str(frame.get("subagent_id") or ""))
-        return {"deleted": True}
-
-    async def _cmd_cancel_subagent(self, connection: ServerConnection, frame: dict) -> dict:
-        conversation_id = str(frame.get("conversation_id") or "")
-        if not conversation_id:
-            raise ValueError("conversation_id is required")
-        if self._subagent_canceler is None:
-            raise ValueError("subagent cancellation is not available")
-        count = await self._subagent_canceler(conversation_id)
-        return {"cancelled": count}
-
-    # -- connectors ---------------------------------------------------------------------
-
-    async def _cmd_list_connector_catalog(self, connection: ServerConnection, frame: dict) -> dict:
-        if self._service_manager is None:
-            return {"connectors": []}
-        return {"connectors": self._service_manager.catalog_view()}
-
-    async def _cmd_list_connector_connections(
-        self, connection: ServerConnection, frame: dict
-    ) -> dict:
-        if self._service_manager is None:
-            return {"connections": []}
-        return {"connections": self._service_manager.list_connections()}
-
-    async def _cmd_get_connector(self, connection: ServerConnection, frame: dict) -> dict:
-        if self._service_manager is None:
-            raise ValueError("connectors aren't available yet")
-        connection_id = str(frame.get("connection_id") or "")
-        item = self._service_manager.get_connection(connection_id)
-        if item is None:
-            raise ValueError("I couldn't find that connection.")
-        return {"connection": item}
-
-    async def _cmd_begin_connector_auth(self, connection: ServerConnection, frame: dict) -> dict:
-        if self._service_manager is None:
-            raise ValueError("connectors aren't available yet")
-        provider_id = str(frame.get("provider_id") or "")
-        origin = str(frame.get("origin") or "connectors_ui")
-        connection_id = f"con_{uuid.uuid4().hex}"
-        flow_id = f"caf_{uuid.uuid4().hex}"
-        replace_connection_id = str(frame.get("replace_connection_id") or "") or None
-        await self.broadcast(
-            {
-                "type": "connector_auth_started",
-                "provider_id": provider_id,
-                "connection_id": connection_id,
-                "flow_id": flow_id,
-                "origin": origin,
-                "status": "authorizing",
-            }
-        )
-        try:
-            result = await asyncio.to_thread(
-                self._service_manager.connect,
-                provider_id,
-                None,
-                origin=origin,
-                replace_connection_id=replace_connection_id,
-                connection_id=connection_id,
-            )
-        except Exception as error:
-            await self.broadcast(
-                {
-                    "type": "connector_failed",
-                    "provider_id": provider_id,
-                    "origin": origin,
-                    "message": str(error),
-                }
-            )
-            raise
-        result["reconfigured"] = await self._reconfigure_quietly()
-        await self.broadcast({"type": "connector_connected", **result})
-        result["flow_id"] = flow_id
-        return result
-
-    async def _cmd_cancel_connector_auth(self, connection: ServerConnection, frame: dict) -> dict:
-        if self._service_manager is None:
-            raise ValueError("connectors aren't available yet")
-        result = self._service_manager.cancel_auth(str(frame.get("connection_id") or ""))
-        if result["cancelled"]:
-            await self.broadcast(
-                {
-                    "type": "connector_failed",
-                    "connection_id": result["connection_id"],
-                    "status": "failed",
-                    "message": "Sign-in was cancelled. Nothing was connected.",
-                }
-            )
-        return result
-
-    async def _cmd_test_connector(self, connection: ServerConnection, frame: dict) -> dict:
-        if self._service_manager is None:
-            raise ValueError("connectors aren't available yet")
-        connection_id = str(frame.get("connection_id") or "")
-        await self.broadcast(
-            {
-                "type": "connector_status_changed",
-                "connection_id": connection_id,
-                "status": "testing",
-            }
-        )
-        item = await asyncio.to_thread(self._service_manager.test, connection_id)
-        await self.broadcast(
-            {
-                "type": "connector_status_changed",
-                "connection_id": connection_id,
-                "status": item["status"],
-            }
-        )
-        return {"connection": item}
-
-    async def _cmd_update_connector(self, connection: ServerConnection, frame: dict) -> dict:
-        if self._service_manager is None:
-            raise ValueError("connectors aren't available yet")
-        capabilities = frame.get("enabled_capabilities")
-        if capabilities is not None and not isinstance(capabilities, list):
-            raise ValueError("enabled_capabilities must be a list")
-        item = self._service_manager.update(
-            str(frame.get("connection_id") or ""),
-            display_name=(str(frame["display_name"]) if "display_name" in frame else None),
-            enabled_capabilities=capabilities,
-            approval_preference=(
-                str(frame["approval_preference"]) if "approval_preference" in frame else None
-            ),
-        )
-        await self.broadcast(
-            {
-                "type": "connector_status_changed",
-                "connection_id": item["id"],
-                "status": item["status"],
-            }
-        )
-        return {"connection": item}
-
-    async def _cmd_remove_connector(self, connection: ServerConnection, frame: dict) -> dict:
-        if self._service_manager is None:
-            raise ValueError("connectors aren't available yet")
-        result = await asyncio.to_thread(
-            self._service_manager.remove,
-            str(frame.get("connection_id") or ""),
-            origin=str(frame.get("origin") or "connectors_ui"),
-        )
-        result["reconfigured"] = await self._reconfigure_quietly()
-        await self.broadcast({"type": "connector_removed", **result})
-        return result
-
-    async def _cmd_list_connector_tools(self, connection: ServerConnection, frame: dict) -> dict:
-        connection_id = str(frame.get("connection_id") or "")
-        return {"tools": self.db.list_connector_tools(connection_id)}
-
     # -- services compatibility aliases ------------------------------------
-
-    async def _cmd_list_services(self, connection: ServerConnection, frame: dict) -> dict:
-        if self._service_manager is None:
-            return {"services": []}
-        view = getattr(self._service_manager, "legacy_catalog_view", None)
-        return {"services": (view() if callable(view) else self._service_manager.catalog_view())}
-
-    async def _cmd_connect_service(self, connection: ServerConnection, frame: dict) -> dict:
-        if self._service_manager is None:
-            raise ValueError("services aren't available yet")
-        service_id = str(frame.get("service_id") or "")
-        credentials = frame.get("credentials")
-        if credentials is not None and not isinstance(credentials, dict):
-            raise ValueError("credentials must be an object")
-        result = await asyncio.to_thread(self._service_manager.connect, service_id, credentials)
-        result["reconfigured"] = await self._reconfigure_quietly()
-        return result
-
-    async def _cmd_disconnect_service(self, connection: ServerConnection, frame: dict) -> dict:
-        if self._service_manager is None:
-            raise ValueError("services aren't available yet")
-        service_id = str(frame.get("service_id") or "")
-        result = await asyncio.to_thread(self._service_manager.disconnect, service_id)
-        result["reconfigured"] = await self._reconfigure_quietly()
-        return result
 
     async def _reconfigure_quietly(self) -> bool:
         """Rebuild the agent after a service change; never fail the command."""
