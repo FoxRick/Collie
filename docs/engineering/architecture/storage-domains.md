@@ -68,12 +68,32 @@ is the only leaf the domains import, which is why the primitives moved out:
 `db.py` imports the domains, so a domain importing `db.py` back for `new_id`
 would be a cycle.
 
+### Known cross-domain table reach
+
+One domain owning one group of tables is the goal, not yet the whole truth.
+Four domains touch tables they do not own, and each reach is deliberate:
+
+| Domain | Foreign tables | Why |
+| --- | --- | --- |
+| conversations | plans, runs, run_steps, plan_change_requests, task_checklists, task_checklist_steps, conversation_review_gates, approval_requests | `delete_conversation` cascades into everything hanging off the conversation |
+| checklists | conversations | `create_task_checklist` checks the conversation exists before writing |
+| providers | settings | provider snapshot / restore reads and writes the settings rows |
+| settings | providers | `set_active_model` updates the matching provider row |
+
+`tests/collie/test_db_domain_split.py` enforces this list in both directions: an
+undeclared reach fails, and a declaration no longer matched by the SQL fails too.
+A new reach is therefore a conscious act with a reason, not something a later
+reader has to re-derive from `DELETE` statements. The `delete_conversation`
+cascade is the reason the run/plan split will have to touch `conversations.py`
+alongside `db.py`.
+
 ## Why this is safe
 
-Every moved method is byte-identical to the version it replaced, verified by
-comparing `inspect.getsource` for all 164 members before and after the move:
-0 missing, 0 changed. The full backend suite and the `ruff` gates are the
-behavioural proof.
+Every moved method is verbatim the version it replaced: 160 of the 164
+`CollieDB` members compared with `inspect.getsource` before and after the move,
+the other 4 (three class constants and the `schema_version` property) compared
+by value, since they carry no source. Result: 0 missing, 0 changed. The full
+backend suite and the `ruff` gates are the behavioural proof.
 
 ## Adding or changing a domain
 

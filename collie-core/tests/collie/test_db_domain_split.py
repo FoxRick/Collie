@@ -12,12 +12,15 @@ These tests pin the properties that keep the split honest:
 - no two domains own the same name, because a collision would silently shadow
   one of them through the MRO;
 - a domain module reaches only for the shared plumbing, never for another
-  domain, which is what lets the next split happen without touching callers.
+  domain, which is what lets the next split happen without touching callers;
+- the tables a domain queries are the tables it owns, and any deliberate
+  reach into another domain's tables is declared with its reason.
 """
 
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -177,6 +180,122 @@ PLUMBING = {
 }
 
 DOMAIN_DIR = Path(db_domains.__file__).parent
+
+
+# Tables each domain owns. The test below reads them out of the SQL string
+# literals in the module, so ownership is checked against real code rather
+# than a claim in a docstring.
+OWNED_TABLES: dict[str, frozenset[str]] = {
+    "approvals": frozenset({"approval_rules", "approval_requests"}),
+    "artifacts": frozenset({"artifact_versions"}),
+    "automations": frozenset({"automations"}),
+    "checklists": frozenset(
+        {"task_checklists", "task_checklist_steps", "conversation_review_gates"}
+    ),
+    "connectors": frozenset(
+        {
+            "services",
+            "connector_connections",
+            "connector_definitions",
+            "connector_tool_cache",
+            "subagents",
+        }
+    ),
+    "conversations": frozenset({"conversations", "messages"}),
+    "life": frozenset(
+        {
+            "people",
+            "important_dates",
+            "memory_journal",
+            "reminders",
+            "shopping_items",
+            "expenses",
+            "budgets",
+            "health_logs",
+        }
+    ),
+    "providers": frozenset(
+        {"providers", "usage", "product_metrics_daily", "product_metrics_source"}
+    ),
+    "settings": frozenset({"settings", "profile"}),
+}
+
+# Tables a domain touches that it does not own. Every entry carries the reason,
+# because an undeclared reach is how a "domain" quietly becomes another god
+# module: the move is verbatim today, but the next split has to see the truth.
+FOREIGN_TABLE_REACH: dict[str, dict[str, str]] = {
+    "checklists": {
+        "conversations": "create_task_checklist checks the conversation exists before writing",
+    },
+    "conversations": {
+        "approval_requests": "delete_conversation cascades into the conversation's approvals",
+        "conversation_review_gates": "delete_conversation cascades into the review gate",
+        "plan_change_requests": "delete_conversation cascades into pending plan changes",
+        "plans": "delete_conversation cascades into the conversation's plans",
+        "run_steps": "delete_conversation cascades into run steps",
+        "runs": "delete_conversation cascades into the conversation's runs",
+        "task_checklist_steps": "delete_conversation cascades into checklist steps",
+        "task_checklists": "delete_conversation cascades into the conversation's checklists",
+    },
+    "providers": {
+        "settings": "snapshot/restore of the provider candidate reads and writes the settings rows",
+    },
+    "settings": {
+        "providers": "set_active_model updates the matching provider row",
+    },
+}
+
+# SQLite table-valued functions and SQL keywords both look like table names to a
+# regex over SQL text: "ON CONFLICT(id) DO UPDATE SET ..." reads as table "set",
+# and "FROM json_each(?)" reads as table "json_each".
+_SQL_NOT_A_TABLE = frozenset({"json_each", "json_tree", "set"})
+_SQL_TABLE_RE = re.compile(r"\b(?:FROM|INTO|UPDATE|JOIN)\s+([A-Za-z_][A-Za-z0-9_]*)")
+
+_LOCAL_MODULE_CACHE: dict[str, ast.Module] = {}
+
+
+def _tree_for(domain: str) -> ast.Module:
+    if domain not in _LOCAL_MODULE_CACHE:
+        source = (DOMAIN_DIR / f"{domain}.py").read_text(encoding="utf-8")
+        _LOCAL_MODULE_CACHE[domain] = ast.parse(source)
+    return _LOCAL_MODULE_CACHE[domain]
+
+
+def _tables_touched(domain: str) -> set[str]:
+    """Table names appearing in the domain's SQL string literals."""
+    found: set[str] = set()
+    for node in ast.walk(_tree_for(domain)):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            for name in _SQL_TABLE_RE.findall(node.value):
+                if name.lower() not in _SQL_NOT_A_TABLE:
+                    found.add(name.lower())
+    return found
+
+
+@pytest.mark.parametrize("domain", sorted(OWNED_TABLES))
+def test_domain_owns_tables_named_in_its_sql(domain: str) -> None:
+    """The owned set must match what the module actually queries."""
+    untouched = sorted(OWNED_TABLES[domain] - _tables_touched(domain))
+    assert untouched == [], (
+        f"{domain} claims to own {untouched} but never queries it; drop it from OWNED_TABLES"
+    )
+
+
+@pytest.mark.parametrize("domain", sorted(OWNED_TABLES))
+def test_foreign_table_reach_is_declared_and_current(domain: str) -> None:
+    """Touching another domain's tables is allowed, but never silent."""
+    foreign = _tables_touched(domain) - OWNED_TABLES[domain]
+    declared = set(FOREIGN_TABLE_REACH.get(domain, {}))
+    undeclared = sorted(foreign - declared)
+    stale = sorted(declared - foreign)
+    assert undeclared == [], (
+        f"the {domain} domain queries {undeclared} without owning them; declare them in "
+        f"FOREIGN_TABLE_REACH with the reason, or give the table a single owner"
+    )
+    assert stale == [], (
+        f"FOREIGN_TABLE_REACH lists {stale} for {domain} but the module no longer touches them; "
+        f"remove the stale declaration"
+    )
 
 
 @pytest.mark.parametrize(("domain", "methods"), DOMAIN_METHODS.items())

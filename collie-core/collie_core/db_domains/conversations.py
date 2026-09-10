@@ -8,6 +8,12 @@ the single public interface for storage, so call sites keep using
 domain.
 
 Tables owned here: ``conversations`` and ``messages``.
+
+Known reach outside this domain: ``delete_conversation`` cascades into plans,
+runs, run_steps, plan_change_requests, task_checklists, task_checklist_steps,
+conversation_review_gates and approval_requests. That cascade is declared in
+``tests/collie/test_db_domain_split.py`` and is why the run/plan split will have
+to touch this module too.
 """
 
 from __future__ import annotations
