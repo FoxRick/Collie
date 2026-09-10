@@ -33,6 +33,14 @@ are not part of this public source tree.
   runtime composition, and the internal headless engine
   mode (`collie_core/headless.py` — one task, one JSON result document,
   exit; an engineering-only benchmark entry, not a user-facing CLI).
+- **Storage** (architecture: `docs/engineering/architecture/storage-domains.md`):
+  `collie_core/db.py` owns the connection, schema, migrations, shared row
+  helpers and the run/plan/telemetry cluster. One storage domain per module
+  lives under `collie_core/db_domains/` (settings, conversations, life tools,
+  automations, checklists, connectors, approvals, providers, artifacts) and
+  those mixins are composed into `CollieDB`, which remains the single public
+  interface: call sites keep using `db.<method>`. `collie_core/db_primitives.py`
+  holds `collie_home()` / `utc_now()` / `new_id()`, re-exported from `db.py`.
 - **Self-improvement stack** (Gardener Foundations, architecture:
   `docs/engineering/architecture/gardener-foundations.md`):
   - `collie_core/versions.py` — `VersionStore`: every user-visible artifact
@@ -108,9 +116,11 @@ React renderer
 ```
 
 Connection recipes remain in `collie_core/connectors/catalog.py`. Installed
-configuration snapshots and account/tool inventory live in SQLite through
-`collie_core/db.py`; `ConnectorManager` resolves existing accounts against those
-snapshots while retaining catalogue availability controls. Credential references
+configuration snapshots and account/tool inventory live in SQLite through the
+storage layer (`collie_core/db.py` plus the `ConnectorsDomain` module in
+`collie_core/db_domains/`); `ConnectorManager` resolves existing accounts
+against those snapshots while retaining catalogue availability controls.
+Credential references
 point to the existing protected store. The connection specification in
 `docs/product/features/connectors.md` separates this foundation from later driver
 and desktop delivery.
