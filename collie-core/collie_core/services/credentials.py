@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 from collections.abc import Callable
 from contextlib import suppress
 from ctypes import POINTER, Structure, byref, c_char, c_void_p, cast, wintypes
@@ -26,6 +27,9 @@ __all__ = ["CredentialStore", "DpapiUnavailableError", "secure_keychain_availabl
 
 _MAGIC = b"COLLIE-DPAPI\x00"
 _CRYPTPROTECT_UI_FORBIDDEN = 0x1
+_REVISION_GUARD = threading.Lock()
+_REVISIONS: dict[tuple[str, str], int] = {}
+_CREDENTIAL_LOCKS: dict[tuple[str, str], threading.RLock] = {}
 
 
 class DpapiUnavailableError(RuntimeError):
@@ -148,6 +152,40 @@ class CredentialStore:
             self._protect = protect
             self._unprotect = unprotect
 
+    def _registry_key(self, service_id: str) -> tuple[str, str]:
+        return (str(self.base_dir.resolve()), service_id)
+
+    def _credential_lock(self, service_id: str) -> threading.RLock:
+        key = self._registry_key(service_id)
+        with _REVISION_GUARD:
+            return _CREDENTIAL_LOCKS.setdefault(key, threading.RLock())
+
+    def revision(self, service_id: str) -> int:
+        """Return an in-process generation used to reject late credential writes."""
+        with _REVISION_GUARD:
+            return _REVISIONS.get(self._registry_key(service_id), 0)
+
+    def invalidate(self, service_id: str) -> int:
+        """Invalidate writers that started before cancellation or removal."""
+        with self._credential_lock(service_id), _REVISION_GUARD:
+            key = self._registry_key(service_id)
+            revision = _REVISIONS.get(key, 0) + 1
+            _REVISIONS[key] = revision
+            return revision
+
+    def load_with_revision(self, service_id: str) -> tuple[dict[str, Any] | None, int]:
+        with self._credential_lock(service_id):
+            return self.load(service_id), self.revision(service_id)
+
+    def save_if_revision(
+        self, service_id: str, credentials: dict[str, Any], expected_revision: int
+    ) -> bool:
+        with self._credential_lock(service_id):
+            if self.revision(service_id) != expected_revision:
+                return False
+            self.save(service_id, credentials)
+            return True
+
     def _path(self, service_id: str) -> Path:
         safe = "".join(c for c in service_id if c.isalnum() or c in "-_")
         return self.base_dir / f"{safe}.bin"
@@ -161,19 +199,20 @@ class CredentialStore:
         return self.base_dir / f"{safe}.json"
 
     def save(self, service_id: str, credentials: dict[str, Any]) -> None:
-        self.base_dir.mkdir(parents=True, exist_ok=True)
-        with suppress(OSError, NotImplementedError):
-            os.chmod(self.base_dir, 0o700)
-        payload = json.dumps(credentials, ensure_ascii=False).encode("utf-8")
-        encrypted = _MAGIC + self._protect(payload)
-        path = self._path(service_id)
-        temporary = path.with_suffix(".tmp")
-        temporary.write_bytes(encrypted)
-        os.replace(temporary, path)
-        with suppress(OSError, NotImplementedError):
-            os.chmod(path, 0o600)
-        with suppress(FileNotFoundError):
-            self._legacy_path(service_id).unlink()
+        with self._credential_lock(service_id):
+            self.base_dir.mkdir(parents=True, exist_ok=True)
+            with suppress(OSError, NotImplementedError):
+                os.chmod(self.base_dir, 0o700)
+            payload = json.dumps(credentials, ensure_ascii=False).encode("utf-8")
+            encrypted = _MAGIC + self._protect(payload)
+            path = self._path(service_id)
+            temporary = path.with_suffix(".tmp")
+            temporary.write_bytes(encrypted)
+            os.replace(temporary, path)
+            with suppress(OSError, NotImplementedError):
+                os.chmod(path, 0o600)
+            with suppress(FileNotFoundError):
+                self._legacy_path(service_id).unlink()
 
     def load(self, service_id: str) -> dict[str, Any] | None:
         path = self._path(service_id)
@@ -202,7 +241,9 @@ class CredentialStore:
             return None
 
     def delete(self, service_id: str) -> None:
-        with suppress(FileNotFoundError):
-            self._path(service_id).unlink()
-        with suppress(FileNotFoundError):
-            self._legacy_path(service_id).unlink()
+        with self._credential_lock(service_id):
+            self.invalidate(service_id)
+            with suppress(FileNotFoundError):
+                self._path(service_id).unlink()
+            with suppress(FileNotFoundError):
+                self._legacy_path(service_id).unlink()

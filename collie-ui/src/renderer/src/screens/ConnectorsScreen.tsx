@@ -14,6 +14,8 @@ import ConnectorDetail from '../components/connectors/ConnectorDetail'
 import ConnectorPreflight from '../components/connectors/ConnectorPreflight'
 import ConnectorRemoveDialog from '../components/connectors/ConnectorRemoveDialog'
 import ConnectorSearch from '../components/connectors/ConnectorSearch'
+import ConnectorAddDialog from '../components/connectors/ConnectorAddDialog'
+import type { ConnectorDefinitionInput, ConnectorImportPreview, ConnectorSecretInput } from '../../../shared/connectors'
 
 type Tab = 'connected' | 'explore'
 
@@ -87,9 +89,12 @@ export default function ConnectorsScreen(): React.JSX.Element {
     phase: 'authorizing' | 'testing' | 'connected'
     replaceConnectionId?: string
     connectionId?: string
+    operationId?: string
+    operationRevision?: number
   } | null>(null)
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
+  const [adding, setAdding] = useState(false)
   const connectInFlight = useRef(false)
 
   const refresh = useCallback(async (): Promise<ConnectorConnection[] | null> => {
@@ -123,7 +128,7 @@ export default function ConnectorsScreen(): React.JSX.Element {
           ) {
             return current
           }
-          return { ...current, connectionId: event.connection_id }
+          return { ...current, connectionId: event.connection_id, operationId: event.operation_id, operationRevision: event.operation_revision }
         })
       }
       if (
@@ -138,6 +143,25 @@ export default function ConnectorsScreen(): React.JSX.Element {
             ? { ...current, phase: 'testing' }
             : current
         )
+      }
+      if ((event.type === 'connector_status_changed' || event.type === 'connector_connected' || event.type === 'connector_failed') && event.connection_id) {
+        setProgress((current) => {
+          if (!current || current.connectionId !== event.connection_id) return current
+          if (current.operationId && event.operation_id && current.operationId !== event.operation_id) return current
+          if (current.operationRevision !== undefined && event.operation_revision !== undefined && current.operationRevision !== event.operation_revision) return current
+          if (event.type === 'connector_connected' || event.status === 'connected') {
+            const completedConnectionId = current.connectionId
+            const completedOperationId = current.operationId
+            window.setTimeout(() => setProgress((latest) => latest && latest.connectionId === completedConnectionId && latest.operationId === completedOperationId ? null : latest), 1800)
+            setNotice(`Connected to ${current.name}. Try it in chat!`)
+            return { ...current, phase: 'connected' }
+          }
+          if (event.type === 'connector_failed' || event.status === 'failed' || event.status === 'auth_required' || event.status === 'attention') {
+            setNotice(event.failure?.recovery_action || event.failure?.message || `${current.name} needs attention before Collie can use it.`)
+            return null
+          }
+          return current
+        })
       }
     })
   }, [refresh])
@@ -234,6 +258,55 @@ export default function ConnectorsScreen(): React.JSX.Element {
     }
   }
 
+  const addDefinition = async (
+    definition: ConnectorDefinitionInput,
+    secret?: ConnectorSecretInput,
+    importSecretHandle?: string
+  ): Promise<void> => {
+    setBusy(true)
+    setNotice('')
+    setProgress(null)
+    try {
+      const namedDefinition = { ...definition, name: definition.name || 'Imported connection' }
+      const saved = await collieClient.saveConnectorDefinition(namedDefinition)
+      if (!saved.definition_id) throw new Error('The connection was not saved. Try again.')
+      const started = secret || importSecretHandle
+        ? await window.collie.submitConnectorCredentials({ action: 'begin_auth', definition_id: saved.definition_id, display_name: definition.name, secret, import_secret_handle: importSecretHandle, origin: 'connectors_ui' })
+        : await collieClient.beginDefinitionAuth(saved.definition_id, definition.name)
+      setAdding(false)
+      const currentConnections = await refresh()
+      const authoritative = currentConnections?.find((connection) => connection.id === started.connection_id)
+      const status = authoritative?.status || started.status
+      if (started.connection_id && (status === 'authorizing' || status === 'testing')) {
+        setProgress({
+          providerId: saved.provider_id || saved.definition_id,
+          name: definition.name || 'Connection',
+          phase: status === 'testing' ? 'testing' : 'authorizing',
+          connectionId: started.connection_id,
+          operationId: started.operation_id,
+          operationRevision: started.operation_revision
+        })
+      }
+      setNotice(
+        status === 'connected'
+          ? `Connected to ${definition.name || 'your server'}. Try it in chat!`
+          : authoritative?.failure?.recovery_action || 'Connection saved. Finish sign-in or follow the recovery step shown here.'
+      )
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'That connection did not go through.')
+      throw error
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const chooseImport = async (): Promise<ConnectorImportPreview | null> => {
+    if (typeof window.collie.previewConnectorImportFile === 'function') {
+      return window.collie.previewConnectorImportFile()
+    }
+    throw new Error('Safe connection-file preview is unavailable in this build.')
+  }
+
   if (selected) {
     const connector = catalog.find((item) => item.id === selected.provider_id)
     return (
@@ -269,14 +342,30 @@ export default function ConnectorsScreen(): React.JSX.Element {
               .testConnector(selected.id)
               .then(({ connection }) => {
                 setSelected(connection)
-                setNotice('Connection looks healthy.')
+                setNotice(connection.status === 'connected' ? 'Connection looks healthy.' : connection.failure?.recovery_action || connection.last_error_message || 'The connection still needs attention.')
               })
               .catch((error) =>
                 setNotice(error instanceof Error ? error.message : 'The check failed.')
               )
               .finally(() => setBusy(false))
           }}
-          onReconnect={() => connector && openPreflight(connector)}
+          onInspectTools={(toolQuery) => collieClient.listConnectorTools(selected.id, toolQuery, 100).then((result) => result.tools)}
+          onSaveTools={(enabled_tools) => collieClient.updateConnector(selected.id, { enabled_capabilities: selected.enabled_capabilities, enabled_tools }).then(({ connection }) => { setSelected(connection); setNotice('Tool access saved.') })}
+          onReconnectWithSecret={async (value) => {
+            setBusy(true)
+            try {
+              const result = await window.collie.submitConnectorCredentials({ action: 'reconnect', connection_id: selected.id, operation_revision: selected.operation_revision, secret: { token: value }, origin: 'connectors_ui' })
+              await refresh()
+              setNotice(result.failure?.recovery_action || (result.status === 'connected' ? 'Connection restored.' : 'Reconnection started.'))
+            } finally { setBusy(false) }
+          }}
+          onReconnect={() => {
+            setBusy(true)
+            void collieClient.reconnectConnector(selected.id, selected.operation_revision).then(async (result) => {
+              await refresh()
+              setNotice(result.failure?.recovery_action || (result.status === 'connected' ? 'Connection restored.' : 'Reconnection started.'))
+            }).catch((error) => setNotice(error instanceof Error ? error.message : 'Reconnection failed.')).finally(() => setBusy(false))
+          }}
           onRemove={() => setRemoving(selected)}
         />
         {notice ? (
@@ -319,11 +408,12 @@ export default function ConnectorsScreen(): React.JSX.Element {
   return (
     <main className="min-w-0 flex-1 overflow-y-auto p-6">
       <div className="mx-auto max-w-6xl">
-        <header className="mb-5">
-          <h1 className="text-2xl font-semibold">{ui("Connections")}</h1>
+        <header className="mb-5 flex items-start justify-between gap-4">
+          <div><h1 className="text-2xl font-semibold">{ui("Connections")}</h1>
           <p className="mt-1 text-sm" style={{ color: 'var(--collie-paw)' }}>
             {ui("Pick an app, sign in, and use it in chat. Collie confirms important actions.")}
-          </p>
+          </p></div>
+          <button type="button" className="rounded-lg px-4 py-2 text-sm font-semibold text-white" style={{ background: 'var(--collie-btn-primary-bg)' }} onClick={() => setAdding(true)}>Add connection</button>
         </header>
         {notice ? (
           <p className="mb-4 rounded-xl border bg-white p-3 text-sm" role="status">
@@ -338,11 +428,12 @@ export default function ConnectorsScreen(): React.JSX.Element {
               progress.connectionId
                 ? () => {
                     void collieClient
-                      .cancelConnectorAuth(progress.connectionId!)
-                      .then(() => {
+                      .cancelConnectorAuth(progress.connectionId!, progress.operationId, progress.operationRevision)
+                      .then((result) => {
                         setProgress(null)
                         setBusy(false)
-                        setNotice('Sign-in cancelled. Nothing was connected.')
+                        setNotice(result.cancelled ? 'Sign-in cancelled. Nothing was connected.' : 'That sign-in had already finished. The current connection status is shown below.')
+                        void refresh()
                       })
                       .catch(() => {
                         setProgress(null)
@@ -432,6 +523,16 @@ export default function ConnectorsScreen(): React.JSX.Element {
           connector={preflight}
           onCancel={() => setPreflight(null)}
           onContinue={() => void startConnect(preflight)}
+        />
+      ) : null}
+      {adding ? (
+        <ConnectorAddDialog
+          busy={busy}
+          onClose={() => setAdding(false)}
+          onValidate={(definition) => collieClient.validateConnectorDefinition(definition)}
+          onChooseImport={chooseImport}
+          onDiscardImportSecrets={(handles) => window.collie.discardConnectorImportSecrets(handles).then(() => undefined)}
+          onSubmit={addDefinition}
         />
       ) : null}
     </main>
