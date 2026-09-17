@@ -70,12 +70,16 @@ _SERVER_ONLY_ALLOWLIST: dict[str, str] = {
     "create_plan": "plan engine API exercised by backend tests",
     "get_plan": "plan engine API exercised by backend tests",
     "retry_plan_execution": "plan engine API exercised by backend tests",
-    # Routine CRUD handlers with no current UI caller — RoutinesScreen
-    # uses list/run/pause/resume/retry. Verify before removing.
-    "get_routine": "no caller in UI; verify or remove",
-    "update_routine": "no caller in UI; verify or remove",
-    "delete_routine": "no caller in UI; verify or remove",
-    "test_routine": "no caller in UI; verify or remove",
+    # Backend-only telemetry, Dream, connector and subagent introspection
+    # endpoints: the renderer never wrapped them (or no longer does) and the
+    # backend suite drives them directly (test_run_records.py, test_ipc.py,
+    # test_dream_collie.py).
+    "get_run_records": "run-records API exercised by backend tests",
+    "get_tool_events": "run-records API exercised by backend tests",
+    "get_dream_history": "Dream history API exercised by backend tests",
+    "rollback_provider_catalogue": "catalogue rollback exercised by backend tests",
+    "cancel_subagent": "subagent cancellation exercised by backend tests; UI uses stop",
+    "get_connector": "connector introspection exercised by backend tests",
     # Managed settings writes (provider auth/name/model/api_base) are only
     # exercised by backend tests; the renderer mutates providers through
     # upsert_provider / activate_provider instead.

@@ -174,15 +174,13 @@ def test_rollback_restores_before_text(db: CollieDB) -> None:
 
 def test_rollback_no_clobber_guard(db: CollieDB) -> None:
     store = VersionStore(db)
-    store.snapshot("agents", "AGENTS.md", "old", "new")
+    version_id = store.snapshot("agents", "AGENTS.md", "old", "new")
     # The file was edited again after the snapshot -> refuse.
     with pytest.raises(VersionConflictError):
         store.rollback("agents", "AGENTS.md", current_text="newer edit")
     # Still applied (nothing was marked).
-    assert (
-        db.get_artifact_version(store.latest_version_id("agents", "AGENTS.md") or "")["status"]
-        == "applied"
-    )
+    assert version_id is not None
+    assert db.get_artifact_version(version_id)["status"] == "applied"
 
 
 def test_rollback_targets_specific_version(db: CollieDB) -> None:
