@@ -11,6 +11,8 @@ import {
   parseCoreProtocolLine,
   RestartBudget
 } from './core-supervision'
+import { resolveCorePort } from './core-port'
+import { terminateProcessTree } from './process-tree'
 
 const IPC_PORT = Number(process.env.COLLIE_IPC_PORT || 3818)
 
@@ -26,6 +28,8 @@ let child: ChildProcess | null = null
 let state: 'stopped' | 'starting' | 'running' | 'failed' = 'stopped'
 let lastError = ''
 let readyPort: number | null = null
+/** The port this boot asked the core for; replaced once the core reports its own. */
+let activePort = IPC_PORT
 let respawnTimer: NodeJS.Timeout | null = null
 let healthyTimer: NodeJS.Timeout | null = null
 
@@ -54,7 +58,7 @@ export function coreState(): {
   // The token field is kept for shape compatibility (preload + renderer
   // mocks reference it), but it is ALWAYS empty here. The real ipcToken lives
   // only in the main process and is consumed by core-client.ts's broker.
-  return { state, port: readyPort ?? IPC_PORT, token: '', error: lastError }
+  return { state, port: readyPort ?? activePort, token: '', error: lastError }
 }
 
 function bundledPythonCandidates(): string[] {
@@ -117,6 +121,18 @@ export async function spawnCore(isDev: boolean): Promise<void> {
     env.PATH = `${nodePathDir}${process.platform === 'win32' ? ';' : ':'}${env.PATH ?? ''}`
   }
 
+  // A leftover process — usually a core from a session that crashed — can still
+  // own the configured port. Ask for a free one rather than failing every
+  // respawn against the same collision until the restart budget is spent.
+  try {
+    activePort = await resolveCorePort(IPC_PORT)
+  } catch {
+    activePort = IPC_PORT
+  }
+  if (activePort !== IPC_PORT) {
+    console.warn(`[core] port ${IPC_PORT} is unavailable; starting the core on ${activePort}`)
+  }
+
   state = 'starting'
   readyPort = null
   if (healthyTimer) {
@@ -128,26 +144,33 @@ export async function spawnCore(isDev: boolean): Promise<void> {
   // face a localhost endpoint guarded by the per-boot bearer token; absent
   // these the core keeps the routes honestly gated to coming-soon.
   const keychain = keychainAddress()
-  const spawnedChild = spawn(python, ['-m', 'collie_core.runtime', '--port', String(IPC_PORT)], {
-    cwd,
-    env: {
-      ...env,
-      COLLIE_IPC_PORT: String(IPC_PORT),
-      COLLIE_TIMEZONE: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      COLLIE_IPC_TOKEN: ipcToken,
-      COLLIE_IDENTITY_BIND_TOKEN: collaborationIdentityBindToken,
-      COLLIE_PRODUCT_METRICS: isDev ? '0' : '1',
-      COLLIE_MCP_RUNTIME_ROOT: bundledMcpRuntime(isDev),
-      ...(keychain
-        ? {
-            COLLIE_KEYCHAIN_PORT: String(keychain.port),
-            COLLIE_KEYCHAIN_TOKEN: keychain.token
-          }
-        : {})
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true
-  })
+  const spawnedChild = spawn(
+    python,
+    ['-m', 'collie_core.runtime', '--port', String(activePort)],
+    {
+      cwd,
+      env: {
+        ...env,
+        COLLIE_IPC_PORT: String(activePort),
+        COLLIE_TIMEZONE: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        COLLIE_IPC_TOKEN: ipcToken,
+        COLLIE_IDENTITY_BIND_TOKEN: collaborationIdentityBindToken,
+        COLLIE_PRODUCT_METRICS: isDev ? '0' : '1',
+        COLLIE_MCP_RUNTIME_ROOT: bundledMcpRuntime(isDev),
+        ...(keychain
+          ? {
+              COLLIE_KEYCHAIN_PORT: String(keychain.port),
+              COLLIE_KEYCHAIN_TOKEN: keychain.token
+            }
+          : {})
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+      // A group leader on POSIX, so stopping the core can reach the MCP servers
+      // it spawned instead of orphaning them.
+      detached: process.platform !== 'win32'
+    }
+  )
   child = spawnedChild
 
   const stdoutLines = new LineBuffer()
@@ -234,7 +257,9 @@ export async function spawnCore(isDev: boolean): Promise<void> {
   })
 }
 
-export function stopCore(): void {
+export async function stopCore(): Promise<void> {
+  // Set the state first: the exit handler treats a 'stopped' core as an
+  // intentional shutdown and will not spend the restart budget or respawn.
   state = 'stopped'
   if (respawnTimer) {
     clearTimeout(respawnTimer)
@@ -244,12 +269,7 @@ export function stopCore(): void {
     clearTimeout(healthyTimer)
     healthyTimer = null
   }
-  if (child) {
-    try {
-      child.kill()
-    } catch {
-      // already gone
-    }
-    child = null
-  }
+  const stopping = child
+  child = null
+  if (stopping) await terminateProcessTree(stopping)
 }
