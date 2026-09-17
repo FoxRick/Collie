@@ -8,6 +8,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from collie_core.routines.models import Schedule
+from collie_core.routines.timezone import local_timezone
 
 _WEEKDAYS = {
     "monday": "MON",
@@ -28,6 +29,8 @@ _WEEKDAYS = {
     "sun": "SUN",
 }
 _DAY_INDEX = {"MON": 0, "TUE": 1, "WED": 2, "THU": 3, "FRI": 4, "SAT": 5, "SUN": 6}
+_DAY_NAMES = ("MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN")
+_RECURRENCE_KINDS = frozenset({"daily", "weekdays", "weekly", "monthly"})
 _TIME_RE = re.compile(
     r"\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?\b",
     re.IGNORECASE,
@@ -192,3 +195,66 @@ def next_occurrence(schedule: Schedule, after: datetime | None = None) -> dateti
         if candidate.astimezone(UTC) > instant:
             return candidate.astimezone(UTC)
     return None
+
+
+def _recurrence_schedule(kind: str, anchor: datetime, zone: ZoneInfo) -> Schedule:
+    """The schedule a named reminder recurrence implies, holding ``anchor``'s local clock."""
+    local = anchor.astimezone(zone)
+    clock = local.time().replace(second=0, microsecond=0)
+    if kind == "weekly":
+        return Schedule(
+            kind="weekly", days=(_DAY_NAMES[local.weekday()],), time=clock, timezone=str(zone)
+        )
+    if kind == "monthly":
+        return Schedule(kind="monthly", day=local.day, time=clock, timezone=str(zone))
+    return Schedule(kind=kind, time=clock, timezone=str(zone))
+
+
+def next_recurrence(
+    recurrence: str,
+    anchor: datetime,
+    *,
+    after: datetime | None = None,
+    timezone_name: str | None = None,
+) -> datetime | None:
+    """Next occurrence after ``after`` for a reminder recurrence, or None if it can't be used.
+
+    Named kinds reuse :func:`next_occurrence` in the local zone; anything else is
+    treated as a cron expression evaluated with ``croniter`` in that same zone.
+    """
+    rule = (recurrence or "").strip().lower()
+    zone = ZoneInfo(timezone_name or local_timezone())
+    instant = after or datetime.now(UTC)
+    if instant.tzinfo is None:
+        instant = instant.replace(tzinfo=UTC)
+    if anchor.tzinfo is None:
+        anchor = anchor.replace(tzinfo=UTC)
+    if rule in _RECURRENCE_KINDS:
+        try:
+            schedule = _recurrence_schedule(rule, anchor, zone)
+        except ValueError:
+            return None
+        return next_occurrence(schedule, instant)
+    try:
+        from croniter import croniter
+
+        return croniter(rule, instant.astimezone(zone)).get_next(datetime).astimezone(UTC)
+    except (ValueError, KeyError, TypeError, OverflowError):
+        return None
+
+
+def validate_recurrence(recurrence: str) -> str:
+    """Normalize a recurrence rule, or raise ValueError when it is not one we can honour."""
+    rule = (recurrence or "").strip()
+    if rule.lower() in _RECURRENCE_KINDS:
+        return rule.lower()
+    try:
+        from croniter import croniter
+
+        croniter(rule)
+    except (ValueError, KeyError, TypeError, OverflowError):
+        raise ValueError(
+            "I can repeat reminders daily, on weekdays, weekly, monthly, or on a cron "
+            "schedule like '0 9 * * *'. Which would you like?"
+        ) from None
+    return rule

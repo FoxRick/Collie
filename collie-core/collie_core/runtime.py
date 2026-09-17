@@ -1763,41 +1763,68 @@ class CollieRuntime:
 
     async def _reminder_checker(self) -> None:
         """Fire due reminders into a 🔔 conversation + OS notification."""
-        from collie_core.db import utc_now
-
-        conv_key = "reminders.conversation_id"
         while True:
             try:
-                for reminder in self.db.due_reminders(utc_now()):
-                    reminder_id = str(reminder["id"])
-                    if not self.db.complete_reminder(reminder_id):
-                        continue
-                    conv_id = str(self.db.get_setting(conv_key, "") or "")
-                    if not conv_id or self.db.get_conversation(conv_id) is None:
-                        conv = self.db.create_conversation(title="🔔 Reminders")
-                        conv_id = str(conv["id"])
-                        self.db.set_setting(conv_key, conv_id)
-                    content = str(reminder.get("text") or "Reminder!")
-                    message = self.db.add_message(conv_id, "assistant", f"⏰ {content}")
-                    await self.ipc.broadcast(
-                        {
-                            "type": "message",
-                            "conversation_id": conv_id,
-                            "message": message,
-                        }
-                    )
-                    await self.ipc.broadcast(
-                        {
-                            "type": "automation",
-                            "automation_id": f"reminder-{reminder_id[:8]}",
-                            "name": "Reminder",
-                            "conversation_id": conv_id,
-                            "content": content,
-                        }
-                    )
+                await self._deliver_due_reminders()
             except Exception:
                 logger.exception("Reminder checker failed")
             await asyncio.sleep(30)
+
+    async def _deliver_due_reminders(self) -> None:
+        from collie_core.db import utc_now
+
+        conv_key = "reminders.conversation_id"
+        for reminder in self.db.due_reminders(utc_now()):
+            reminder_id = str(reminder["id"])
+            if not self._advance_reminder(reminder):
+                continue
+            conv_id = str(self.db.get_setting(conv_key, "") or "")
+            if not conv_id or self.db.get_conversation(conv_id) is None:
+                conv = self.db.create_conversation(title="🔔 Reminders")
+                conv_id = str(conv["id"])
+                self.db.set_setting(conv_key, conv_id)
+            content = str(reminder.get("text") or "Reminder!")
+            message = self.db.add_message(conv_id, "assistant", f"⏰ {content}")
+            await self.ipc.broadcast(
+                {
+                    "type": "message",
+                    "conversation_id": conv_id,
+                    "message": message,
+                }
+            )
+            await self.ipc.broadcast(
+                {
+                    "type": "automation",
+                    "automation_id": f"reminder-{reminder_id[:8]}",
+                    "name": "Reminder",
+                    "conversation_id": conv_id,
+                    "content": content,
+                }
+            )
+
+    def _advance_reminder(self, reminder: dict[str, Any]) -> bool:
+        """Complete a one-shot reminder, or roll a recurring one to its next due time."""
+        from datetime import UTC, datetime
+
+        from collie_core.routines.schedule import next_recurrence
+
+        reminder_id = str(reminder["id"])
+        recurrence = str(reminder.get("recurrence") or "").strip()
+        if not recurrence:
+            return self.db.complete_reminder(reminder_id)
+        try:
+            anchor = datetime.fromisoformat(str(reminder.get("due_at") or ""))
+        except ValueError:
+            anchor = datetime.now(UTC)
+        following = next_recurrence(recurrence, anchor)
+        if following is None:
+            logger.warning(
+                "Reminder {} has an unusable recurrence {!r}; completing it instead",
+                reminder_id,
+                recurrence,
+            )
+            return self.db.complete_reminder(reminder_id)
+        return self.db.reschedule_reminder(reminder_id, following.isoformat(timespec="seconds"))
 
     async def run(self) -> None:
         logs_dir = collie_home() / "logs"
