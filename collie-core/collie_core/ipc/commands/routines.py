@@ -94,12 +94,6 @@ class RoutineCommands:
         await self.broadcast({"type": "routine_updated", "routine": routine})
         return {"routine": routine}
 
-    async def _cmd_get_routine(self, connection: ServerConnection, frame: dict) -> dict:
-        row = self.db.get_automation(str(frame.get("routine_id") or ""))
-        if row is None:
-            raise ValueError("routine not found")
-        return {"routine": row}
-
     async def _cmd_update_routine(self, connection: ServerConnection, frame: dict) -> dict:
         from datetime import datetime
 
@@ -158,11 +152,6 @@ class RoutineCommands:
         self.db.toggle_automation(routine_id, True)
         return {"routine": self.db.get_automation(routine_id)}
 
-    async def _cmd_delete_routine(self, connection: ServerConnection, frame: dict) -> dict:
-        return await self._cmd_delete_automation(
-            connection, {"automation_id": frame.get("routine_id")}
-        )
-
     async def _cmd_run_routine_now(self, connection: ServerConnection, frame: dict) -> dict:
         routine_id = str(frame.get("routine_id") or "")
         row = self.db.get_automation(routine_id)
@@ -220,16 +209,6 @@ class RoutineCommands:
         self._chat_tasks[conv_id] = task
         task.add_done_callback(lambda _task, cid=conv_id: self._chat_tasks.pop(cid, None))
         return {"run": run}
-
-    async def _cmd_test_routine(self, connection: ServerConnection, frame: dict) -> dict:
-        row = self.db.get_automation(str(frame.get("routine_id") or ""))
-        if row is None:
-            raise ValueError("routine not found")
-        return {
-            "safe": bool(row.get("plan_id") and row.get("plan_version")),
-            "services_available": True,
-            "side_effects_performed": False,
-        }
 
     async def _cmd_list_routine_runs(self, connection: ServerConnection, frame: dict) -> dict:
         limit = _bounded_list_limit(frame.get("limit"), default=100)
