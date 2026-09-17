@@ -1,10 +1,12 @@
 """Tests for the Reminders tool (F024)."""
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from collie_core.db import CollieDB
+from collie_core.routines.schedule import next_recurrence, validate_recurrence
 from collie_core.tools.reminders import RemindersTool, bind_reminders_db
 
 
@@ -272,3 +274,140 @@ def test_nl_due_tolerates_sentence_punctuation() -> None:
     assert _normalize_due("tomorrow, 3pm") == _local(tomorrow.month, tomorrow.day, 15)
     assert _normalize_due("tomorrow at 3pm.") == _local(tomorrow.month, tomorrow.day, 15)
     assert _normalize_due("tomorrow, 3pm.") == _local(tomorrow.month, tomorrow.day, 15)
+
+
+# -- recurrence ----------------------------------------------------------------
+
+
+class _FakeIPC:
+    def __init__(self) -> None:
+        self.broadcasts: list[dict] = []
+
+    async def broadcast(self, payload: dict) -> None:
+        self.broadcasts.append(payload)
+
+
+def _runtime_for(db: CollieDB):
+    from collie_core.runtime import CollieRuntime
+
+    runtime = CollieRuntime.__new__(CollieRuntime)
+    runtime.db = db
+    runtime.ipc = _FakeIPC()
+    return runtime
+
+
+def test_reschedule_reminder_clears_snooze_and_keeps_it_active(db: CollieDB) -> None:
+    r = db.add_reminder("Daily", "2020-01-01T09:00:00+00:00", recurrence="daily")
+    db.snooze_reminder(r["id"], "2020-01-01T10:00:00+00:00")
+
+    assert db.reschedule_reminder(r["id"], "2026-07-21T09:00:00+00:00") is True
+
+    row = db.list_reminders()[0]
+    assert row["due_at"] == "2026-07-21T09:00:00+00:00"
+    assert row["snoozed_until"] is None
+    assert row["completed"] == 0
+
+
+@pytest.mark.asyncio
+async def test_recurring_reminder_reschedules_instead_of_completing(db, monkeypatch) -> None:
+    monkeypatch.setenv("COLLIE_TIMEZONE", "UTC")
+    db.add_reminder("Stretch", "2020-01-01T09:00:00+00:00", recurrence="daily")
+    runtime = _runtime_for(db)
+
+    await runtime._deliver_due_reminders()
+
+    active = db.list_reminders()
+    assert len(active) == 1
+    assert active[0]["completed"] == 0
+    following = datetime.fromisoformat(active[0]["due_at"])
+    now = datetime.now(UTC)
+    assert following > now
+    assert following.hour == 9 and following.minute == 0
+    assert following - now <= timedelta(days=1)
+    # The notification still went out, twice (message + automation).
+    assert len(runtime.ipc.broadcasts) == 2
+
+
+@pytest.mark.asyncio
+async def test_non_recurring_reminder_is_completed(db, monkeypatch) -> None:
+    monkeypatch.setenv("COLLIE_TIMEZONE", "UTC")
+    db.add_reminder("One-off", "2020-01-01T09:00:00+00:00")
+    runtime = _runtime_for(db)
+
+    await runtime._deliver_due_reminders()
+
+    assert db.list_reminders() == []
+    assert db.list_reminders(include_completed=True)[0]["completed"] == 1
+    assert len(runtime.ipc.broadcasts) == 2
+
+
+@pytest.mark.asyncio
+async def test_unusable_recurrence_completes_without_stopping_the_checker(db, monkeypatch) -> None:
+    monkeypatch.setenv("COLLIE_TIMEZONE", "UTC")
+    db.add_reminder("Broken", "2020-01-01T09:00:00+00:00", recurrence="every so often")
+    db.add_reminder("Still works", "2020-01-01T10:00:00+00:00", recurrence="daily")
+    runtime = _runtime_for(db)
+
+    await runtime._deliver_due_reminders()
+
+    rows = {row["text"]: row for row in db.list_reminders(include_completed=True)}
+    assert rows["Broken"]["completed"] == 1
+    assert rows["Still works"]["completed"] == 0
+    # Both were delivered: the broken one once, the repeating one still scheduled.
+    assert len(runtime.ipc.broadcasts) == 4
+
+
+@pytest.mark.parametrize(
+    ("rule", "expected"),
+    [
+        ("daily", datetime(2026, 7, 21, 9, 0, tzinfo=UTC)),
+        ("weekdays", datetime(2026, 7, 21, 9, 0, tzinfo=UTC)),
+        ("weekly", datetime(2026, 7, 27, 9, 0, tzinfo=UTC)),
+        ("monthly", datetime(2026, 8, 20, 9, 0, tzinfo=UTC)),
+        ("0 9 * * *", datetime(2026, 7, 21, 9, 0, tzinfo=UTC)),
+    ],
+)
+def test_next_recurrence_expected_next_time(rule: str, expected: datetime) -> None:
+    # 2026-07-20 is a Monday, so "weekly" lands the following Monday and
+    # "monthly" keeps the 20th.
+    anchor = datetime(2026, 7, 20, 9, 0, tzinfo=UTC)
+    after = datetime(2026, 7, 20, 9, 30, tzinfo=UTC)
+    assert next_recurrence(rule, anchor, after=after, timezone_name="UTC") == expected
+
+
+def test_next_recurrence_matches_routines_dst_spring_forward() -> None:
+    # US DST starts Sun 2026-03-08: 02:30 doesn't exist, so the reminder snaps
+    # to the first valid instant (03:00 EDT), exactly like the routines scheduler.
+    anchor = datetime(2026, 3, 7, 7, 30, tzinfo=UTC)
+    after = datetime(2026, 3, 7, 8, 0, tzinfo=UTC)
+    assert next_recurrence(
+        "daily", anchor, after=after, timezone_name="America/New_York"
+    ) == datetime(2026, 3, 8, 7, 0, tzinfo=UTC)
+
+
+def test_next_recurrence_returns_none_for_unusable_rule() -> None:
+    anchor = datetime(2026, 7, 20, 9, 0, tzinfo=UTC)
+    assert next_recurrence("every so often", anchor, timezone_name="UTC") is None
+
+
+def test_validate_recurrence_accepts_named_kinds_and_cron() -> None:
+    assert validate_recurrence("Daily") == "daily"
+    assert validate_recurrence("0 9 * * 1-5") == "0 9 * * 1-5"
+
+
+def test_validate_recurrence_rejects_unknown_rule() -> None:
+    with pytest.raises(ValueError, match="cron"):
+        validate_recurrence("every so often")
+
+
+@pytest.mark.asyncio
+async def test_create_with_invalid_recurrence_is_rejected(db: CollieDB) -> None:
+    tool = RemindersTool()
+    result = await tool.execute(
+        action="create",
+        text="Yoga",
+        due_at="2026-07-20T15:00:00",
+        recurrence="every so often",
+    )
+    assert "cron" in str(result).lower()
+    assert db.list_reminders() == []

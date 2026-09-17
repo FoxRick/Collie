@@ -119,6 +119,7 @@ DOMAIN_METHODS: dict[str, tuple[str, ...]] = {
         "due_reminders",
         "_resolve_reminder_id",
         "complete_reminder",
+        "reschedule_reminder",
         "snooze_reminder",
         "delete_reminder",
         "add_shopping_item",
