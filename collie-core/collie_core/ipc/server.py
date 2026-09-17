@@ -314,10 +314,15 @@ class CollieIPCServer(
 
     async def stop(self) -> None:
         oauth_attempts = list(self._oauth_attempts.values())
-        tasks = list(self._chat_tasks.values()) + list(self._background_tasks)
+        tasks = (
+            list(self._chat_tasks.values())
+            + list(self._background_tasks)
+            + list(self._command_tasks)
+        )
         oauth_tasks = list(self._oauth_worker_tasks)
         self._chat_tasks.clear()
         self._background_tasks.clear()
+        self._command_tasks.clear()
         self._oauth_attempts.clear()
         self._oauth_worker_tasks.clear()
         for attempt in oauth_attempts:
@@ -464,7 +469,24 @@ class CollieIPCServer(
         )
         try:
             async for raw in connection:
-                await self._handle_frame(connection, raw)
+                kind = None
+                try:
+                    decoded = json.loads(raw)
+                    kind = decoded.get("type") if isinstance(decoded, dict) else None
+                except (TypeError, ValueError):
+                    pass
+                if kind in {
+                    "begin_connector_auth",
+                    "begin_definition_auth",
+                    "test_connector",
+                    "reconnect_connector",
+                    "remove_connector",
+                }:
+                    task = asyncio.create_task(self._handle_frame(connection, raw))
+                    self._command_tasks.add(task)
+                    task.add_done_callback(self._command_tasks.discard)
+                else:
+                    await self._handle_frame(connection, raw)
         except Exception:
             logger.debug("IPC connection closed")
         finally:

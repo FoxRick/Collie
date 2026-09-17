@@ -327,4 +327,100 @@ describe('protected collaboration orchestration', () => {
     expect(state.calls[runIndex].payload.published_history).toEqual([])
     await clearCollaborationIdentity()
   })
+
+  it('runs a requester-owned shared turn privately and publishes only the reviewed draft', async () => {
+    const requestEvent = {
+      event_id: 'request-event',
+      session_id: 's1',
+      seq: 1,
+      kind: 'message',
+      message_id: 'request-message',
+      author_id: 'user-a',
+      role: 'user',
+      content: 'Draft the launch note',
+      revision: 1,
+      created_at: '2026-09-09T00:00:00Z'
+    }
+    const assistantEvent = {
+      event_id: 'answer-event',
+      session_id: 's1',
+      seq: 2,
+      kind: 'message',
+      message_id: 'answer-message',
+      author_id: 'user-a',
+      role: 'assistant',
+      content: 'Reviewed launch note',
+      revision: 1,
+      created_at: '2026-09-09T00:01:00Z'
+    }
+    state.replies.push(
+      new Response(JSON.stringify({ run_id: 'run-1' }), { status: 200 }),
+      new Response(
+        JSON.stringify({ events: [requestEvent], next_cursor: 1, high_water: 1 }),
+        { status: 200 }
+      ),
+      new Response(JSON.stringify({ files: [] }), { status: 200 }),
+      new Response(
+        JSON.stringify({
+          run_id: 'run-1',
+          session_id: 's1',
+          requester_id: 'user-a',
+          credential_owner_id: 'user-a',
+          executor_device_id: 'device',
+          audience_revision: 1,
+          context_cutoff: 1,
+          lease_token: 'lease',
+          lease_expires_at: '2099-01-01T00:00:00Z',
+          events: [requestEvent]
+        }),
+        { status: 200 }
+      ),
+      new Response(JSON.stringify({ event: assistantEvent }), { status: 200 }),
+      new Response(
+        JSON.stringify({ events: [assistantEvent], next_cursor: 2, high_water: 2 }),
+        { status: 200 }
+      ),
+      new Response(JSON.stringify({ files: [] }), { status: 200 })
+    )
+
+    const {
+      clearCollaborationIdentity,
+      listPrivateDrafts,
+      publishSharedDraft,
+      runSharedPrivately
+    } = await import('./collaboration')
+    const draft = await runSharedPrivately('s1', 'Draft the launch note')
+    expect(draft).toMatchObject({
+      runId: 'run-1',
+      content: 'private',
+      state: 'complete'
+    })
+    expect(
+      state.calls.find((call) => call.type === 'collaboration_run_shared')
+        ?.payload
+    ).toMatchObject({
+      mode: 'private_result',
+      content: 'Draft the launch note'
+    })
+
+    await publishSharedDraft(draft.draftId, 'Reviewed launch note')
+    const backendCalls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls
+      .map((call) =>
+        call[1]?.body
+          ? (JSON.parse(String(call[1].body)) as {
+              p_command?: string
+              p_payload?: Record<string, unknown>
+            })
+          : {}
+      )
+    expect(
+      backendCalls.find((call) => call.p_command === 'complete_run')?.p_payload
+    ).toMatchObject({
+      run_id: 'run-1',
+      lease_token: 'lease',
+      content: 'Reviewed launch note'
+    })
+    expect(await listPrivateDrafts()).toEqual([])
+    await clearCollaborationIdentity()
+  })
 })

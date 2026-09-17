@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { FeedbackResult, FeedbackSubmission } from '../shared/feedback'
 import type { CollaborationBridge } from '../shared/collaboration'
+import type {
+  ConnectorCredentialSubmission,
+  ConnectorImportFilePreview,
+  ConnectorImportPreview,
+  ConnectorOperationResult
+} from '../shared/connectors'
 
 export type UpdatePhase =
   | 'idle'
@@ -99,6 +105,16 @@ const api = {
   listSecrets: (): Promise<string[]> => ipcRenderer.invoke('collie:list-secrets'),
   storedSecretCount: (): Promise<number> =>
     ipcRenderer.invoke('collie:stored-secret-count'),
+  submitConnectorCredentials: (
+    submission: ConnectorCredentialSubmission
+  ): Promise<ConnectorOperationResult> =>
+    ipcRenderer.invoke('collie:submit-connector-credentials', submission),
+  previewConnectorImport: (source: string | Record<string, unknown>): Promise<ConnectorImportPreview> =>
+    ipcRenderer.invoke('collie:preview-connector-import', source),
+  previewConnectorImportFile: (): Promise<ConnectorImportFilePreview | null> =>
+    ipcRenderer.invoke('collie:preview-connector-import-file'),
+  discardConnectorImportSecrets: (handles: string[]): Promise<void> =>
+    ipcRenderer.invoke('collie:discard-connector-import-secrets', handles),
   pickAttachments: (): Promise<Array<{ name: string; mime: string; size: number; data_url: string }>> =>
     ipcRenderer.invoke('collie:pick-attachments'),
   pickProjectFolder: (): Promise<string | null> =>

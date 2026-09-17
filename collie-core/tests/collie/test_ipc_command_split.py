@@ -59,6 +59,7 @@ HANDLERS: dict[str, tuple[str, ...]] = {
     ),
     "connectors": (
         "begin_connector_auth",
+        "begin_definition_auth",
         "cancel_connector_auth",
         "connect_service",
         "disconnect_service",
@@ -67,9 +68,13 @@ HANDLERS: dict[str, tuple[str, ...]] = {
         "list_connector_connections",
         "list_connector_tools",
         "list_services",
+        "preview_connector_import",
+        "reconnect_connector",
         "remove_connector",
+        "save_connector_definition",
         "test_connector",
         "update_connector",
+        "validate_connector_definition",
     ),
     "files": (
         "list_versions",
@@ -169,6 +174,7 @@ HOST_DEPENDENCIES: dict[str, frozenset[str]] = {
     ),
     "connectors": frozenset(
         {
+            "_background_tasks",
             "_reconfigure_quietly",
             "_service_manager",
             "broadcast",
