@@ -1806,6 +1806,9 @@ class CollieRuntime:
             logger.add(logs_dir / "core.log", rotation="5 MB", retention=3)
 
         self._gc_media_uploads()
+        removed = self.db.sweep_telemetry()
+        if any(removed.values()):
+            logger.info("Retention sweep removed {}", removed)
         try:
             # A leftover core from a crashed app session can still own the
             # fixed IPC port; clear it before binding so the boot probe never

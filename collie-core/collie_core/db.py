@@ -21,8 +21,8 @@ import os
 import sqlite3
 import threading
 from collections.abc import Iterator
-from contextlib import contextmanager
-from datetime import date
+from contextlib import contextmanager, suppress
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -1969,6 +1969,70 @@ class CollieDB(
         ]
 
     # -- data management ----------------------------------------------------------------------------
+
+    # Append-only telemetry and journal rows are read back as Gardener evidence
+    # and as the "recently remembered" history, so they are bounded by age rather
+    # than by row count. Artifact snapshots are bounded per artifact instead:
+    # the rollback rail only needs the recent chain.
+    TELEMETRY_RETENTION_DAYS = 90
+    ARTIFACT_VERSION_RETENTION = 20
+    _VACUUM_FREELIST_PAGES = 2000
+
+    def sweep_telemetry(
+        self,
+        *,
+        retention_days: int = TELEMETRY_RETENTION_DAYS,
+        max_artifact_versions: int = ARTIFACT_VERSION_RETENTION,
+    ) -> dict[str, int]:
+        """Drop telemetry and journal rows that fell outside their bounds.
+
+        Returns how many rows each table lost. ``tool_events`` is deleted
+        explicitly rather than left to the ``turn_events`` cascade so its count
+        stays meaningful.
+        """
+        if retention_days < 1 or max_artifact_versions < 1:
+            raise ValueError("Retention bounds must be positive")
+        cutoff = (datetime.now(UTC) - timedelta(days=retention_days)).isoformat(timespec="seconds")
+        with self._write() as conn:
+            tool_events = conn.execute(
+                "DELETE FROM tool_events WHERE turn_id IN ("
+                "SELECT id FROM turn_events WHERE started_at < ?)",
+                (cutoff,),
+            ).rowcount
+            turn_events = conn.execute(
+                "DELETE FROM turn_events WHERE started_at < ?", (cutoff,)
+            ).rowcount
+            memory_journal = conn.execute(
+                "DELETE FROM memory_journal WHERE created_at < ?", (cutoff,)
+            ).rowcount
+            artifact_versions = conn.execute(
+                "DELETE FROM artifact_versions WHERE id IN ("
+                "SELECT id FROM (SELECT id, ROW_NUMBER() OVER ("
+                "PARTITION BY artifact_type, artifact_key ORDER BY version DESC"
+                ") AS artifact_rank FROM artifact_versions) WHERE artifact_rank > ?)",
+                (max_artifact_versions,),
+            ).rowcount
+        self._compact_if_fragmented()
+        return {
+            "tool_events": tool_events,
+            "turn_events": turn_events,
+            "memory_journal": memory_journal,
+            "artifact_versions": artifact_versions,
+        }
+
+    def _compact_if_fragmented(self) -> None:
+        """Reclaim freed pages once a sweep has left enough slack to be worth it.
+
+        Best-effort: the rows are already gone and their pages are reusable, so
+        a failed compaction (a concurrent reader holding the file, say) must not
+        interrupt startup.
+        """
+        with self._lock:
+            row = self._conn.execute("PRAGMA freelist_count").fetchone()
+            if row is None or int(row[0]) < self._VACUUM_FREELIST_PAGES:
+                return
+            with suppress(sqlite3.Error):
+                self._conn.execute("VACUUM")
 
     def export_all(self) -> dict[str, Any]:
         """Full data export (for F104 data export)."""
