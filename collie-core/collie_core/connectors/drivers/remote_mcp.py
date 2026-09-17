@@ -91,6 +91,7 @@ class RemoteMcpDriver:
                 auth=auth,
                 allow_private_network=bool(getattr(definition, "allow_private_network", False)),
                 server_name=getattr(definition, "id", "remote"),
+                timeout=300.0 if interactive else 30.0,
             ) as session:
                 discovered = await discover_all_tools(session)
         finally:

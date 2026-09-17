@@ -423,7 +423,7 @@ class ConnectorsDomain:
             for name, value in sorted(normalized.items())
         ]
         fingerprint = hashlib.sha256(
-            json.dumps(fingerprint_payload, separators=(",", ":")).encode("utf-8")
+            json.dumps(fingerprint_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
         return {
             "material_change": bool(previous and (new_tools or removed_tools or changed_tools)),

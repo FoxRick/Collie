@@ -339,7 +339,7 @@ export default function ConnectorsScreen(): React.JSX.Element {
           onTest={() => {
             setBusy(true)
             void collieClient
-              .testConnector(selected.id)
+              .testConnector(selected.id, selected.operation_revision)
               .then(({ connection }) => {
                 setSelected(connection)
                 setNotice(connection.status === 'connected' ? 'Connection looks healthy.' : connection.failure?.recovery_action || connection.last_error_message || 'The connection still needs attention.')
@@ -350,7 +350,7 @@ export default function ConnectorsScreen(): React.JSX.Element {
               .finally(() => setBusy(false))
           }}
           onInspectTools={(toolQuery) => collieClient.listConnectorTools(selected.id, toolQuery, 100).then((result) => result.tools)}
-          onSaveTools={(enabled_tools) => collieClient.updateConnector(selected.id, { enabled_capabilities: selected.enabled_capabilities, enabled_tools }).then(({ connection }) => { setSelected(connection); setNotice('Tool access saved.') })}
+          onSaveTools={(enabled_tools) => collieClient.updateConnector(selected.id, { enabled_capabilities: selected.enabled_capabilities, enabled_tools }).then(({ connection }) => { setSelected(connection); setNotice('Tool access saved.') }).catch((error) => setNotice(error instanceof Error ? error.message : 'Tool access was not saved.'))}
           onReconnectWithSecret={async (value) => {
             setBusy(true)
             try {
@@ -387,7 +387,7 @@ export default function ConnectorsScreen(): React.JSX.Element {
             onRemove={() => {
               setBusy(true)
               void collieClient
-                .removeConnector(removing.id)
+                .removeConnector(removing.id, removing.operation_revision)
                 .then(({ remote_revocation }) => {
                   setRemoving(null)
                   setSelected(null)
