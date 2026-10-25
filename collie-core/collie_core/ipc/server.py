@@ -301,9 +301,9 @@ class CollieIPCServer(
         self._oauth_attempts: dict[str, _OAuthAttemptState] = {}
         self._oauth_generations: dict[str, int] = {}
         self._oauth_worker_tasks: set[asyncio.Task] = set()
+        self.browser_service = None
         self.approval_broker: Any = None
         self._voice = LocalVoiceService()
-        self.browser_service = None
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -320,9 +320,9 @@ class CollieIPCServer(
         logger.info("Collie IPC listening on ws://{}:{}", self.host, self.port)
 
     async def stop(self) -> None:
+        oauth_attempts = list(self._oauth_attempts.values())
         if self.browser_service is not None:
             await self.browser_service.close()
-        oauth_attempts = list(self._oauth_attempts.values())
         tasks = (
             list(self._chat_tasks.values())
             + list(self._background_tasks)

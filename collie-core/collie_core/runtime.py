@@ -204,13 +204,13 @@ class CollieRuntime:
             self.ipc.broadcast,
             context_validator=self._validate_execution_context,
         )
+        self.ipc.approval_broker = self.approvals
         from collie_core.browser import BrowserService
         from collie_core.tools.browser import bind_browser_service
 
         self.browser = BrowserService(self.approvals)
         bind_browser_service(self.browser)
         self.ipc.browser_service = self.browser
-        self.ipc.approval_broker = self.approvals
         self.messengers.broadcaster = self.ipc.broadcast
         self._scheduler = AutomationScheduler(
             self.db, broadcaster=self.ipc.broadcast, runner=self._run_automation

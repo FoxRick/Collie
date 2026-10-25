@@ -149,7 +149,6 @@ HANDLERS: dict[str, tuple[str, ...]] = {
 # A new entry here is a deliberate statement that the module needs that part of
 # the server; a stale one means the reach went away and the table should shrink.
 HOST_DEPENDENCIES: dict[str, frozenset[str]] = {
-    "browser": frozenset({"browser_service", "db"}),
     "agents": frozenset(
         {
             "_activity_provider",
@@ -161,6 +160,7 @@ HOST_DEPENDENCIES: dict[str, frozenset[str]] = {
             "db",
         }
     ),
+    "browser": frozenset({"browser_service", "db"}),
     "collaboration": frozenset(
         {
             "_archive_manager",
