@@ -306,7 +306,8 @@ class CollieIPCServer(
         from collie_core.cross_session import CrossSession
 
         self.cross_session = CrossSession(
-            db, self._launch_cross_session,
+            db,
+            self._launch_cross_session,
             lambda: set(self._chat_tasks),
         )
 
