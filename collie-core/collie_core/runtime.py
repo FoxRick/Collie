@@ -229,6 +229,12 @@ class CollieRuntime:
         bind_browser_service(self.browser)
         self.ipc.browser_service = self.browser
         self.messengers.broadcaster = self.ipc.broadcast
+        from collie_core.native_control import NativeControl
+        from collie_core.tools.native_control import bind_native_control
+
+        self.native_control = NativeControl(self.approvals)
+        self.ipc.native_control = self.native_control
+        bind_native_control(self.native_control)
         self._scheduler = AutomationScheduler(
             self.db, broadcaster=self.ipc.broadcast, runner=self._run_automation
         )

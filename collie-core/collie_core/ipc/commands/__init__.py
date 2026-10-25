@@ -17,6 +17,7 @@ from collie_core.ipc.commands.cross_session import CrossSessionCommands
 from collie_core.ipc.commands.files import FileCommands
 from collie_core.ipc.commands.memory import MemoryCommands
 from collie_core.ipc.commands.messengers import MessengerCommands
+from collie_core.ipc.commands.native_control import NativeControlCommands
 from collie_core.ipc.commands.providers import ProviderCommands
 from collie_core.ipc.commands.routines import RoutineCommands
 from collie_core.ipc.commands.temporary_chat import TemporaryChatCommands
@@ -30,6 +31,7 @@ __all__ = [
     "FileCommands",
     "MemoryCommands",
     "MessengerCommands",
+    "NativeControlCommands",
     "ProviderCommands",
     "RoutineCommands",
     "TemporaryChatCommands",

@@ -69,6 +69,7 @@ from collie_core.ipc.commands import (
     FileCommands,
     MemoryCommands,
     MessengerCommands,
+    NativeControlCommands,
     ProviderCommands,
     RoutineCommands,
     TemporaryChatCommands,
@@ -202,6 +203,7 @@ class CollieIPCServer(
     FileCommands,
     TemporaryChatCommands,
     AgentCommands,
+    NativeControlCommands,
     MessengerCommands,
 ):
     """WebSocket IPC server bridging the Electron shell to the Collie core.
@@ -522,6 +524,8 @@ class CollieIPCServer(
                 if owner is connection:
                     await self._cmd_temporary_close(connection, {"session_id": key})
             self._clients.discard(connection)
+            if not self._clients and getattr(self, "native_control", None) is not None:
+                self.native_control.stop_all()
 
     async def _handle_frame(self, connection: ServerConnection, raw: str | bytes) -> None:
         try:
@@ -1113,6 +1117,8 @@ class CollieIPCServer(
 
     async def _cmd_stop(self, connection: ServerConnection, frame: dict) -> dict:
         conv_id = str(frame.get("conversation_id") or "")
+        if getattr(self, "native_control", None) is not None:
+            self.native_control.stop(conv_id)
         task = self._chat_tasks.get(conv_id)
         stopped = False
         turn_will_handle_stop = task is not None and not task.done()

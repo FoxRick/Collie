@@ -112,6 +112,7 @@ HANDLERS: dict[str, tuple[str, ...]] = {
         "set_messenger",
         "set_messenger_secret",
     ),
+    "native_control": ("native_control",),
     "providers": (
         "activate_managed_provider",
         "activate_provider",
@@ -212,6 +213,7 @@ HOST_DEPENDENCIES: dict[str, frozenset[str]] = {
             "_messengers",
         }
     ),
+    "native_control": frozenset({"_cmd_stop", "_session_target", "db"}),
     "providers": frozenset(
         {
             "_apply_provider_settings",
