@@ -22,15 +22,25 @@ export default function SkillsScreen(): React.JSX.Element {
   const [loading, setLoading] = useState(true)
   const [notice, setNotice] = useState('')
   const [category, setCategory] = useState<SkillCategory>('All')
+  const [draft, setDraft] = useState('')
+  const [deleted, setDeleted] = useState<string[]>([])
+  const [busy, setBusy] = useState(false)
+  const [pending, setPending] = useState<string[]>([])
+
+  const refresh = async (): Promise<void> => {
+    const data = await collieClient.listSkills()
+    setSkills(data.skills)
+    setDeleted(data.deleted || [])
+    setPending((data.pending || []).map((item) => item.name))
+    if (data.problems?.length) setNotice(data.problems.map((p) => `${p.name}: ${p.message}`).join(' '))
+  }
 
   useEffect(() => {
     if (new URLSearchParams(window.location.search).has('preview')) {
       setLoading(false)
       return
     }
-    void collieClient
-      .listSkills()
-      .then((data) => setSkills(data.skills))
+    void refresh()
       .catch(() => setNotice('I could not load the skill library just yet.'))
       .finally(() => setLoading(false))
   }, [])
@@ -47,12 +57,33 @@ export default function SkillsScreen(): React.JSX.Element {
   }, [category, query, skills])
 
   const openSkill = async (skill: CollieSkill): Promise<void> => {
-    setSelected(skill)
+    setSelected({ ...skill, revision: undefined })
+    setDraft('')
     try {
-      const detail = await collieClient.getSkill(skill.name)
+      const detail = await collieClient.getSkillEditor(skill.name)
       setSelected(detail.skill)
-    } catch {
-      // The summary still contains everything needed for the detail page.
+      setDraft(detail.skill.content || '')
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'I could not open these instructions.')
+    }
+  }
+
+  const changeSkill = async (action: Parameters<typeof collieClient.manageSkill>[0]['action'], name = selected?.name, version?: number): Promise<void> => {
+    if (!name) return
+    setBusy(true)
+    setNotice('')
+    try {
+      const result = await collieClient.manageSkill({ name, action, revision: selected?.revision, content: draft, version })
+      setNotice(result.pending ? 'Saved for after the current tasks finish. Refresh to see the result.' : 'Your skill library is updated.')
+      await refresh()
+      if (!result.pending && selected) {
+        if (action === 'delete') setSelected(null)
+        else await openSkill(selected)
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'I could not save that skill change.')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -75,6 +106,8 @@ export default function SkillsScreen(): React.JSX.Element {
           </span>
         </header>
         <div className="detail-scroll">
+          {notice && <p role="status">{notice}</p>}
+          {pending.includes(selected.name) && <p role="status">A change is waiting for the current tasks to finish.</p>}
           <div className="skill-detail-grid">
             <section className="detail-card">
               <span className="detail-label">ABOUT</span>
@@ -85,8 +118,21 @@ export default function SkillsScreen(): React.JSX.Element {
               <span className="detail-label">ACCESS</span>
               <h2 className="skill-detail-title">Available to your agents</h2>
               <p className="skill-detail-copy">
-                All agents currently inherit this shared skill{selected.available ? '.' : ' once setup is complete.'}
+                {selected.enabled === false ? 'This skill is disabled for new tasks.' : 'Your agents can discover this skill when its requirements are ready.'}
               </p>
+            </section>
+            <section className="detail-card detail-card--wide">
+              <h2 className="skill-detail-title">Manage instructions</h2>
+              <p>{selected.source === 'builtin' ? 'Saving creates a custom copy, including supporting assets. The built-in original stays safe.' : 'Changes keep supporting assets and record an instruction version.'} Changes wait until current tasks finish.</p>
+              <label htmlFor="skill-instructions">Skill Markdown (including its name and description header)</label>
+              <textarea id="skill-instructions" value={draft} onChange={(event) => setDraft(event.target.value)} rows={18} maxLength={32000} className="w-full" />
+              <div className="flex flex-wrap gap-2">
+                <button type="button" disabled={busy || !selected.revision || pending.includes(selected.name)} onClick={() => void changeSkill('edit')}>Save instructions</button>
+                <button type="button" disabled={busy || !selected.revision || pending.includes(selected.name)} onClick={() => void changeSkill(selected.enabled === false ? 'enable' : 'disable')}>{selected.enabled === false ? 'Enable' : 'Disable'}</button>
+                {selected.source === 'workspace' && <button type="button" disabled={busy || pending.includes(selected.name)} onClick={() => void changeSkill(selected.overridden ? 'reset' : 'delete')}>{selected.overridden ? 'Reset built-in' : 'Delete (recoverable)'}</button>}
+                <button type="button" disabled={busy} onClick={() => { void refresh().catch(() => setNotice('I could not refresh the library.')); void openSkill(selected) }}>Reload saved instructions</button>
+              </div>
+              {!!selected.versions?.length && <div><h3>Earlier instructions</h3>{selected.versions.map((item) => <button key={item.version} type="button" disabled={busy || pending.includes(selected.name)} onClick={() => void changeSkill('version', selected.name, item.version)}>Restore before edit {item.version} ({item.source})</button>)}</div>}
             </section>
             <section className="detail-card detail-card--wide">
               <span className="detail-label">SETUP</span>
@@ -124,6 +170,8 @@ export default function SkillsScreen(): React.JSX.Element {
           />
         </div>
       </header>
+      {!!pending.length && <p role="status">Changes waiting for tasks to finish: {pending.join(', ')}. <button type="button" onClick={() => void refresh().catch(() => setNotice('I could not refresh the library.'))}>Refresh library</button></p>}
+      {!!deleted.length && <section aria-label="Deleted skills"><h2>Recover deleted skills and reset copies</h2>{deleted.map((name) => <button key={name} type="button" disabled={busy || pending.includes(name)} onClick={() => void changeSkill('restore', name)}>Restore {name}</button>)}</section>}
       <div className="section-scroll">
         {notice && <p className="inline-notice" role="status">{notice}</p>}
         <div className="catalog-filters" aria-label="Filter skills by category">
@@ -151,7 +199,7 @@ export default function SkillsScreen(): React.JSX.Element {
                   <span>{skill.description}</span>
                 </span>
                 <span className={`skill-status ${skill.available ? 'is-ready' : 'is-blocked'}`}>
-                  {skill.available ? 'Ready' : 'Needs setup'}
+                  {skill.enabled === false ? 'Disabled' : skill.available ? 'Ready' : 'Needs setup'}
                 </span>
                 <small>{skillCategory(skill)} · {skill.source === 'workspace' ? 'Custom' : 'Built in'}</small>
               </button>

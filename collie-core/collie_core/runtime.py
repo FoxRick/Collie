@@ -104,6 +104,11 @@ class CollieRuntime:
         from collie_core.versions import VersionStore
 
         self.versions = VersionStore(self.db)
+        from collie_core.skills import SkillManager
+        from collie_core.tools.skill_management import bind_skill_manager
+
+        self.skills = SkillManager(self.workspace, self.db)
+        bind_skill_manager(self.skills)
         self.profile = ProfileStore(self.db, self.workspace, version_store=self.versions)
         self.profile.regenerate_memory_md()
         bind_profile_store(self.profile)
@@ -311,7 +316,7 @@ class CollieRuntime:
         bus = CollieBus(on_inbound=self._on_messenger_inbound)
         bind_things(bus=bus)
         provider_override = self._provider_override()
-        telemetry_factories = [create_telemetry_hook_factory(self.db)]
+        telemetry_factories = [create_telemetry_hook_factory(self.db), self.skills.turn_hook]
         if provider_override is not None:
             loop = AgentLoop.from_config(
                 config,
@@ -331,6 +336,14 @@ class CollieRuntime:
         # directly with their own _SubagentHook) — mirror the factories so
         # subagent turns are telemetry-recorded too.
         loop.subagents.hook_factories = list(telemetry_factories)
+
+        # Public loader configuration only, updated when all tracked runs finish.
+        # Never replace engine methods or rebuild/cancel a running loop.
+        def activate_skills(disabled: set[str]) -> None:
+            loop.context.skills.disabled_skills = set(disabled)
+            loop.subagents.disabled_skills = set(disabled)
+
+        self.skills.on_activate = activate_skills
         loop.context.command_guidance = True
 
         from nanobot.runtime_context import RuntimeContextBlock

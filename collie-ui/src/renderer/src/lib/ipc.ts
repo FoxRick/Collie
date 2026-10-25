@@ -297,6 +297,11 @@ export interface SubagentStarter {
 }
 
 export interface CollieSkill {
+  enabled?: boolean
+  overridden?: boolean
+  content?: string
+  revision?: string
+  versions?: { version: number; source: string }[]
   name: string
   description: string
   source: 'workspace' | 'builtin' | string
@@ -1212,7 +1217,7 @@ export class CollieClient {
     return this.command('delete_subagent', { subagent_id: subagentId })
   }
 
-  listSkills(): Promise<{ skills: CollieSkill[] }> {
+  listSkills(): Promise<{ skills: CollieSkill[]; deleted?: string[]; pending?: { name: string; action: string }[]; problems?: { name: string; message: string }[] }> {
     return this.command('list_skills')
   }
 
@@ -1222,6 +1227,14 @@ export class CollieClient {
 
   getSkill(name: string): Promise<{ skill: CollieSkill }> {
     return this.command('get_skill', { name })
+  }
+
+  getSkillEditor(name: string): Promise<{ skill: CollieSkill }> {
+    return this.command('get_skill_editor', { name })
+  }
+
+  manageSkill(change: { name: string; action: 'edit' | 'delete' | 'reset' | 'enable' | 'disable' | 'restore' | 'version'; revision?: string; content?: string; version?: number }): Promise<{ pending: boolean }> {
+    return this.command('manage_skill', change)
   }
 
   listServices(): Promise<{ services: ServiceInfo[] }> {

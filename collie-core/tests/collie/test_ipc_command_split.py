@@ -36,9 +36,11 @@ HANDLERS: dict[str, tuple[str, ...]] = {
         "create_subagent",
         "delete_subagent",
         "get_skill",
+        "get_skill_editor",
         "get_subagent_activity",
         "list_skills",
         "list_subagents",
+        "manage_skill",
         "update_subagent",
     ),
     "collaboration": (
@@ -157,6 +159,7 @@ HOST_DEPENDENCIES: dict[str, frozenset[str]] = {
     "agents": frozenset(
         {
             "_activity_provider",
+            "_owned_skills",
             "_prompt_writer",
             "_skills_workspace",
             "_status_provider",
