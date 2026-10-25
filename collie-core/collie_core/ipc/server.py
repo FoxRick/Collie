@@ -641,7 +641,36 @@ class CollieIPCServer(
             conv_id,
             limit,
         )
+        # Cards are snapshots of tool output. Restore checkbox truth from the
+        # life-tool store rather than the old message snapshot.
+        for message in messages:
+            if message.get("card_type") != "shopping_list":
+                continue
+            card = message.get("card_data")
+            if not isinstance(card, dict):
+                continue
+            categories = card.get("categories")
+            if not isinstance(categories, dict):
+                continue
+            rows = self.db.list_shopping_items(str(card.get("list_name") or "Groceries"))
+            checked = {row["id"]: bool(row["checked"]) for row in rows}
+            for items in categories.values():
+                if isinstance(items, list):
+                    for item in items:
+                        if isinstance(item, dict) and item.get("id") in checked:
+                            item["done"] = checked[item["id"]]
         return {"messages": messages}
+
+    async def _cmd_set_shopping_item_checked(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
+        item_id = frame.get("item_id")
+        checked = frame.get("checked")
+        if not isinstance(item_id, str) or not item_id or not isinstance(checked, bool):
+            raise ValueError("Choose a shopping item and whether it is checked.")
+        if not self.db.set_shopping_item_checked(item_id, checked):
+            raise ValueError("That shopping item is no longer on your list.")
+        return {"item_id": item_id, "checked": checked}
 
     async def _cmd_get_product_metrics(self, connection: ServerConnection, frame: dict) -> dict:
         """Only aggregate counts cross the main-process telemetry boundary."""
