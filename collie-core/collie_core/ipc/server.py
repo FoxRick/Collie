@@ -62,6 +62,7 @@ from collie_core.db import CollieDB, collie_home
 from collie_core.ipc.command_support import _bounded_list_limit
 from collie_core.ipc.commands import (
     AgentCommands,
+    BrowserCommands,
     CollaborationCommands,
     ConnectorCommands,
     FileCommands,
@@ -70,7 +71,6 @@ from collie_core.ipc.commands import (
     ProviderCommands,
     RoutineCommands,
 )
-from collie_core.ipc.commands.browser import BrowserCommands
 from collie_core.ipc.commands.providers import _OAuthAttemptState
 from collie_core.ipc.thinking import phrase_for_state, thinking_state_for_tool
 from collie_core.onboarding import (
@@ -190,11 +190,11 @@ def _safe_preview_data_url(attachment: dict[str, Any]) -> str | None:
 
 
 class CollieIPCServer(
-    BrowserCommands,
     CollaborationCommands,
     MemoryCommands,
     RoutineCommands,
     ProviderCommands,
+    BrowserCommands,
     ConnectorCommands,
     FileCommands,
     AgentCommands,
@@ -486,6 +486,9 @@ class CollieIPCServer(
                     pass
                 if kind in {
                     "browser_action",
+                    "native_control",
+                    "prepare_voice",
+                    "transcribe",
                     "begin_connector_auth",
                     "begin_definition_auth",
                     "test_connector",
