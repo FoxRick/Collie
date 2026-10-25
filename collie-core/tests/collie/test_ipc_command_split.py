@@ -76,6 +76,7 @@ HANDLERS: dict[str, tuple[str, ...]] = {
         "update_connector",
         "validate_connector_definition",
     ),
+    "cross_session": ("cross_session_read",),
     "files": (
         "list_versions",
         "read_file",
@@ -148,6 +149,7 @@ HANDLERS: dict[str, tuple[str, ...]] = {
 # A new entry here is a deliberate statement that the module needs that part of
 # the server; a stale one means the reach went away and the table should shrink.
 HOST_DEPENDENCIES: dict[str, frozenset[str]] = {
+    "cross_session": frozenset({"cross_session", "_cmd_chat"}),
     "agents": frozenset(
         {
             "_activity_provider",
