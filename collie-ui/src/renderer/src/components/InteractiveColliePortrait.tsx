@@ -141,12 +141,24 @@ export default function InteractiveColliePortrait({
     return () => window.clearInterval(timer)
   }, [showWorking, showSettled])
 
-  function handlePointerMove(event: React.PointerEvent<HTMLDivElement>): void {
-    const bounds = event.currentTarget.getBoundingClientRect()
-    const x = (event.clientX - bounds.left - bounds.width / 2) / (bounds.width / 2)
-    const y = (event.clientY - bounds.top - bounds.height / 2) / (bounds.height / 2)
-    setPointerTarget(quantizePortraitPointer(x, y))
-  }
+  useEffect(() => {
+    const move = (event: PointerEvent): void => {
+      const bounds = document.querySelector('.collie-portrait-ring')?.getBoundingClientRect()
+      if (!bounds) return
+      const x = (event.clientX - bounds.left - bounds.width / 2) / (bounds.width / 2)
+      const y = (event.clientY - bounds.top - bounds.height / 2) / (bounds.height / 2)
+      setPointerTarget(quantizePortraitPointer(x, y, 0.16))
+    }
+    const leave = (): void => setPointerTarget(null)
+    window.addEventListener('pointermove', move, { passive: true })
+    window.addEventListener('blur', leave)
+    document.addEventListener('pointerleave', leave)
+    return () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('blur', leave)
+      document.removeEventListener('pointerleave', leave)
+    }
+  }, [])
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>): void {
     if (event.key !== 'Enter' && event.key !== ' ') return
@@ -167,8 +179,6 @@ export default function InteractiveColliePortrait({
         tabIndex={0}
         aria-label="Pet Collie"
         data-gaze-direction={pointerTarget ?? 'idle'}
-        onPointerMove={handlePointerMove}
-        onPointerLeave={() => setPointerTarget(null)}
         onClick={triggerReaction}
         onKeyDown={handleKeyDown}
       >
