@@ -1,4 +1,5 @@
 """Agent entry points for the shared cross-session service."""
+import asyncio
 from typing import Any
 
 from collie_core.permissions.models import PermissionRequest, Risk
@@ -39,7 +40,7 @@ class ReadChatsTool(Tool):
     async def execute(self, **kwargs: Any):
         try:
             _, requester = scope()
-            return _service.read(requester, query=str(kwargs.get("query") or ""), target=str(kwargs.get("conversation_id") or ""))
+            return await asyncio.to_thread(_service.read, requester, query=str(kwargs.get("query") or ""), target=str(kwargs.get("conversation_id") or ""))
         except (ValueError, AttributeError) as exc:
             return self.error(str(exc))
 

@@ -40,11 +40,14 @@ async def test_committed_recall_and_idempotent_independent_handoff(tmp_path):
         assert snapshot["messages"][-1]["content"] == "committed output two"
         first, retry = await asyncio.gather(StartChatTool().execute(brief="Prepare an orchid checklist"),
                                             StartChatTool().execute(brief="Prepare an orchid checklist"))
+    ipc_snapshot = await server._cmd_cross_session_read(None, {"conversation_id": "one", "target_id": "two"})
+    assert ipc_snapshot["messages"] == snapshot["messages"]
     cid = first["conversation_id"]
     assert retry["conversation_id"] == cid and retry["replayed"] is False
     if cid in server._chat_tasks:
         await server._chat_tasks[cid]
     assert len(calls) == 1 and calls[0][0] == "Prepare an orchid checklist"
+    assert calls[0][1]["message_metadata"]["message_id"] == db.get_messages(cid)[0]["id"]
     assert calls[0][1].get("project_path") is None
     assert calls[0][1]["file_access_scope"] == {"mode": "selected_folder"}
     assert [m["content"] for m in db.get_messages(cid)] == ["Prepare an orchid checklist", "Finished target task"]

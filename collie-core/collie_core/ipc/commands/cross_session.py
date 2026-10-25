@@ -1,10 +1,11 @@
 """Read-only cross-session IPC and normal-path handoff adapter."""
+import asyncio
 import json
 
 
 class CrossSessionCommands:
     async def _cmd_cross_session_read(self, connection, frame):
-        return self.cross_session.read(str(frame.get("conversation_id") or ""),
+        return await asyncio.to_thread(self.cross_session.read, str(frame.get("conversation_id") or ""),
                                        query=str(frame.get("query") or ""),
                                        target=str(frame.get("target_id") or ""))
 

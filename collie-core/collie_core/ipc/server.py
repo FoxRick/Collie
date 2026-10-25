@@ -307,7 +307,7 @@ class CollieIPCServer(
 
         self.cross_session = CrossSession(
             db, self._launch_cross_session,
-            lambda: {cid for cid, task in self._chat_tasks.items() if not task.done()},
+            lambda: set(self._chat_tasks),
         )
 
     # -- lifecycle -----------------------------------------------------------
@@ -1725,6 +1725,7 @@ class CollieIPCServer(
             content,
             attachments=attachment_meta or None,
         )
+        message_metadata = {**(message_metadata or {}), "message_id": user_msg["id"]}
         if conversation.get("title") in (None, "", "New chat"):
             title_source = content or attachment_meta[0]["name"]
             title = _fallback_chat_title(title_source)
