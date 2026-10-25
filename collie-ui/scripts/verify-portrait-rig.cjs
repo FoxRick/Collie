@@ -47,7 +47,7 @@ async function main() {
     }
     assert(samples[0].y < samples[4].y - 1, 'Up must differ from down in rendered pixels')
     assert(samples[2].x > samples[6].x + 1, 'Right must differ from left in rendered pixels')
-    const reaction = await evaluate(`(async () => {
+    const reactionPending = evaluate(`(async () => {
       const ring=document.querySelector('.collie-portrait-ring'),c=ring.querySelector('canvas'),ctx=c.getContext('2d'),frames=[];
       ring.click();const start=performance.now();
       while(performance.now()-start<1200){
@@ -57,6 +57,10 @@ async function main() {
         await new Promise(r=>setTimeout(r,50));
       }return frames;
     })()`)
+    await sleep(350)
+    const pawShot=await command('Page.captureScreenshot',{format:'png'})
+    writeFileSync(resolve(output,'paw-reaction.png'),Buffer.from(pawShot.data,'base64'))
+    const reaction = await reactionPending
     assert(reaction.some(f=>f.state.includes('click_reaction')), 'Click must trigger a reaction')
     assert(reaction.every(f=>f.hidden), 'Click must never reveal a second dog')
     assert(reaction.at(-1).state.includes('pointer_look'), 'Reaction must return to pointer attention')
