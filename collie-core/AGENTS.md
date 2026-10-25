@@ -148,3 +148,12 @@ schemas; `tests/collie/test_prompt_hashes.py` covers the hash telemetry
 Collie speaks like a warm, friendly person who can type: first-person,
 welcoming, never corporate. Errors say things like "Uh oh. That didn't go
 as planned." — never "An error occurred while processing your request."
+
+## Owned browser preview
+
+`collie_core/browser/` supervises disposable visible browser workers. Both the
+`browser` tool and `browser_action` IPC call its central permission boundary.
+Never add personal-profile attachment, arbitrary JS/keyboard, secrets export,
+or resume-after-handoff without a reviewed authority design. The optional
+runtime, local acceptance command and packaged-app limits are documented in
+`docs/product/features/browser-interaction.md` at the repository root.

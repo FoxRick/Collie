@@ -11,16 +11,16 @@
 
 ## Source inventory
 
-- Core Python files: **574**
-- Core Python test files: **260**
-- Desktop TypeScript/TSX files: **212**
+- Core Python files: **580**
+- Core Python test files: **261**
+- Desktop TypeScript/TSX files: **214**
 - Desktop test files: **80**
-- Active Markdown docs: **42**
+- Active Markdown docs: **43**
 - Archived Markdown docs: **0**
 
 ## Collie-owned core module groups
 
-`automations`, `catalog`, `collaboration`, `connectors`, `db_domains`, `gardener`, `ipc`, `memory`, `messengers`, `permissions`, `pet`, `plans`, `providers`, `routines`, `services`, `subagents`, `telemetry`, `things`, `tools`, `undo`
+`automations`, `browser`, `catalog`, `collaboration`, `connectors`, `db_domains`, `gardener`, `ipc`, `memory`, `messengers`, `permissions`, `pet`, `plans`, `providers`, `routines`, `services`, `subagents`, `telemetry`, `things`, `tools`, `undo`
 
 ## Required orientation files
 

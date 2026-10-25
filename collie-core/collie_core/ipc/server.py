@@ -70,6 +70,7 @@ from collie_core.ipc.commands import (
     ProviderCommands,
     RoutineCommands,
 )
+from collie_core.ipc.commands.browser import BrowserCommands
 from collie_core.ipc.commands.providers import _OAuthAttemptState
 from collie_core.ipc.thinking import phrase_for_state, thinking_state_for_tool
 from collie_core.onboarding import (
@@ -189,6 +190,7 @@ def _safe_preview_data_url(attachment: dict[str, Any]) -> str | None:
 
 
 class CollieIPCServer(
+    BrowserCommands,
     CollaborationCommands,
     MemoryCommands,
     RoutineCommands,
@@ -301,6 +303,7 @@ class CollieIPCServer(
         self._oauth_worker_tasks: set[asyncio.Task] = set()
         self.approval_broker: Any = None
         self._voice = LocalVoiceService()
+        self.browser_service = None
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -317,6 +320,8 @@ class CollieIPCServer(
         logger.info("Collie IPC listening on ws://{}:{}", self.host, self.port)
 
     async def stop(self) -> None:
+        if self.browser_service is not None:
+            await self.browser_service.close()
         oauth_attempts = list(self._oauth_attempts.values())
         tasks = (
             list(self._chat_tasks.values())
@@ -480,6 +485,7 @@ class CollieIPCServer(
                 except (TypeError, ValueError):
                     pass
                 if kind in {
+                    "browser_action",
                     "begin_connector_auth",
                     "begin_definition_auth",
                     "test_connector",

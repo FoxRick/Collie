@@ -18,6 +18,7 @@ import {
 import Sidebar from '../components/Sidebar'
 import MessageList from '../components/MessageList'
 import RememberPill from '../components/RememberPill'
+import BrowserPanel from '../components/BrowserPanel'
 import ChatInput from '../components/ChatInput'
 import CollieFace from '../components/CollieFace'
 import InteractiveColliePortrait from '../components/InteractiveColliePortrait'
@@ -1126,6 +1127,7 @@ export default function ChatScreen({
           ) : null}
           <div className="portrait-composer-layout">
             <RememberPill conversationId={activeId} />
+            <BrowserPanel key={activeId} conversationId={activeId} />
             <InteractiveColliePortrait
               thinking={portraitThinking}
               phrase={portraitThinking?.phrase || 'Ready when you are.'}

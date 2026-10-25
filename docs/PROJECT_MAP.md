@@ -80,6 +80,17 @@ are not part of this public source tree.
   checks.
 - `AGENTS.md` contains core-specific contributor instructions.
 
+### Owned browser preview
+
+`collie-core/collie_core/browser/` owns task/conversation/origin-scoped browser
+sessions and a lazy supervised Playwright worker. The `browser` chat tool and
+`browser_action` IPC command call the same service and central authorizer.
+`collie-ui/src/shared/browser.ts` owns the typed data contract and the chat's
+`BrowserPanel` supplies inspection, capture, takeover and recovery controls.
+Contexts never attach to personal browser profiles; shared execution is denied.
+See [visible browser interaction](product/features/browser-interaction.md) for
+runtime setup, explicit approvals, network limits and the packaged-app gate.
+
 ### Desktop shell: `collie-ui/`
 
 - `src/main/` owns Electron lifecycle, Python-core supervision, protected
