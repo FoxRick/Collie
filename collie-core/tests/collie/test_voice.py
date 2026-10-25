@@ -74,10 +74,15 @@ async def test_preparation_reuse_and_cancelled_inference_keeps_bounded_slot(monk
             finished.set()
             return SimpleNamespace(lines=[SimpleNamespace(text=" local words ")])
 
-    monkeypatch.setitem(sys.modules, "moonshine_voice", SimpleNamespace(
-        ModelArch=SimpleNamespace(TINY_STREAMING="tiny"), Transcriber=Transcriber,
-        get_model_for_language=lambda *args, **kwargs: (tmp_path, "tiny"),
-    ))
+    monkeypatch.setitem(
+        sys.modules,
+        "moonshine_voice",
+        SimpleNamespace(
+            ModelArch=SimpleNamespace(TINY_STREAMING="tiny"),
+            Transcriber=Transcriber,
+            get_model_for_language=lambda *args, **kwargs: (tmp_path, "tiny"),
+        ),
+    )
     service = LocalVoiceService(cache_root=tmp_path)
     await asyncio.gather(service.prepare(), service.prepare())
     assert len(loads) == 1

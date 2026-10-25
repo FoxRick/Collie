@@ -125,9 +125,7 @@ class LocalVoiceService:
 
     async def prepare(self) -> None:
         """Single-flight preparation, shared with the final transcription request."""
-        if self._prepare_task is None or (
-            self._prepare_task.done() and self._transcriber is None
-        ):
+        if self._prepare_task is None or (self._prepare_task.done() and self._transcriber is None):
             self._prepare_task = asyncio.create_task(asyncio.to_thread(self._get_transcriber))
             self._prepare_task.add_done_callback(self._observe_completion)
         await asyncio.shield(self._prepare_task)
@@ -156,6 +154,7 @@ class LocalVoiceService:
             self._transcribe_recording(audio, sample_rate)
         )
         self._transcription_task.add_done_callback(self._observe_completion)
+
         def release(task: asyncio.Task) -> None:
             if self._transcription_task is task:
                 self._transcription_task = None
