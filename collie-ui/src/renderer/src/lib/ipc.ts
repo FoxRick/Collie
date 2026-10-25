@@ -477,6 +477,8 @@ export interface MessengerInfo {
 }
 
 export type CollieEvent =
+  | { type: 'temporary_delta'; session_id: string; text: string }
+  | { type: 'temporary_done'; session_id: string; content: string }
   | { type: 'ready'; protocol: number; phrase: string }
   /** Local client event emitted when a WebSocket (re)connects. */
   | { type: 'connection_opened' }

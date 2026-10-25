@@ -80,6 +80,7 @@ from collie_core.permissions.classifier import classify_tool
 from collie_core.permissions.models import Risk
 from collie_core.providers.storage import legacy_oauth_data_root
 from collie_core.session_identity import desktop_session_key
+from collie_core.temporary_chat import TemporaryChatCommands
 from collie_core.voice import LocalVoiceService, VoiceInputError
 from nanobot.security.workspace_access import (
     WorkspaceScopeError,
@@ -189,6 +190,7 @@ def _safe_preview_data_url(attachment: dict[str, Any]) -> str | None:
 
 
 class CollieIPCServer(
+    TemporaryChatCommands,
     CollaborationCommands,
     MemoryCommands,
     RoutineCommands,
@@ -290,6 +292,8 @@ class CollieIPCServer(
         self._shared_chat_runner = shared_chat_runner
         self._collaboration_identity_binder = collaboration_identity_binder
         self._collaboration_run_controller = collaboration_run_controller
+        self._temporary_owners: dict[str, ServerConnection] = {}
+        self._temporary_tasks: dict[str, asyncio.Task] = {}
         self._clients: set[ServerConnection] = set()
         self._server: Any = None
         self._chat_tasks: dict[str, asyncio.Task] = {}
@@ -317,6 +321,8 @@ class CollieIPCServer(
         logger.info("Collie IPC listening on ws://{}:{}", self.host, self.port)
 
     async def stop(self) -> None:
+        for key, owner in list(self._temporary_owners.items()):
+            await self._cmd_temporary_close(owner, {"session_id": key})
         oauth_attempts = list(self._oauth_attempts.values())
         tasks = (
             list(self._chat_tasks.values())
@@ -494,6 +500,9 @@ class CollieIPCServer(
         except Exception:
             logger.debug("IPC connection closed")
         finally:
+            for key, owner in list(self._temporary_owners.items()):
+                if owner is connection:
+                    await self._cmd_temporary_close(connection, {"session_id": key})
             self._clients.discard(connection)
 
     async def _handle_frame(self, connection: ServerConnection, raw: str | bytes) -> None:
