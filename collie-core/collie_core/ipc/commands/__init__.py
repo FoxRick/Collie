@@ -10,6 +10,7 @@ class or in :mod:`collie_core.ipc.command_support`.
 from __future__ import annotations
 
 from collie_core.ipc.commands.agents import AgentCommands
+from collie_core.ipc.commands.browser import BrowserCommands
 from collie_core.ipc.commands.collaboration import CollaborationCommands
 from collie_core.ipc.commands.connectors import ConnectorCommands
 from collie_core.ipc.commands.cross_session import CrossSessionCommands
@@ -22,6 +23,7 @@ from collie_core.ipc.commands.temporary_chat import TemporaryChatCommands
 
 __all__ = [
     "AgentCommands",
+    "BrowserCommands",
     "CollaborationCommands",
     "ConnectorCommands",
     "CrossSessionCommands",

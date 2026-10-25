@@ -62,6 +62,7 @@ from collie_core.db import CollieDB, collie_home
 from collie_core.ipc.command_support import _bounded_list_limit
 from collie_core.ipc.commands import (
     AgentCommands,
+    BrowserCommands,
     CollaborationCommands,
     ConnectorCommands,
     CrossSessionCommands,
@@ -196,6 +197,7 @@ class CollieIPCServer(
     RoutineCommands,
     CrossSessionCommands,
     ProviderCommands,
+    BrowserCommands,
     ConnectorCommands,
     FileCommands,
     TemporaryChatCommands,
@@ -305,6 +307,7 @@ class CollieIPCServer(
         self._oauth_attempts: dict[str, _OAuthAttemptState] = {}
         self._oauth_generations: dict[str, int] = {}
         self._oauth_worker_tasks: set[asyncio.Task] = set()
+        self.browser_service = None
         self.approval_broker: Any = None
         self._voice = LocalVoiceService()
         from collie_core.cross_session import CrossSession
@@ -333,6 +336,8 @@ class CollieIPCServer(
         for key, owner in list(self._temporary_owners.items()):
             await self._cmd_temporary_close(owner, {"session_id": key})
         oauth_attempts = list(self._oauth_attempts.values())
+        if self.browser_service is not None:
+            await self.browser_service.close()
         tasks = (
             list(self._chat_tasks.values())
             + list(self._background_tasks)
