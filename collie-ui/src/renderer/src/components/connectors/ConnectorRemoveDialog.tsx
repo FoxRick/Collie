@@ -9,7 +9,7 @@ export default function ConnectorRemoveDialog({
 }): React.JSX.Element {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-      <section role="alertdialog" aria-modal="true" className="w-full max-w-sm rounded-2xl bg-white p-5">
+      <section role="alertdialog" aria-modal="true" className="w-full max-w-sm rounded-2xl connector-surface p-5">
         <h2 className="font-semibold">Remove {name}?</h2>
         <p className="mt-2 text-sm leading-6" style={{ color: 'var(--collie-paw)' }}>
           Collie will lose access immediately. This does not delete anything in the

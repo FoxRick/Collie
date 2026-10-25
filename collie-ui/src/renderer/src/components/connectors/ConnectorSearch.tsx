@@ -9,7 +9,7 @@ export default function ConnectorSearch({
 }): React.JSX.Element {
   return (
     <label
-      className="flex items-center gap-2 rounded-xl border bg-white px-3 py-2.5"
+      className="flex items-center gap-2 rounded-xl border connector-surface px-3 py-2.5"
       style={{ borderColor: 'var(--collie-border)' }}
     >
       <Search size={16} style={{ color: 'var(--collie-paw)' }} />

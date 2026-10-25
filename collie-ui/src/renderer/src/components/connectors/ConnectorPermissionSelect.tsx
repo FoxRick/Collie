@@ -11,7 +11,7 @@ export default function ConnectorPermissionSelect({
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-lg border bg-white px-3 py-2"
+        className="w-full rounded-lg border connector-surface px-3 py-2"
         style={{ borderColor: 'var(--collie-border)' }}
       >
         <option value="every_time">Ask every time</option>

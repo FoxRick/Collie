@@ -61,7 +61,7 @@ export default function ConnectorDetail({
         <ArrowLeft size={15} /> All connections
       </button>
       <section
-        className="rounded-2xl border bg-white p-5"
+        className="rounded-2xl border connector-surface p-5"
         style={{ borderColor: 'var(--collie-border)' }}
       >
         <div className="flex items-center gap-3">

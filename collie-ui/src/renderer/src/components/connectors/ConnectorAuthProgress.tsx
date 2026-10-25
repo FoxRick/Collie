@@ -14,7 +14,7 @@ export default function ConnectorAuthProgress({
   return (
     <div
       role="status"
-      className="mb-5 rounded-2xl border bg-white p-4"
+      className="mb-5 rounded-2xl border connector-surface p-4"
       style={{ borderColor: 'var(--collie-border)' }}
     >
       <b className="text-sm">Connecting {providerName}</b>
