@@ -67,10 +67,10 @@ from collie_core.ipc.commands import (
     FileCommands,
     MemoryCommands,
     MessengerCommands,
+    NativeControlCommands,
     ProviderCommands,
     RoutineCommands,
 )
-from collie_core.ipc.commands.native_control import NativeControlCommands
 from collie_core.ipc.commands.providers import _OAuthAttemptState
 from collie_core.ipc.thinking import phrase_for_state, thinking_state_for_tool
 from collie_core.onboarding import (
@@ -190,7 +190,6 @@ def _safe_preview_data_url(attachment: dict[str, Any]) -> str | None:
 
 
 class CollieIPCServer(
-    NativeControlCommands,
     CollaborationCommands,
     MemoryCommands,
     RoutineCommands,
@@ -198,6 +197,7 @@ class CollieIPCServer(
     ConnectorCommands,
     FileCommands,
     AgentCommands,
+    NativeControlCommands,
     MessengerCommands,
 ):
     """WebSocket IPC server bridging the Electron shell to the Collie core.
@@ -484,6 +484,8 @@ class CollieIPCServer(
                 if kind in {
                     "browser_action",
                     "native_control",
+                    "prepare_voice",
+                    "transcribe",
                     "begin_connector_auth",
                     "begin_definition_auth",
                     "test_connector",
