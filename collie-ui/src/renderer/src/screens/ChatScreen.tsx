@@ -16,6 +16,7 @@ import {
   type ThinkingState
 } from '../lib/ipc'
 import Sidebar from '../components/Sidebar'
+import TemporaryChat from '../components/TemporaryChat'
 import MessageList from '../components/MessageList'
 import RememberPill from '../components/RememberPill'
 import ChatInput from '../components/ChatInput'
@@ -134,6 +135,7 @@ export default function ChatScreen({
   onRedoOnboarding,
   autoOpenStarter = false
 }: Props): React.JSX.Element {
+  const [temporaryOpen, setTemporaryOpen] = useState(false)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [messages, setMessages] = useState<CollieMessage[]>([])
@@ -1030,8 +1032,9 @@ export default function ChatScreen({
         activeId={activeId}
         busyIds={new Set(Object.keys(thinkingMap))}
         activeView={activeView}
-        onNavigate={onNavigate}
+        onNavigate={(view) => { setTemporaryOpen(false); onNavigate(view) }}
         onSelect={(id) => {
+          setTemporaryOpen(false)
           onNavigate('chat')
           const conversation = conversations.find((item) => item.id === id)
           void openConversation(
@@ -1039,14 +1042,17 @@ export default function ChatScreen({
             conversation?.project_path ?? null
           )
         }}
-        onNewChat={newChat}
+        onNewChat={() => { setTemporaryOpen(false); newChat() }}
+        onTemporaryChat={() => { onNavigate('chat'); setTemporaryOpen(true) }}
         onDelete={(id) => void deleteConversation(id)}
         workspace={currentProject}
         projects={projects}
         onProjectChange={openProject}
         onAddProject={() => void addProject()}
       />
-      {activeView === 'settings' ? (
+      {temporaryOpen ? (
+        <TemporaryChat onClose={() => setTemporaryOpen(false)} />
+      ) : activeView === 'settings' ? (
         <main className="settings-workspace min-w-0 flex-1 overflow-hidden">
           <SettingsScreen
             onRedoOnboarding={onRedoOnboarding}
