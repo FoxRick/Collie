@@ -218,6 +218,9 @@ class CollieRuntime:
             self.ipc.broadcast,
             context_validator=self._validate_execution_context,
         )
+        from collie_core.tools.cross_session import bind_cross_session
+
+        bind_cross_session(self.ipc.cross_session)
         self.ipc.approval_broker = self.approvals
         self.messengers.broadcaster = self.ipc.broadcast
         self._scheduler = AutomationScheduler(
@@ -1600,6 +1603,15 @@ class CollieRuntime:
                 raise RuntimeError(result.get("error") or "no provider configured")
         default_provider = self.db.default_provider()
         session_key, channel, target_chat_id = self._conversation_target(conversation_id)
+        turn_options = {}
+        if self.db.get_setting(f"cross_session.child.{conversation_id}"):
+            from collie_core.cross_session import handoff_tools
+
+            turn_options["tools"] = handoff_tools(self.loop.tools)
+            content = (
+                "This is already the new independent chat requested by the user. "
+                "Perform the task here; do not create or request another chat.\n\n" + content
+            )
         outbound = await self.loop.process_direct(
             content,
             session_key=session_key,
@@ -1610,6 +1622,7 @@ class CollieRuntime:
             on_progress=on_progress,
             media=media,
             message_metadata=message_metadata,
+            **turn_options,
             permission_context={
                 "execution_mode": execution_mode,
                 "conversation_id": conversation_id,

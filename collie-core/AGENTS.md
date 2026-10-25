@@ -148,3 +148,7 @@ schemas; `tests/collie/test_prompt_hashes.py` covers the hash telemetry
 Collie speaks like a warm, friendly person who can type: first-person,
 welcoming, never corporate. Errors say things like "Uh oh. That didn't go
 as planned." — never "An error occurred while processing your request."
+
+Cross-chat recall and independent handoffs belong in `collie_core/cross_session.py`;
+keep them restricted to committed persisted personal chats and use normal IPC chat
+execution for targets. Shared and temporary session data must stay excluded.

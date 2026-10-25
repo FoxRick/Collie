@@ -153,6 +153,8 @@ export default function ChatScreen({
   const [approvalPreset, setApprovalPreset] = useState<ApprovalPreset>('ask')
   const [fileAccessScope, setFileAccessScope] = useState<FileAccessScope>(loadFileAccessScope)
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([])
+  const visibleApprovals = approvals.filter((item) => !item.conversation_id || item.conversation_id === activeId)
+  const otherApprovals = approvals.filter((item) => item.conversation_id && item.conversation_id !== activeId)
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>({})
   const [commandCatalog, setCommandCatalog] = useState<CommandCatalog>({
     commands: [],
@@ -441,7 +443,7 @@ export default function ChatScreen({
               ? current
               : [...current, event.approval]
           )
-          setPortraitThinking({
+          if (!event.approval.conversation_id || event.approval.conversation_id === current) setPortraitThinking({
             state: 'waiting',
             phrase: 'Approval needed before I can continue.',
             pet_animation: 'concerned'
@@ -673,6 +675,23 @@ export default function ChatScreen({
     (agent) => agent.conversation_id === activeId
   )
   const activeTiming = activeId ? taskTimings[activeId] : undefined
+  useEffect(() => {
+    const openChatLink = (event: MouseEvent): void => {
+      const anchor = (event.target as Element | null)?.closest?.('a')
+      const match = anchor?.getAttribute('href')?.match(/^#chat\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]*)$/)
+      if (!match || !activeId) return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      void collieClient.readChatContext(activeId, match[1]).then(async () => {
+        await refreshConversations()
+        await openConversation(match[1])
+        if (match[2]) window.setTimeout(() => window.dispatchEvent(new CustomEvent('collie-source-message', { detail: match[2] })), 0)
+      }).catch(() => setErrorText('That chat is not available for cross-chat access.'))
+    }
+    document.addEventListener('click', openChatLink, true)
+    return () => document.removeEventListener('click', openChatLink, true)
+  }, [activeId, openConversation, refreshConversations])
+
   const activeTask = activeId ? tasksByConversation[activeId] : undefined
   const taskIsActive = activeTask ? !isTaskTerminal(activeTask) : false
   const isWorkActive = streaming || activeThinking !== null || activeAgents.length > 0 || taskIsActive
@@ -1109,21 +1128,29 @@ export default function ChatScreen({
             {planChangeNotice}
           </div>
         ) : null}
-          {approvals.length > 0 ? (
+          {otherApprovals.length > 0 ? (
+            <div className="mx-4 mb-2 text-sm" role="status">
+              Approval needed in another chat.{' '}
+              <button type="button" onClick={() => { setActiveId(otherApprovals[0].conversation_id!); onNavigate('chat') }}>
+                Open {conversations.find((item) => item.id === otherApprovals[0].conversation_id)?.title || 'chat'}
+              </button>
+            </div>
+          ) : null}
+          {visibleApprovals.length > 0 ? (
             <div className="approval-stack">
-              {approvals.length > 1 ? (
+              {visibleApprovals.length > 1 ? (
                 <div className="approval-stack-count" role="status">
-                  {approvals.length} approvals waiting — approve them one at a time
+                  {visibleApprovals.length} approvals waiting — approve them one at a time
                 </div>
               ) : null}
               <ApprovalSheet
-                key={approvals[approvals.length - 1].id}
-                approval={approvals[approvals.length - 1]}
+                key={visibleApprovals[visibleApprovals.length - 1].id}
+                approval={visibleApprovals[visibleApprovals.length - 1]}
                 inline
                 onResolved={() =>
                   setApprovals((current) =>
                     current.filter(
-                      (item) => item.id !== approvals[approvals.length - 1].id
+                      (item) => item.id !== visibleApprovals[visibleApprovals.length - 1].id
                     )
                   )
                 }

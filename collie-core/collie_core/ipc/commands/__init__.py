@@ -12,6 +12,7 @@ from __future__ import annotations
 from collie_core.ipc.commands.agents import AgentCommands
 from collie_core.ipc.commands.collaboration import CollaborationCommands
 from collie_core.ipc.commands.connectors import ConnectorCommands
+from collie_core.ipc.commands.cross_session import CrossSessionCommands
 from collie_core.ipc.commands.files import FileCommands
 from collie_core.ipc.commands.memory import MemoryCommands
 from collie_core.ipc.commands.messengers import MessengerCommands
@@ -23,6 +24,7 @@ __all__ = [
     "AgentCommands",
     "CollaborationCommands",
     "ConnectorCommands",
+    "CrossSessionCommands",
     "FileCommands",
     "MemoryCommands",
     "MessengerCommands",

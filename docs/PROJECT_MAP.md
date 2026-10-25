@@ -112,6 +112,15 @@ the existing Supabase project and notifies the team through Resend; server
 credentials remain in Worker secrets. See [in-app feedback](product/feedback.md)
 for deployment ownership and the live verification gate.
 
+### Explicit personal chat context
+
+`collie_core/cross_session.py` owns bounded committed-message recall and durable
+handoff reservations. Agent tools under `tools/cross_session.py` and read-only
+IPC commands under `ipc/commands/cross_session.py` share that implementation.
+Handoffs reuse normal IPC chat execution with fresh scope and central approvals;
+shared and nonpersistent temporary chats are excluded. See
+[cross-session context](product/features/cross-session-context.md).
+
 ### Shared conversations
 
 `collie-core/collie_core/collaboration/` owns durable local shared-event storage

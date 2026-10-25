@@ -64,6 +64,7 @@ from collie_core.ipc.commands import (
     AgentCommands,
     CollaborationCommands,
     ConnectorCommands,
+    CrossSessionCommands,
     FileCommands,
     MemoryCommands,
     MessengerCommands,
@@ -193,6 +194,7 @@ class CollieIPCServer(
     CollaborationCommands,
     MemoryCommands,
     RoutineCommands,
+    CrossSessionCommands,
     ProviderCommands,
     ConnectorCommands,
     FileCommands,
@@ -305,6 +307,13 @@ class CollieIPCServer(
         self._oauth_worker_tasks: set[asyncio.Task] = set()
         self.approval_broker: Any = None
         self._voice = LocalVoiceService()
+        from collie_core.cross_session import CrossSession
+
+        self.cross_session = CrossSession(
+            db,
+            self._launch_cross_session,
+            lambda: set(self._chat_tasks),
+        )
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -1735,6 +1744,7 @@ class CollieIPCServer(
             content,
             attachments=attachment_meta or None,
         )
+        message_metadata = {**(message_metadata or {}), "message_id": user_msg["id"]}
         if conversation.get("title") in (None, "", "New chat"):
             title_source = content or attachment_meta[0]["name"]
             title = _fallback_chat_title(title_source)
