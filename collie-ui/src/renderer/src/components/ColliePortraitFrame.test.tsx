@@ -10,6 +10,8 @@ let frames: Map<number, FrameRequestCallback>
 let images: Array<{ onload: (() => void) | null }>
 let draw: ReturnType<typeof vi.fn>
 beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  Object.defineProperty(document, 'hidden', { configurable: true, value: false })
   frames = new Map()
   images = []
   let id = 0
@@ -24,7 +26,7 @@ beforeEach(() => {
     constructor() { images.push(this) }
   })
   draw = vi.fn()
-  const ctx = new Proxy({ drawImage: draw, getImageData: () => ({ data: new Uint8ClampedArray(72 * 72 * 4) }) }, {
+  const ctx = new Proxy({ drawImage: draw, getTransform: () => ({ a: 1 }), getImageData: () => ({ data: new Uint8ClampedArray(72 * 72 * 4) }) }, {
     get: (obj, key) => key in obj ? obj[key as keyof typeof obj] : vi.fn()
   })
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx as unknown as CanvasRenderingContext2D)
@@ -55,5 +57,25 @@ it('stops JavaScript animation while the document is hidden and resumes one loop
 it('draws a single reduced-motion frame without scheduling animation', () => {
   render(true)
   expect(draw).toHaveBeenCalled()
+  expect(frames.size).toBe(0)
+})
+it('shows the fallback on context loss and restores a single canvas on recovery', () => {
+  render()
+  const canvas = host.querySelector('canvas')!
+  act(() => canvas.dispatchEvent(new Event('contextlost', { cancelable: true })))
+  expect(host.querySelector('img')!.hidden).toBe(false)
+  expect(canvas.hidden).toBe(true)
+  expect(frames.size).toBe(0)
+  act(() => canvas.dispatchEvent(new Event('contextrestored')))
+  expect(frames.size).toBe(1)
+  act(() => { const batch = [...frames.values()]; frames.clear(); batch.forEach(cb => cb(16)) })
+  expect(host.querySelector('img')!.hidden).toBe(true)
+  expect(canvas.hidden).toBe(false)
+})
+it('keeps the fallback when the texture fails to load', () => {
+  act(() => root.render(<ColliePortraitFrame state="idle" reducedMotion={false} fallbackSrc="missing.webp" />))
+  act(() => (images[0] as unknown as { onerror: () => void }).onerror())
+  expect(host.querySelector('img')!.hidden).toBe(false)
+  expect(host.querySelector('canvas')!.hidden).toBe(true)
   expect(frames.size).toBe(0)
 })

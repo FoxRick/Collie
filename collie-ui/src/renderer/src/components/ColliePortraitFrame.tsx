@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { smoothFactor } from './colliePortraitMotion'
-import { attentionTarget, drawRig, type RigPose } from './colliePortraitRig'
+import { attentionTarget, drawRig, rigPoint, type RigPose } from './colliePortraitRig'
 import type { PortraitState } from './portraitStates'
 
 interface Props {
@@ -17,7 +17,7 @@ export default function ColliePortraitFrame({ state, reducedMotion, fallbackSrc,
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const fallbackRef = useRef<HTMLImageElement>(null)
   const stateRef = useRef(state)
-  const poseRef = useRef<RigPose>({ x: 0, y: 0, joy: 0, focus: 0, concern: 0, time: 0 })
+  const poseRef = useRef<RigPose>({ x: 0, y: 0, joy: 0, focus: 0, concern: 0, time: 0, rest: 0 })
   useEffect(() => { stateRef.current = state }, [state])
 
   useEffect(() => {
@@ -27,12 +27,13 @@ export default function ColliePortraitFrame({ state, reducedMotion, fallbackSrc,
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     let disposed = false, ready = false, lost = false
-    let raf: number | null = null, last = 0, lastDraw = 0
+    let raf: number | null = null, last = 0, nextDraw = 0
     let target = { x: 0, y: 0 }
     let reaction = 0, reactionState = false
+    let glasses = 0
     const texture = new Image(), paw = new Image()
     const pose = poseRef.current
-    const stop = (): void => { if (raf !== null) cancelAnimationFrame(raf); raf = null; last = 0; lastDraw = 0 }
+    const stop = (): void => { if (raf !== null) cancelAnimationFrame(raf); raf = null; last = 0; nextDraw = 0 }
     const draw = (): void => {
       // Budget pixels to actual displayed size, including display scaling.
       const side = Math.max(1, Math.round(Math.min(2, window.devicePixelRatio || 1) * (canvas.getBoundingClientRect().width || 136)))
@@ -40,6 +41,20 @@ export default function ColliePortraitFrame({ state, reducedMotion, fallbackSrc,
       ctx.setTransform(side / 384, 0, 0, side / 384, 0, 0)
       ctx.clearRect(0, 0, 384, 384)
       drawRig(ctx, texture, pose)
+      if (glasses > 0.001) {
+        const left = rigPoint(113, 152, pose), right = rigPoint(196, 166, pose)
+        ctx.save()
+        ctx.globalAlpha = glasses
+        ctx.strokeStyle = '#211e21'; ctx.lineWidth = 5
+        ctx.fillStyle = 'rgba(116, 161, 181, 0.12)'
+        for (const eye of [left, right]) {
+          ctx.beginPath(); ctx.ellipse(eye.x, eye.y, 25, 21, 0.14, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
+        }
+        ctx.beginPath(); ctx.moveTo(left.x + 24, left.y); ctx.quadraticCurveTo(155 + pose.x * 12, 149 + pose.y * 8, right.x - 24, right.y)
+        ctx.moveTo(left.x - 24, left.y - 4); ctx.lineTo(left.x - 37, left.y - 9)
+        ctx.moveTo(right.x + 24, right.y - 4); ctx.lineTo(right.x + 47, right.y - 9)
+        ctx.stroke(); ctx.restore()
+      }
       if (pose.joy > 0.001 && paw.complete && paw.naturalWidth) {
         ctx.save()
         ctx.translate(90, 460 - 150 * pose.joy)
@@ -54,9 +69,11 @@ export default function ColliePortraitFrame({ state, reducedMotion, fallbackSrc,
       raf = null
       if (disposed || document.hidden || lost || !ready) return
       // 60 Hz ceiling even on 120/144 Hz displays; smoothing uses elapsed time.
-      if (lastDraw && now - lastDraw < 1000 / 60 - 1) { raf = requestAnimationFrame(frame); return }
+      if (now < nextDraw - 0.5) { raf = requestAnimationFrame(frame); return }
+      nextDraw = nextDraw ? nextDraw + 1000 / 60 : now + 1000 / 60
+      if (now - nextDraw > 50) nextDraw = now + 1000 / 60
       const dt = last ? Math.min(0.05, (now - last) / 1000) : 1 / 60
-      last = now; lastDraw = now
+      last = now
       pose.time += dt
       const current = stateRef.current
       const clicked = current === 'click_reaction' || current === 'completion'
@@ -73,6 +90,8 @@ export default function ColliePortraitFrame({ state, reducedMotion, fallbackSrc,
       pose.joy += (joy - pose.joy) * smoothFactor(15, dt)
       pose.focus += ((busy ? 1 : 0) - pose.focus) * f
       pose.concern += ((current === 'error' || current === 'waiting' ? 1 : 0) - pose.concern) * f
+      pose.rest += ((current === 'sleepy' ? 1 : 0) - pose.rest) * f
+      glasses += ((current === 'deep_work_glasses' ? 1 : 0) - glasses) * f
       try { draw() } catch { fallback.hidden = false; canvas.hidden = true; return }
       if (!reducedMotion) raf = requestAnimationFrame(frame)
     }

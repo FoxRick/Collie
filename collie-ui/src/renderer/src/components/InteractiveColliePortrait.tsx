@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Ban, Check, CircleX } from 'lucide-react'
 import type { ActiveAgent, ThinkingState } from '../lib/ipc'
 import {
@@ -86,6 +86,7 @@ export default function InteractiveColliePortrait({
   recentAgents = []
 }: Props): React.JSX.Element {
   const [pointerTarget, setPointerTarget] = useState<number | null>(null)
+  const ringRef = useRef<HTMLDivElement>(null)
   const [copyIndex, setCopyIndex] = useState(0)
   const [now, setNow] = useState(Date.now)
   const { state, paused, reducedMotion, triggerReaction } = useColliePortraitState(
@@ -143,7 +144,7 @@ export default function InteractiveColliePortrait({
 
   useEffect(() => {
     const move = (event: PointerEvent): void => {
-      const bounds = document.querySelector('.collie-portrait-ring')?.getBoundingClientRect()
+      const bounds = ringRef.current?.getBoundingClientRect()
       if (!bounds) return
       const x = (event.clientX - bounds.left - bounds.width / 2) / (bounds.width / 2)
       const y = (event.clientY - bounds.top - bounds.height / 2) / (bounds.height / 2)
@@ -174,6 +175,7 @@ export default function InteractiveColliePortrait({
       aria-label={`Collie is ${state.replaceAll('_', ' ')}`}
     >
       <div
+        ref={ringRef}
         className="collie-portrait-ring"
         role="button"
         tabIndex={0}

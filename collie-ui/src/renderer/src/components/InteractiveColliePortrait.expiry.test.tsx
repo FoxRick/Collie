@@ -39,6 +39,8 @@ function render(props: Partial<React.ComponentProps<typeof InteractiveColliePort
 }
 
 beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
   vi.useFakeTimers()
   window.matchMedia = vi.fn().mockReturnValue({
     matches: false,
@@ -55,9 +57,33 @@ afterEach(() => {
   host?.remove()
   host = null
   vi.useRealTimers()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('InteractiveColliePortrait settled-row expiry', () => {
+  it.each(['awaiting_approval', 'error'])('keeps %s above pointer attention and pet reactions', (engine) => {
+    render({ thinking: { state: engine, phrase: '', pet_animation: '' } })
+    const ring = host!.querySelector('.collie-portrait-ring')!
+    vi.spyOn(ring, 'getBoundingClientRect').mockReturnValue({ left: 100, top: 100, width: 100, height: 100 } as DOMRect)
+    act(() => {
+      window.dispatchEvent(new MouseEvent('pointermove', { clientX: 600, clientY: 150 }))
+      ring.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(host!.querySelector(engine === 'error' ? '.is-error' : '.is-waiting')).not.toBeNull()
+    expect(host!.querySelector('.is-click_reaction')).toBeNull()
+  })
+  it('tracks outside the ring, keeps attention on ring exit, and returns on window blur', () => {
+    render()
+    const ring = host!.querySelector('.collie-portrait-ring')!
+    vi.spyOn(ring, 'getBoundingClientRect').mockReturnValue({ left: 100, top: 100, width: 100, height: 100 } as DOMRect)
+    act(() => window.dispatchEvent(new MouseEvent('pointermove', { clientX: 600, clientY: 150 })))
+    expect(host!.querySelector('.is-pointer_look')).not.toBeNull()
+    act(() => ring.dispatchEvent(new MouseEvent('pointerout', { bubbles: true })))
+    expect(host!.querySelector('.is-pointer_look')).not.toBeNull()
+    act(() => window.dispatchEvent(new Event('blur')))
+    expect(host!.querySelector('.is-pointer_look')).toBeNull()
+  })
   it('unmounts the empty agent list and stops the ticker once rows expire', () => {
     const ended = Date.now() - 60_000
     render({
