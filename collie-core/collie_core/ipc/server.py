@@ -70,6 +70,7 @@ from collie_core.ipc.commands import (
     ProviderCommands,
     RoutineCommands,
 )
+from collie_core.ipc.commands.native_control import NativeControlCommands
 from collie_core.ipc.commands.providers import _OAuthAttemptState
 from collie_core.ipc.thinking import phrase_for_state, thinking_state_for_tool
 from collie_core.onboarding import (
@@ -189,6 +190,7 @@ def _safe_preview_data_url(attachment: dict[str, Any]) -> str | None:
 
 
 class CollieIPCServer(
+    NativeControlCommands,
     CollaborationCommands,
     MemoryCommands,
     RoutineCommands,
@@ -480,6 +482,8 @@ class CollieIPCServer(
                 except (TypeError, ValueError):
                     pass
                 if kind in {
+                    "browser_action",
+                    "native_control",
                     "begin_connector_auth",
                     "begin_definition_auth",
                     "test_connector",
@@ -495,6 +499,8 @@ class CollieIPCServer(
             logger.debug("IPC connection closed")
         finally:
             self._clients.discard(connection)
+            if not self._clients and getattr(self, "native_control", None) is not None:
+                self.native_control.stop_all()
 
     async def _handle_frame(self, connection: ServerConnection, raw: str | bytes) -> None:
         try:
@@ -1081,6 +1087,8 @@ class CollieIPCServer(
 
     async def _cmd_stop(self, connection: ServerConnection, frame: dict) -> dict:
         conv_id = str(frame.get("conversation_id") or "")
+        if getattr(self, "native_control", None) is not None:
+            self.native_control.stop(conv_id)
         task = self._chat_tasks.get(conv_id)
         stopped = False
         turn_will_handle_stop = task is not None and not task.done()

@@ -175,6 +175,14 @@ alongside saved BYOK records. See
 [managed inference](product/features/managed-inference.md) for the zero-cost
 deployment gate and current context/capacity limits.
 
+Native editor interaction lives in `collie_core/native_control.py`, with the
+`tools/native_control.py` agent entry and `ipc/commands/native_control.py`
+desktop command family. `NativeControlPanel.tsx` selects a chat-scoped unsaved
+classic Notepad target. Both paths use the central approval broker and one
+process-wide input lease; the engine remains unchanged. See
+[native control](product/features/native-control.md) for the experimental scope
+and real-OS verification limits.
+
 ## Documentation ownership
 
 - `docs/VISION.md`: durable product intent.

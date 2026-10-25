@@ -72,6 +72,11 @@ schemas; `tests/collie/test_prompt_hashes.py` covers the hash telemetry
 
 ## Architecture Notes
 
+- Native editor control is owned by `collie_core/native_control.py`; UI and
+  agent entries share its sensitive approval, selected-window identity and
+  process-wide input lease. Keep the unsaved-editor allowlist and no-keystroke
+  fallback boundary. Scope and verification limits: `../docs/product/features/native-control.md`.
+
 - **Chat flow**: Electron renderer → `collie_core/ipc/server.py` (WebSocket
   JSON protocol) → `AgentLoop.process_direct` → provider → streamed deltas
   back as `thinking`/`delta`/`message` events → messages persisted in

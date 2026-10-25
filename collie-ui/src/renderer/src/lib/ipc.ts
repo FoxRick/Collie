@@ -27,6 +27,14 @@ export type {
   ConnectorTransport
 } from '../../../shared/connectors'
 
+export interface NativeWindow {
+  hwnd: number
+  pid: number
+  started: string
+  runtime: string
+  title: string
+}
+
 export interface CollieMessage {
   id: string
   conversation_id: string
@@ -657,6 +665,14 @@ export class CollieClient {
   }
 
   /** Fire a command and await its ok/error reply. */
+  nativeControl(
+    conversationId: string,
+    operation: 'discover' | 'select' | 'observe' | 'focus' | 'click' | 'type' | 'scroll' | 'stop',
+    options: { target?: NativeWindow; scope?: 'unsaved_editor'; text?: string; direction?: 'up' | 'down' } = {}
+  ): Promise<{ windows?: NativeWindow[]; selected?: boolean; stopped?: boolean; ok?: boolean }> {
+    return this.command('native_control', { conversation_id: conversationId, operation, ...options }, 330_000)
+  }
+
   command<T = Record<string, unknown>>(
     type: string,
     payload: Record<string, unknown> = {},

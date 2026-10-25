@@ -205,6 +205,12 @@ class CollieRuntime:
             context_validator=self._validate_execution_context,
         )
         self.ipc.approval_broker = self.approvals
+        from collie_core.native_control import NativeControl
+        from collie_core.tools.native_control import bind_native_control
+
+        self.native_control = NativeControl(self.approvals)
+        self.ipc.native_control = self.native_control
+        bind_native_control(self.native_control)
         self.messengers.broadcaster = self.ipc.broadcast
         self._scheduler = AutomationScheduler(
             self.db, broadcaster=self.ipc.broadcast, runner=self._run_automation
