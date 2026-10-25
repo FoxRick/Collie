@@ -31,6 +31,7 @@ from collie_core.ipc.server import CollieIPCServer
 # Frozen ownership table: which module owns which handler. Move a handler and
 # this table moves with it; the test then tells you the wire contract still binds.
 HANDLERS: dict[str, tuple[str, ...]] = {
+    "browser": ("browser_action",),
     "agents": (
         "cancel_subagent",
         "create_subagent",
@@ -148,6 +149,7 @@ HANDLERS: dict[str, tuple[str, ...]] = {
 # A new entry here is a deliberate statement that the module needs that part of
 # the server; a stale one means the reach went away and the table should shrink.
 HOST_DEPENDENCIES: dict[str, frozenset[str]] = {
+    "browser": frozenset({"browser_service", "db"}),
     "agents": frozenset(
         {
             "_activity_provider",
