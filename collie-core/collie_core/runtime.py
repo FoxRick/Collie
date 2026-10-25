@@ -14,6 +14,7 @@ import asyncio
 import inspect
 import json
 import os
+import signal
 import sqlite3
 import sys
 import time
@@ -1925,9 +1926,18 @@ class CollieRuntime:
                 await self._configure()
             else:
                 logger.info("Waiting for the shell to deliver credentials")
-        except Exception:
+        except Exception as error:
             logger.exception("Core boot failed")
-            print("COLLIE_FATAL boot failed", flush=True)
+            # Name the port when the failure is OS-level (an address already in
+            # use, say) so the shell can report something more useful than
+            # "engine didn't start". Everything else stays a bare type name:
+            # boot errors can carry provider payloads.
+            detail = (
+                f"port {self.ipc.port} {error.strerror or error}"
+                if isinstance(error, OSError)
+                else type(error).__name__
+            )
+            print(f"COLLIE_FATAL boot failed ({detail})", flush=True)
             raise
         # Structured readiness handshake: the Electron shell switches to
         # "running" only on this line, never on a blind timeout.
@@ -1939,6 +1949,15 @@ class CollieRuntime:
         )
 
         stop = asyncio.Event()
+        # The shell stops the core with SIGTERM. Handling it here instead of
+        # letting the default action kill the process means the MCP sessions,
+        # the loop and the database close in order, and the MCP servers the core
+        # started are torn down by their own exit stack rather than orphaned.
+        # Not available on Windows, where the shell tree-kills instead.
+        loop = asyncio.get_running_loop()
+        for signal_name in ("SIGTERM", "SIGINT"):
+            with suppress(NotImplementedError, ValueError):
+                loop.add_signal_handler(getattr(signal, signal_name), stop.set)
         try:
             await stop.wait()
         finally:
