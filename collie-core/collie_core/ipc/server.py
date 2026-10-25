@@ -480,6 +480,8 @@ class CollieIPCServer(
                 except (TypeError, ValueError):
                     pass
                 if kind in {
+                    "browser_action",
+                    "native_control",
                     "prepare_voice",
                     "transcribe",
                     "begin_connector_auth",
