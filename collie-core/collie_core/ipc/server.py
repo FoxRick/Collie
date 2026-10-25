@@ -64,13 +64,13 @@ from collie_core.ipc.commands import (
     AgentCommands,
     CollaborationCommands,
     ConnectorCommands,
+    CrossSessionCommands,
     FileCommands,
     MemoryCommands,
     MessengerCommands,
     ProviderCommands,
     RoutineCommands,
 )
-from collie_core.ipc.commands.cross_session import CrossSessionCommands
 from collie_core.ipc.commands.providers import _OAuthAttemptState
 from collie_core.ipc.thinking import phrase_for_state, thinking_state_for_tool
 from collie_core.onboarding import (
@@ -190,10 +190,10 @@ def _safe_preview_data_url(attachment: dict[str, Any]) -> str | None:
 
 
 class CollieIPCServer(
-    CrossSessionCommands,
     CollaborationCommands,
     MemoryCommands,
     RoutineCommands,
+    CrossSessionCommands,
     ProviderCommands,
     ConnectorCommands,
     FileCommands,
