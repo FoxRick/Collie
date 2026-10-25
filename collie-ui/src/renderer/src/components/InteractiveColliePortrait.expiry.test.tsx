@@ -62,6 +62,18 @@ afterEach(() => {
 })
 
 describe('InteractiveColliePortrait settled-row expiry', () => {
+  it('promotes a first-click wave to an open-mouth happy reaction on double click', () => {
+    render()
+    const ring = host!.querySelector('.collie-portrait-ring')!
+    act(() => ring.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })))
+    expect(host!.querySelector('.is-click_reaction')).not.toBeNull()
+    act(() => ring.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 })))
+    expect(host!.querySelector('.is-happy_reaction')).not.toBeNull()
+    act(() => vi.advanceTimersByTime(1_000))
+    expect(host!.querySelector('.is-happy_reaction')).not.toBeNull()
+    act(() => vi.advanceTimersByTime(651))
+    expect(host!.querySelector('.is-happy_reaction')).toBeNull()
+  })
   it.each(['awaiting_approval', 'error'])('keeps %s above pointer attention and pet reactions', (engine) => {
     render({ thinking: { state: engine, phrase: '', pet_animation: '' } })
     const ring = host!.querySelector('.collie-portrait-ring')!
@@ -69,6 +81,7 @@ describe('InteractiveColliePortrait settled-row expiry', () => {
     act(() => {
       window.dispatchEvent(new MouseEvent('pointermove', { clientX: 600, clientY: 150 }))
       ring.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      ring.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 }))
     })
     expect(host!.querySelector(engine === 'error' ? '.is-error' : '.is-waiting')).not.toBeNull()
     expect(host!.querySelector('.is-click_reaction')).toBeNull()

@@ -8,7 +8,7 @@ import {
 
 const DEEP_WORK_DELAY_MS = 11_000
 const COMPLETION_DURATION_MS = 2_400
-const CLICK_REACTION_DURATION_MS = 850
+const CLICK_REACTION_DURATION_MS = 1_400
 const CLICK_COOLDOWN_MS = 1_000
 
 interface PortraitModel {
@@ -16,6 +16,7 @@ interface PortraitModel {
   paused: boolean
   reducedMotion: boolean
   triggerReaction: () => void
+  triggerHappyReaction: () => void
 }
 
 export function useColliePortraitState(
@@ -122,6 +123,11 @@ export function useColliePortraitState(
     state,
     paused,
     reducedMotion,
-    triggerReaction
+    triggerReaction,
+    triggerHappyReaction: () => {
+      if (state === 'error' || state === 'waiting' || state === 'completion') return
+      // A double click promotes the first click's wave even during cooldown.
+      setTimedTransient('happy_reaction', 1_650)
+    }
   }
 }

@@ -13,7 +13,7 @@
 
 - Core Python files: **574**
 - Core Python test files: **260**
-- Desktop TypeScript/TSX files: **214**
+- Desktop TypeScript/TSX files: **215**
 - Desktop test files: **81**
 - Active Markdown docs: **43**
 - Archived Markdown docs: **0**

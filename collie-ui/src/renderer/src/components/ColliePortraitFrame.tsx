@@ -1,140 +1,183 @@
 import { useEffect, useRef } from 'react'
 import { smoothFactor } from './colliePortraitMotion'
-import { attentionTarget, drawRig, rigPoint, type RigPose } from './colliePortraitRig'
-import type { PortraitState } from './portraitStates'
-
+import { prepareFaceArtwork, type FaceArtwork } from './colliePortraitFace'
+import { FACE_ONLY_ASSET_MANIFEST, type PortraitState } from './portraitStates'
+import { attentionTarget, drawRig, rigPoint } from './colliePortraitRig'
 interface Props {
   state: PortraitState
   reducedMotion: boolean
   fallbackSrc: string
   className?: string
 }
-const pawSrc = new URL('../assets/portrait/paw-front-brand.webp', import.meta.url).href
-
-/** One renderer and one silhouette. The still is visible only until the first
- * successful draw, or if Canvas/image loading fails. No whole-head blends. */
+const ease = (v: number): number => { const t = Math.max(0, Math.min(1, v)); return t * t * (3 - 2 * t); }
 export default function ColliePortraitFrame({ state, reducedMotion, fallbackSrc, className }: Props): React.JSX.Element {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const fallbackRef = useRef<HTMLImageElement>(null)
-  const stateRef = useRef(state)
-  const poseRef = useRef<RigPose>({ x: 0, y: 0, joy: 0, focus: 0, concern: 0, time: 0, rest: 0 })
-  useEffect(() => { stateRef.current = state }, [state])
-
+  const canvasRef = useRef<HTMLCanvasElement>(null), fallbackRef = useRef<HTMLImageElement>(null), stateRef = useRef(state)
+  const poseRef = useRef({ x: 0, y: 0, time: 0, mouth: 0, wave: 0, glasses: 0 })
+  useEffect(() => { stateRef.current = state; }, [state])
   useEffect(() => {
-    const canvas = canvasRef.current
-    const fallback = fallbackRef.current
-    if (!canvas || !fallback) return
+    const canvas = canvasRef.current, fallback = fallbackRef.current
+    if (!canvas || !fallback)
+      return
     const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    let disposed = false, ready = false, lost = false
-    let raf: number | null = null, last = 0, nextDraw = 0
+    if (!ctx)
+      return
+    let disposed = false, lost = false, art: FaceArtwork | null = null, raf: number | null = null, last = 0, nextDraw = 0, reaction = 0, wasReacting = false
     let target = { x: 0, y: 0 }
-    let reaction = 0, reactionState = false
-    let glasses = 0
-    const texture = new Image(), paw = new Image()
     const pose = poseRef.current
-    const stop = (): void => { if (raf !== null) cancelAnimationFrame(raf); raf = null; last = 0; nextDraw = 0 }
+    const stop = (): void => {
+      if (raf !== null) cancelAnimationFrame(raf)
+      raf = null
+      last = 0
+      nextDraw = 0
+    }
     const draw = (): void => {
-      // Budget pixels to actual displayed size, including display scaling.
+      if (!art)
+        return
       const side = Math.max(1, Math.round(Math.min(2, window.devicePixelRatio || 1) * (canvas.getBoundingClientRect().width || 136)))
-      if (canvas.width !== side || canvas.height !== side) { canvas.width = side; canvas.height = side }
+      if (canvas.width !== side || canvas.height !== side) {
+        canvas.width = side
+        canvas.height = side
+      }
       ctx.setTransform(side / 384, 0, 0, side / 384, 0, 0)
       ctx.clearRect(0, 0, 384, 384)
-      drawRig(ctx, texture, pose)
-      if (glasses > 0.001) {
-        const left = rigPoint(113, 152, pose), right = rigPoint(196, 166, pose)
+      drawRig(ctx, art.neutral.texture, pose)
+      if (pose.mouth > .001)
+        drawRig(ctx, art.mouth.texture, pose, ease(pose.mouth))
+      const blink = reducedMotion ? 0 : stateRef.current === 'sleepy' ? 1 : Math.max(0, 1 - Math.abs(pose.time % 5.1 - 4.7) / .13)
+      if (blink > 0)
+        drawRig(ctx, art.blink.texture, pose, blink)
+      const landmarks = art.neutral.features.map(p => rigPoint(p.x, p.y, pose))
+      canvas.dataset.blink = blink.toFixed(3)
+      if (pose.glasses > .001) {
+        const left = landmarks[3], right = landmarks[4]
         ctx.save()
-        ctx.globalAlpha = glasses
-        ctx.strokeStyle = '#211e21'; ctx.lineWidth = 5
-        ctx.fillStyle = 'rgba(116, 161, 181, 0.12)'
+        ctx.globalAlpha = pose.glasses
+        ctx.lineWidth = 5
+        ctx.strokeStyle = '#211e21'
+        ctx.fillStyle = 'rgba(116,161,181,.12)'
         for (const eye of [left, right]) {
-          ctx.beginPath(); ctx.ellipse(eye.x, eye.y, 25, 21, 0.14, 0, Math.PI * 2); ctx.fill(); ctx.stroke()
+          ctx.beginPath()
+          ctx.ellipse(eye.x, eye.y, 24, 20, .05, 0, Math.PI * 2)
+          ctx.fill()
+          ctx.stroke()
         }
-        ctx.beginPath(); ctx.moveTo(left.x + 24, left.y); ctx.quadraticCurveTo(155 + pose.x * 12, 149 + pose.y * 8, right.x - 24, right.y)
-        ctx.moveTo(left.x - 24, left.y - 4); ctx.lineTo(left.x - 37, left.y - 9)
-        ctx.moveTo(right.x + 24, right.y - 4); ctx.lineTo(right.x + 47, right.y - 9)
-        ctx.stroke(); ctx.restore()
-      }
-      if (pose.joy > 0.001 && paw.complete && paw.naturalWidth) {
-        ctx.save()
-        ctx.translate(90, 460 - 150 * pose.joy)
-        ctx.rotate(-0.12 * pose.joy)
-        ctx.drawImage(paw, -65, -130, 130, 199)
+        ctx.beginPath()
+        ctx.moveTo(left.x + 24, left.y)
+        ctx.lineTo(right.x - 24, right.y)
+        ctx.stroke()
         ctx.restore()
       }
+      if (pose.wave > .001) {
+        // Original raised FORELEG pivots from the chest; no floating fist.
+        ctx.save()
+        ctx.translate(80, 384)
+        ctx.rotate((1 - pose.wave) * -.65 + Math.sin(reaction * 15) * .035 * pose.wave)
+        ctx.translate(-80, -384 + (1 - pose.wave) * 150)
+        ctx.drawImage(art.arm, 0, 0)
+        ctx.restore()
+      }
+      canvas.dataset.noseX = landmarks[5].x.toFixed(2)
+      canvas.dataset.noseY = landmarks[5].y.toFixed(2)
+      canvas.dataset.eyeX = landmarks[3].x.toFixed(2)
+      canvas.dataset.eyeY = landmarks[3].y.toFixed(2)
+      canvas.dataset.mouth = pose.mouth.toFixed(3)
+      canvas.dataset.wave = pose.wave.toFixed(3)
       fallback.hidden = true
       canvas.hidden = false
     }
     const frame = (now: number): void => {
       raf = null
-      if (disposed || document.hidden || lost || !ready) return
-      // 60 Hz ceiling even on 120/144 Hz displays; smoothing uses elapsed time.
-      if (now < nextDraw - 0.5) { raf = requestAnimationFrame(frame); return }
+      if (disposed || document.hidden || lost || !art)
+        return
+      if (now < nextDraw - .5) {
+        raf = requestAnimationFrame(frame)
+        return
+      }
       nextDraw = nextDraw ? nextDraw + 1000 / 60 : now + 1000 / 60
-      if (now - nextDraw > 50) nextDraw = now + 1000 / 60
-      const dt = last ? Math.min(0.05, (now - last) / 1000) : 1 / 60
+      if (now - nextDraw > 50)
+        nextDraw = now + 1000 / 60
+      const dt = last ? Math.min(.05, (now - last) / 1000) : 1 / 60
       last = now
       pose.time += dt
-      const current = stateRef.current
-      const clicked = current === 'click_reaction' || current === 'completion'
-      if (clicked && !reactionState) reaction = 0
-      reactionState = clicked
-      if (clicked) reaction += dt
-      // Anticipation, rise, hold, then return; the shared pose never resets.
-      const joy = clicked && reaction > 0.10 && reaction < 0.62 ? 1 : 0
-      const busy = ['working', 'review', 'deep_work_glasses'].includes(current)
-      const attention = current === 'sleepy' ? 0 : busy ? 0.35 : 1
-      const f = smoothFactor(10, dt)
+      const current = stateRef.current, reacting = ['click_reaction', 'happy_reaction', 'completion'].includes(current)
+      if (reacting && !wasReacting)
+        reaction = 0
+      wasReacting = reacting
+      if (reacting)
+        reaction += dt
+      const busy = ['working', 'review', 'deep_work_glasses'].includes(current), attention = current === 'sleepy' ? 0 : busy ? .4 : 1, f = smoothFactor(8, dt)
       pose.x += (target.x * attention - pose.x) * f
       pose.y += (target.y * attention - pose.y) * f
-      pose.joy += (joy - pose.joy) * smoothFactor(15, dt)
-      pose.focus += ((busy ? 1 : 0) - pose.focus) * f
-      pose.concern += ((current === 'error' || current === 'waiting' ? 1 : 0) - pose.concern) * f
-      pose.rest += ((current === 'sleepy' ? 1 : 0) - pose.rest) * f
-      glasses += ((current === 'deep_work_glasses' ? 1 : 0) - glasses) * f
-      try { draw() } catch { fallback.hidden = false; canvas.hidden = true; return }
-      if (!reducedMotion) raf = requestAnimationFrame(frame)
+      const wave = reacting ? ease((reaction - .12) / .24) * (1 - ease((reaction - .85) / .4)) : 0
+      pose.wave += (wave - pose.wave) * smoothFactor(18, dt)
+      const smile = reacting && reaction < 1.18 ? (current === 'happy_reaction' || current === 'completion' ? 1 : .35) : 0
+      pose.mouth += (smile - pose.mouth) * smoothFactor(11, dt)
+      pose.glasses += ((current === 'deep_work_glasses' ? 1 : 0) - pose.glasses) * f
+      try {
+        draw()
+      }
+      catch {
+        fallback.hidden = false
+        canvas.hidden = true
+        return
+      }
+      if (!reducedMotion)
+        raf = requestAnimationFrame(frame)
     }
-    const start = (): void => {
-      stop()
-      if (!disposed && ready && !document.hidden && !lost) {
-        if (reducedMotion) {
-          pose.x = 0; pose.y = 0; pose.joy = 0; pose.time = 0
-          draw()
-        } else raf = requestAnimationFrame(frame)
+    const start = (): void => { stop(); if (!disposed && art && !document.hidden && !lost) {
+      if (reducedMotion) {
+        pose.x = 0
+        pose.y = 0
+        pose.mouth = 0
+        pose.wave = 0
+        draw()
+      }
+      else
+        raf = requestAnimationFrame(frame)
+    } }
+    const move = (event: PointerEvent): void => { const r = canvas.getBoundingClientRect(), radius = Math.max(1, r.width / 2); target = attentionTarget((event.clientX - r.left - radius) / radius, (event.clientY - r.top - r.height / 2) / radius); }
+    const leave = (): void => { target = { x: 0, y: 0 }; }
+    const contextLost = (event: Event): void => { event.preventDefault(); lost = true; stop(); fallback.hidden = false; canvas.hidden = true; }
+    const restored = (): void => {
+      lost = false
+      try {
+        // Source canvases can lose their backing stores along with the main
+        // context. Rebuild layers from the retained original image elements.
+        art = prepareFaceArtwork(images[0], images[1], images[2])
+        start()
+      } catch {
+        fallback.hidden = false
+        canvas.hidden = true
       }
     }
-    const move = (event: PointerEvent): void => {
-      const rect = canvas.getBoundingClientRect(), radius = Math.max(1, rect.width / 2)
-      target = attentionTarget((event.clientX - rect.left - radius) / radius, (event.clientY - rect.top - rect.height / 2) / radius)
+    const images = [new Image(), new Image(), new Image()]
+    let pending = 3, failed = false
+    const loaded = (): void => { if (--pending || disposed || failed)
+      return; try {
+      art = prepareFaceArtwork(images[0], images[1], images[2])
+      start()
     }
-    const leave = (): void => { target = { x: 0, y: 0 } }
-    const contextLost = (event: Event): void => { event.preventDefault(); lost = true; stop(); fallback.hidden = false; canvas.hidden = true }
-    const contextRestored = (): void => { lost = false; start() }
-    texture.onload = () => { if (!disposed) { ready = true; start() } }
-    texture.onerror = () => { ready = false; stop(); fallback.hidden = false; canvas.hidden = true }
-    texture.src = fallbackSrc
-    paw.src = pawSrc
+    catch {
+      fallback.hidden = false
+      canvas.hidden = true
+    } }
+    for (const image of images) {
+      image.onload = loaded
+      image.onerror = () => { failed = true; stop(); fallback.hidden = false; canvas.hidden = true; }
+    }
+    images[0].src = FACE_ONLY_ASSET_MANIFEST.pointerLook.src
+    images[1].src = FACE_ONLY_ASSET_MANIFEST.clickReaction.src
+    images[2].src = FACE_ONLY_ASSET_MANIFEST.idle.src
     window.addEventListener('pointermove', move, { passive: true })
     window.addEventListener('blur', leave)
     document.addEventListener('pointerleave', leave)
     document.addEventListener('visibilitychange', start)
     canvas.addEventListener('contextlost', contextLost)
-    canvas.addEventListener('contextrestored', contextRestored)
-    return () => {
-      disposed = true; stop()
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('blur', leave)
-      document.removeEventListener('pointerleave', leave)
-      document.removeEventListener('visibilitychange', start)
-      canvas.removeEventListener('contextlost', contextLost)
-      canvas.removeEventListener('contextrestored', contextRestored)
-      texture.onload = null; texture.onerror = null
-    }
+    canvas.addEventListener('contextrestored', restored)
+    return () => { disposed = true; stop(); window.removeEventListener('pointermove', move); window.removeEventListener('blur', leave); document.removeEventListener('pointerleave', leave); document.removeEventListener('visibilitychange', start); canvas.removeEventListener('contextlost', contextLost); canvas.removeEventListener('contextrestored', restored); for (const image of images) {
+      image.onload = null
+      image.onerror = null
+    } }
   }, [fallbackSrc, reducedMotion])
-
-  return <>
-    <img ref={fallbackRef} className={className} src={fallbackSrc} alt="" draggable={false} aria-hidden="true" />
-    <canvas ref={canvasRef} className={className} hidden aria-hidden="true" />
-  </>
+  return <><img ref={fallbackRef} className={className} src={fallbackSrc} alt="" draggable={false} aria-hidden="true"/><canvas ref={canvasRef} className={className} hidden aria-hidden="true"/></>
 }

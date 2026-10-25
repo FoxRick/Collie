@@ -89,7 +89,7 @@ export default function InteractiveColliePortrait({
   const ringRef = useRef<HTMLDivElement>(null)
   const [copyIndex, setCopyIndex] = useState(0)
   const [now, setNow] = useState(Date.now)
-  const { state, paused, reducedMotion, triggerReaction } = useColliePortraitState(
+  const { state, paused, reducedMotion, triggerReaction, triggerHappyReaction } = useColliePortraitState(
     thinking,
     isTyping,
     activeAgents,
@@ -164,7 +164,8 @@ export default function InteractiveColliePortrait({
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>): void {
     if (event.key !== 'Enter' && event.key !== ' ') return
     event.preventDefault()
-    triggerReaction()
+    if (event.shiftKey) triggerHappyReaction()
+    else triggerReaction()
   }
 
   const status = copyPool[copyIndex] || 'Ready when you are.'
@@ -180,8 +181,10 @@ export default function InteractiveColliePortrait({
         role="button"
         tabIndex={0}
         aria-label="Pet Collie"
+        aria-keyshortcuts="Enter Space Shift+Enter"
         data-gaze-direction={pointerTarget ?? 'idle'}
         onClick={triggerReaction}
+        onDoubleClick={triggerHappyReaction}
         onKeyDown={handleKeyDown}
       >
         <span className="collie-ring-background" aria-hidden="true" />

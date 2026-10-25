@@ -3,18 +3,27 @@
 **Status:** implemented, awaiting native platform acceptance
 
 The composer keeps the illustrated Collie portrait, orange circle, layout,
-and local bundled artwork. Its renderer uses one portrait texture on a small
-Canvas 2D mesh (12 by 16 quads) with a fixed chest root. Bounded head, eye-region,
-ear, and chest deformation gives continuous attention without blending whole
-heads. This is a modest illustration rig, not a three-dimensional head turn;
-the original face angle remains recognizable at every target.
+and local bundled artwork. A shallow depth surface projects the head with
+continuous yaw and pitch. The muzzle projects farther than the forehead, so
+the snout turns relative to the eyes instead of shifting the whole portrait.
+The mesh is 12 by 16 quads with a fixed chest root. It uses one frontal painting
+from the original direction atlas, avoiding competing head silhouettes. The
+turn range is deliberately bounded (about 35 degrees yaw and 22 degrees pitch);
+this does not add unseen back-of-head artwork or full profile geometry.
 
 Pointer attention covers the app window with a soft central dead zone. Leaving
 the portrait ring does not change tracking. Leaving the window or losing focus
 returns smoothly to center. Engine waiting and error states retain priority;
-work reduces attention and deep work adds aligned glasses. Click and completion
-reactions use the existing paw with anticipation, rise, hold, and return. The
-head's current position and animation clock survive state changes.
+work reduces attention and deep work adds aligned glasses.
+
+A click raises the original illustrated foreleg, pivoted from the chest with
+anticipation, a hold, and a gradual return. A double click promotes that reaction
+to the original painted open-mouth smile even during the first click's cooldown.
+Enter/Space activate the wave; Shift+Enter activates the smile. The jaw opens
+geometrically while the registered mouth layer appears. Original painted
+closed-eyelid layers blink on the same projected face and stay closed while
+sleepy. Mouth and eyelid registration happens once at load; whole heads do not
+crossfade. Current head position and the animation clock survive state changes.
 
 The static portrait is visible until Canvas successfully draws, then hidden.
 Texture failure or context loss restores it; context restoration restarts one
@@ -33,8 +42,8 @@ npm run build
 node scripts/preview-portrait.cjs
 ```
 
-This opens a separate preview with its own core/profile, without provider credentials or real
-conversations. Its profile defaults to the OS temporary directory; set
+This opens a separate preview with its own core/profile, without provider
+credentials or real conversations. Its profile defaults to the OS temporary directory; set
 `COLLIE_PORTRAIT_REVIEW_HOME` to choose another location. Do not use it to send
 messages. Move the pointer across the empty chat and through the ring, click or
 keyboard-activate the portrait, and leave/re-enter the window.
@@ -47,8 +56,10 @@ node scripts/verify-portrait-rig.cjs
 ```
 
 The script uses the local debug port 9345 (`COLLIE_DEBUG_PORT` overrides it),
-checks all eight rendered directions, window exit, single-silhouette rendering,
-and reaction return, and records Canvas draw cost while typing unsent text.
+checks sixteen rendered directions and snout motion relative to the eyes,
+window exit, single-silhouette rendering, open-mouth double click, painted
+blink pixels, and reaction return. It records Canvas draw cost during unsent
+typing.
 It emulates focus for repeatability and restores that setting afterward.
 It does not measure GPU presentation latency or establish native visual
 acceptance. Evidence and runtime state must stay outside source control.
@@ -71,8 +82,7 @@ not proof for other platforms. Review the following on actual hardware:
   and keyboard activation. Check priorities and gradual return without a
   duplicate silhouette. Confirm that typing/scrolling remains responsive.
 
-Unit/component tests cover geometry bounds, pointer scope, fallback ownership,
+Unit/component tests cover muzzle rotation, triangle orientation, double-click promotion, geometry bounds, pointer scope, fallback ownership,
 visibility lifecycle, reduced motion, load failure, and context recovery. Native
 macOS/Linux acceptance and physical sleep/resume remain required before making
 cross-platform smoothness claims.
-

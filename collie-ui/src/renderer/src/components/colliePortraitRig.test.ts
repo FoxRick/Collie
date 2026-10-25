@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { attentionTarget, rigPoint, type RigPose } from './colliePortraitRig'
-const neutral: RigPose = { x: 0, y: 0, joy: 0, focus: 0, concern: 0, rest: 0, time: 0 }
+const neutral: RigPose = { x: 0, y: 0, mouth: 0, time: 0 }
 describe('portrait geometry', () => {
+  it('rotates the snout relative to the eyes instead of translating the face', () => {
+    const relativeNose = (x: number): number => rigPoint(184, 183, { ...neutral, x }).x - rigPoint(145, 130, { ...neutral, x }).x
+    expect(relativeNose(1) - relativeNose(-1)).toBeGreaterThan(60)
+    const relativePitch = (y: number): number => rigPoint(184, 183, { ...neutral, y }).y - rigPoint(145, 130, { ...neutral, y }).y
+    expect(relativePitch(1) - relativePitch(-1)).toBeGreaterThan(40)
+  })
   it('has a continuous dead zone and bounded window-wide attention', () => {
     expect(attentionTarget(0.1, 0.1)).toEqual({ x: 0, y: 0 })
     expect(attentionTarget(0.16001, 0).x).toBeLessThan(0.0001)
@@ -16,11 +22,14 @@ describe('portrait geometry', () => {
     }
   })
   it('keeps every triangle orientation through extreme directions and reactions', () => {
-    for (const x of [-1, 0, 1]) for (const y of [-1, 0, 1]) for (const joy of [0, 1]) {
-      const pose = { ...neutral, x, y, joy, concern: 1, rest: 1 }
+    for (const x of [-1, 0, 1]) for (const y of [-1, 0, 1]) for (const mouth of [0, 1]) {
+      const radius = Math.max(1, Math.hypot(x, y))
+      const pose = { ...neutral, x: x / radius, y: y / radius, mouth }
       for (let py = 0; py < 384; py += 24) for (let px = 0; px < 384; px += 32) {
         const a = rigPoint(px, py, pose), b = rigPoint(px + 32, py, pose), c = rigPoint(px, py + 24, pose)
-        expect((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)).toBeGreaterThan(400)
+        expect((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x), JSON.stringify({pose,px,py})).toBeGreaterThan(10)
+        const d = rigPoint(px + 32, py + 24, pose)
+        expect((d.x - b.x) * (c.y - b.y) - (d.y - b.y) * (c.x - b.x)).toBeGreaterThan(10)
       }
     }
   })

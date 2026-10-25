@@ -52,6 +52,7 @@ export type PortraitState =
   | 'error'
   | 'completion'
   | 'click_reaction'
+  | 'happy_reaction'
   | 'deep_work_glasses'
 
 export const STATUS_COPY: Partial<Record<PortraitState, string[]>> = {

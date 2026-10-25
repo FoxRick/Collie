@@ -35,22 +35,23 @@ async function main() {
     assert(initial, 'Finish guest onboarding in the isolated preview: ' + await evaluate('document.body.innerText.slice(0,1500)'))
     assert(initial.imgHidden && !initial.canvasHidden, 'Duplicate silhouette: fallback must be hidden ' + JSON.stringify(initial))
     const samples = []
-    for (let i = 0; i < 8; i++) {
-      const angle = i * Math.PI / 4 - Math.PI / 2
+    for (let i = 0; i < 16; i++) {
+      const angle = i * Math.PI / 8 - Math.PI / 2
       const x = initial.x + Math.cos(angle) * initial.radius * 1.4, y = initial.y + Math.sin(angle) * initial.radius * 1.4
       await command('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y })
       await sleep(450)
-      samples.push(await evaluate(`(() => { const c=document.querySelector('.collie-portrait-stage canvas'), d=c.getContext('2d').getImageData(0,0,c.width,c.height).data; let ax=0,ay=0,sum=0; for(let i=0;i<d.length;i+=4){const a=d[i+3];sum+=a;ax+=(i/4%c.width)*a;ay+=Math.floor(i/4/c.width)*a} return { x:ax/sum,y:ay/sum,state:document.querySelector('.collie-portrait-stage').className } })()`))
+      samples.push(await evaluate(`(() => { const c=document.querySelector('.collie-portrait-stage canvas'), d=c.getContext('2d').getImageData(0,0,c.width,c.height).data; let ax=0,ay=0,sum=0; for(let i=0;i<d.length;i+=4){const a=d[i+3];sum+=a;ax+=(i/4%c.width)*a;ay+=Math.floor(i/4/c.width)*a} return { x:ax/sum,y:ay/sum,noseX:Number(c.dataset.noseX),noseY:Number(c.dataset.noseY),eyeX:Number(c.dataset.eyeX),eyeY:Number(c.dataset.eyeY),state:document.querySelector('.collie-portrait-stage').className } })()`))
       assert(samples[i].state.includes('pointer_look'), 'Tracking must work beyond the ring')
       const shot = await command('Page.captureScreenshot', { format:'png' })
       writeFileSync(resolve(output, `direction-${i}.png`), Buffer.from(shot.data,'base64'))
     }
-    assert(samples[0].y < samples[4].y - 1, 'Up must differ from down in rendered pixels')
-    assert(samples[2].x > samples[6].x + 1, 'Right must differ from left in rendered pixels')
+    assert(samples[0].noseY-samples[0].eyeY < samples[8].noseY-samples[8].eyeY - 40, 'Up/down must pitch the muzzle relative to the eyes, not shift the whole image')
+    assert(samples[4].noseX-samples[4].eyeX > samples[12].noseX-samples[12].eyeX + 60, 'Right/left must turn the snout relative to the eyes, not jiggle the portrait')
+    assert(Math.abs(samples[4].x-samples[12].x) > .1, 'Directional textures must produce different rendered silhouettes')
     const reactionPending = evaluate(`(async () => {
       const ring=document.querySelector('.collie-portrait-ring'),c=ring.querySelector('canvas'),ctx=c.getContext('2d'),frames=[];
       ring.click();const start=performance.now();
-      while(performance.now()-start<1200){
+      while(performance.now()-start<1900){
         const data=ctx.getImageData(0,0,c.width,c.height).data;let ax=0,ay=0,total=0;
         for(let i=0;i<data.length;i+=4){const a=data[i+3];total+=a;ax+=(i/4%c.width)*a;ay+=Math.floor(i/4/c.width)*a}
         frames.push({ms:performance.now()-start,x:ax/total,y:ay/total,alpha:total,state:document.querySelector('.collie-portrait-stage').className,hidden:ring.querySelector('img').hidden});
@@ -66,6 +67,30 @@ async function main() {
     assert(reaction.at(-1).state.includes('pointer_look'), 'Reaction must return to pointer attention')
     const jumps=reaction.slice(1).map((f,i)=>Math.hypot(f.x-reaction[i].x,f.y-reaction[i].y))
     assert(Math.max(...jumps)<4, 'Reaction introduced an abrupt silhouette jump')
+    await command('Input.dispatchMouseEvent',{type:'mouseMoved',x:initial.x,y:initial.y})
+    await sleep(450)
+    const readEye = `(()=>{const c=document.querySelector('.collie-portrait-stage canvas'),scale=c.width/384,x=Math.round(Number(c.dataset.eyeX)*scale),y=Math.round(Number(c.dataset.eyeY)*scale),r=Math.max(2,Math.round(20*scale));return {blink:Number(c.dataset.blink),pixels:Array.from(c.getContext('2d').getImageData(x-r,y-r,r*2,r*2).data)}})()`
+    if((await evaluate(readEye)).blink>.1) await sleep(300)
+    const eyesOpen=await evaluate(readEye)
+    let eyesClosed
+    for(let i=0;i<400;i++) {
+      const eye=await evaluate(readEye)
+      if(eye.blink>.6){eyesClosed=eye;break}
+      await sleep(16)
+    }
+    assert(eyesClosed,'Painted eyelids must animate through a blink')
+    const eyePixelChange=eyesClosed.pixels.reduce((sum,v,i)=>sum+Math.abs(v-eyesOpen.pixels[i]),0)/eyesClosed.pixels.length
+    assert(eyePixelChange>3,'Blink must visibly change eye pixels, not just a state variable')
+    writeFileSync(resolve(output,'blink.png'),Buffer.from((await command('Page.captureScreenshot',{format:'png'})).data,'base64'))
+    for(const clickCount of [1,2]) {
+      await command('Input.dispatchMouseEvent',{type:'mousePressed',x:initial.x,y:initial.y,button:'left',clickCount})
+      await command('Input.dispatchMouseEvent',{type:'mouseReleased',x:initial.x,y:initial.y,button:'left',clickCount})
+    }
+    await sleep(400)
+    const happy = await evaluate(`({state:document.querySelector('.collie-portrait-stage').className,mouth:Number(document.querySelector('.collie-portrait-stage canvas').dataset.mouth)})`)
+    assert(happy.state.includes('happy_reaction')&&happy.mouth>.85,'Double click must open the painted mouth despite the first click cooldown')
+    writeFileSync(resolve(output,'happy-reaction.png'),Buffer.from((await command('Page.captureScreenshot',{format:'png'})).data,'base64'))
+    await sleep(1450)
     await evaluate(`window.dispatchEvent(new Event('blur'))`)
     await sleep(600)
     assert(!(await evaluate(`document.querySelector('.collie-portrait-stage').className`)).includes('pointer_look'), 'Window blur must release attention')
@@ -101,7 +126,7 @@ async function main() {
     await command('Input.dispatchKeyEvent',{type:'keyUp',key:'Backspace',code:'Backspace',windowsVirtualKeyCode:8})
     if(draft) await command('Input.insertText',{text:draft})
     const stats = values => { const a=values.sort((a,b)=>a-b); return { n:a.length, median:a[Math.floor(a.length*.5)],p95:a[Math.floor(a.length*.95)],max:a.at(-1) } }
-    const report = { initial, samples, reaction, reactionMaxCentroidStep:Math.max(...jumps), drawMs: stats(metrics.cost), frameIntervalMs:stats(metrics.interval), platform:process.platform, note:'Wall time in Canvas mesh draw, not GPU presentation latency. Isolated empty conversation with unsent typing; focus emulated for repeatability.' }
+    const report = { initial, samples, reaction, happy, eyePixelChange, reactionMaxCentroidStep:Math.max(...jumps), drawMs: stats(metrics.cost), frameIntervalMs:stats(metrics.interval), platform:process.platform, note:'Wall time in Canvas mesh draw, not GPU presentation latency. Isolated empty conversation with unsent typing; focus emulated for repeatability.' }
     writeFileSync(resolve(output,'rendered-results.json'),JSON.stringify(report,null,2))
     console.log(JSON.stringify(report,null,2))
   } finally {
@@ -113,4 +138,3 @@ async function main() {
   }
 }
 main().catch(e=>{console.error(e);process.exitCode=1})
-

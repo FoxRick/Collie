@@ -26,7 +26,7 @@ beforeEach(() => {
     constructor() { images.push(this) }
   })
   draw = vi.fn()
-  const ctx = new Proxy({ drawImage: draw, getTransform: () => ({ a: 1 }), getImageData: () => ({ data: new Uint8ClampedArray(72 * 72 * 4) }) }, {
+  const ctx = new Proxy({ drawImage: draw, createRadialGradient: () => ({ addColorStop: vi.fn() }), getTransform: () => ({ a: 1 }), getImageData: () => ({ data: new Uint8ClampedArray(72 * 72 * 4) }) }, {
     get: (obj, key) => key in obj ? obj[key as keyof typeof obj] : vi.fn()
   })
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx as unknown as CanvasRenderingContext2D)
