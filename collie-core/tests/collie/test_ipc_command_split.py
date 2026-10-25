@@ -36,9 +36,11 @@ HANDLERS: dict[str, tuple[str, ...]] = {
         "create_subagent",
         "delete_subagent",
         "get_skill",
+        "get_skill_editor",
         "get_subagent_activity",
         "list_skills",
         "list_subagents",
+        "manage_skill",
         "update_subagent",
     ),
     "collaboration": (
@@ -143,6 +145,12 @@ HANDLERS: dict[str, tuple[str, ...]] = {
         "update_automation",
         "update_routine",
     ),
+    "temporary_chat": (
+        "temporary_open",
+        "temporary_turn",
+        "temporary_stop",
+        "temporary_close",
+    ),
 }
 
 # The server state each command module reaches for, minus its own handlers.
@@ -153,6 +161,7 @@ HOST_DEPENDENCIES: dict[str, frozenset[str]] = {
     "agents": frozenset(
         {
             "_activity_provider",
+            "_owned_skills",
             "_prompt_writer",
             "_skills_workspace",
             "_status_provider",
@@ -226,6 +235,9 @@ HOST_DEPENDENCIES: dict[str, frozenset[str]] = {
             "broadcast",
             "db",
         }
+    ),
+    "temporary_chat": frozenset(
+        {"temporary_chat", "_temporary_owners", "_temporary_tasks", "_send"}
     ),
 }
 

@@ -70,6 +70,7 @@ from collie_core.ipc.commands import (
     MessengerCommands,
     ProviderCommands,
     RoutineCommands,
+    TemporaryChatCommands,
 )
 from collie_core.ipc.commands.providers import _OAuthAttemptState
 from collie_core.ipc.thinking import phrase_for_state, thinking_state_for_tool
@@ -197,6 +198,7 @@ class CollieIPCServer(
     ProviderCommands,
     ConnectorCommands,
     FileCommands,
+    TemporaryChatCommands,
     AgentCommands,
     MessengerCommands,
 ):
@@ -292,6 +294,8 @@ class CollieIPCServer(
         self._shared_chat_runner = shared_chat_runner
         self._collaboration_identity_binder = collaboration_identity_binder
         self._collaboration_run_controller = collaboration_run_controller
+        self._temporary_owners: dict[str, ServerConnection] = {}
+        self._temporary_tasks: dict[str, asyncio.Task] = {}
         self._clients: set[ServerConnection] = set()
         self._server: Any = None
         self._chat_tasks: dict[str, asyncio.Task] = {}
@@ -326,6 +330,8 @@ class CollieIPCServer(
         logger.info("Collie IPC listening on ws://{}:{}", self.host, self.port)
 
     async def stop(self) -> None:
+        for key, owner in list(self._temporary_owners.items()):
+            await self._cmd_temporary_close(owner, {"session_id": key})
         oauth_attempts = list(self._oauth_attempts.values())
         tasks = (
             list(self._chat_tasks.values())
@@ -489,6 +495,10 @@ class CollieIPCServer(
                 except (TypeError, ValueError):
                     pass
                 if kind in {
+                    "browser_action",
+                    "native_control",
+                    "prepare_voice",
+                    "transcribe",
                     "begin_connector_auth",
                     "begin_definition_auth",
                     "test_connector",
@@ -503,6 +513,9 @@ class CollieIPCServer(
         except Exception:
             logger.debug("IPC connection closed")
         finally:
+            for key, owner in list(self._temporary_owners.items()):
+                if owner is connection:
+                    await self._cmd_temporary_close(connection, {"session_id": key})
             self._clients.discard(connection)
 
     async def _handle_frame(self, connection: ServerConnection, raw: str | bytes) -> None:
@@ -611,6 +624,11 @@ class CollieIPCServer(
                 }
             )
         return {"conversation": result["conversation"], "greeted": result["greeted"]}
+
+    async def _cmd_prepare_voice(self, connection: ServerConnection, frame: dict) -> dict:
+        """Prepare the reused local model while the user records."""
+        await self._voice.prepare()
+        return {"ready": True}
 
     async def _cmd_transcribe(self, connection: ServerConnection, frame: dict) -> dict:
         """Turn a renderer-captured WAV into English text without a cloud service."""
