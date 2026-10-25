@@ -10,6 +10,7 @@ let frames: Map<number, FrameRequestCallback>
 let images: Array<{ onload: (() => void) | null }>
 let draw: ReturnType<typeof vi.fn>
 beforeEach(() => {
+  vi.stubGlobal('collie', undefined)
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   Object.defineProperty(document, 'hidden', { configurable: true, value: false })
   frames = new Map()
@@ -44,6 +45,29 @@ it('replaces the fallback after a successful canvas draw, leaving one dog', () =
   act(() => { const batch = [...frames.values()]; frames.clear(); batch.forEach(cb => cb(16)) })
   expect(draw).toHaveBeenCalled()
   expect(host.querySelector('img')?.hidden ?? true).toBe(true)
+})
+it('uses the desktop bridge after leave/blur without stopping blinking or polling while hidden', async () => {
+  const pointer = vi.fn().mockResolvedValue({ x: 600, y: 150 })
+  vi.stubGlobal('collie', { portraitPointer: pointer })
+  render()
+  const canvas = host.querySelector('canvas')!
+  vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 100, top: 100, width: 100, height: 100 } as DOMRect)
+  async function tick(now: number): Promise<void> {
+    await act(async () => { const batch = [...frames.values()]; frames.clear(); batch.forEach(cb => cb(now)); await Promise.resolve() })
+  }
+  for (let t = 20; t <= 200; t += 20) await tick(t)
+  expect(canvas.dataset.pointerSource).toBe('desktop')
+  const right = Number(canvas.dataset.noseX)
+  pointer.mockResolvedValue({ x: -300, y: 150 })
+  act(() => window.dispatchEvent(new Event('blur')))
+  for (let t = 220; t <= 600; t += 20) await tick(t)
+  expect(Number(canvas.dataset.noseX)).toBeLessThan(right - 30)
+  Object.defineProperty(document, 'hidden', { configurable: true, value: true })
+  act(() => document.dispatchEvent(new Event('visibilitychange')))
+  const count = pointer.mock.calls.length
+  await tick(1000)
+  expect(pointer).toHaveBeenCalledTimes(count)
+  expect(frames.size).toBe(0)
 })
 it('stops JavaScript animation while the document is hidden and resumes one loop', () => {
   render()

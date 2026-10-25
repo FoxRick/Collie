@@ -85,6 +85,10 @@ are not part of this public source tree.
 - `src/main/` owns Electron lifecycle, Python-core supervision, protected
   secret storage, tray and window behavior, and privileged IPC handlers.
 - `src/preload/` exposes the narrow renderer bridge.
+- The composer portrait's desktop-pointer read stays in Electron main and uses
+  the same trusted-sender IPC guard. Preload exposes only content-relative
+  coordinates; the renderer polls only while visible and outside-window
+  tracking is needed. No pointer history or global input hooks are retained.
 - `src/renderer/` contains the React application and product UI.
 - `scripts/` contains staging, packaging, smoke, and release verification.
 - `electron-builder.yml` defines Windows artifact composition.

@@ -30,10 +30,12 @@ async function main() {
       const stage = document.querySelector('.collie-portrait-stage'), canvas = stage?.querySelector('canvas'), img = stage?.querySelector('img')
       if (!canvas) return null
       const r = canvas.getBoundingClientRect()
-      return { imgHidden: img.hidden, canvasHidden: canvas.hidden, visibility:document.visibilityState, x:r.x+r.width/2, y:r.y+r.height/2, radius:r.width/2, width:canvas.width, height:canvas.height }
+      const ring=stage.querySelector('.collie-portrait-ring'),clip=stage.querySelector('.collie-portrait-clip'),border=stage.querySelector('.collie-ring-foreground')
+      return { imgHidden: img.hidden, canvasHidden: canvas.hidden, visibility:document.visibilityState, x:r.x+r.width/2, y:r.y+r.height/2, radius:r.width/2, width:canvas.width, height:canvas.height,clipGap:ring.getBoundingClientRect().bottom-clip.getBoundingClientRect().bottom,borderWidth:parseFloat(getComputedStyle(border).borderBottomWidth) }
     })()`)
     assert(initial, 'Finish guest onboarding in the isolated preview: ' + await evaluate('document.body.innerText.slice(0,1500)'))
     assert(initial.imgHidden && !initial.canvasHidden, 'Duplicate silhouette: fallback must be hidden ' + JSON.stringify(initial))
+    assert(initial.clipGap<=initial.borderWidth,'The fur clip must reach underneath the foreground ring stroke')
     const samples = []
     for (let i = 0; i < 16; i++) {
       const angle = i * Math.PI / 8 - Math.PI / 2
@@ -42,16 +44,18 @@ async function main() {
       await sleep(450)
       samples.push(await evaluate(`(() => { const c=document.querySelector('.collie-portrait-stage canvas'), d=c.getContext('2d').getImageData(0,0,c.width,c.height).data; let ax=0,ay=0,sum=0; for(let i=0;i<d.length;i+=4){const a=d[i+3];sum+=a;ax+=(i/4%c.width)*a;ay+=Math.floor(i/4/c.width)*a} return { x:ax/sum,y:ay/sum,noseX:Number(c.dataset.noseX),noseY:Number(c.dataset.noseY),eyeX:Number(c.dataset.eyeX),eyeY:Number(c.dataset.eyeY),state:document.querySelector('.collie-portrait-stage').className } })()`))
       assert(samples[i].state.includes('pointer_look'), 'Tracking must work beyond the ring')
+      const baseAlpha=await evaluate(`(()=>{const c=document.querySelector('.collie-portrait-stage canvas'),w=c.width,h=c.height,d=c.getContext('2d').getImageData(Math.floor(w*.4),h-2,Math.max(1,Math.floor(w*.2)),1).data;return Math.min(...Array.from(d).filter((_,i)=>i%4===3))})()`)
+      assert(baseAlpha>230,'Fur must meet the bottom of the ring without a background gap')
       const shot = await command('Page.captureScreenshot', { format:'png' })
       writeFileSync(resolve(output, `direction-${i}.png`), Buffer.from(shot.data,'base64'))
     }
-    assert(samples[0].noseY-samples[0].eyeY < samples[8].noseY-samples[8].eyeY - 40, 'Up/down must pitch the muzzle relative to the eyes, not shift the whole image')
+    assert(samples[0].noseY-samples[0].eyeY < samples[8].noseY-samples[8].eyeY - 25, 'Up/down must pitch the muzzle relative to the eyes, not shift the whole image')
     assert(samples[4].noseX-samples[4].eyeX > samples[12].noseX-samples[12].eyeX + 60, 'Right/left must turn the snout relative to the eyes, not jiggle the portrait')
     assert(Math.abs(samples[4].x-samples[12].x) > .1, 'Directional textures must produce different rendered silhouettes')
     const reactionPending = evaluate(`(async () => {
       const ring=document.querySelector('.collie-portrait-ring'),c=ring.querySelector('canvas'),ctx=c.getContext('2d'),frames=[];
       ring.click();const start=performance.now();
-      while(performance.now()-start<1900){
+      while(performance.now()-start<2700){
         const data=ctx.getImageData(0,0,c.width,c.height).data;let ax=0,ay=0,total=0;
         for(let i=0;i<data.length;i+=4){const a=data[i+3];total+=a;ax+=(i/4%c.width)*a;ay+=Math.floor(i/4/c.width)*a}
         frames.push({ms:performance.now()-start,x:ax/total,y:ay/total,alpha:total,state:document.querySelector('.collie-portrait-stage').className,hidden:ring.querySelector('img').hidden});
@@ -89,8 +93,10 @@ async function main() {
     await sleep(400)
     const happy = await evaluate(`({state:document.querySelector('.collie-portrait-stage').className,mouth:Number(document.querySelector('.collie-portrait-stage canvas').dataset.mouth)})`)
     assert(happy.state.includes('happy_reaction')&&happy.mouth>.85,'Double click must open the painted mouth despite the first click cooldown')
+    const tongueRatio=await evaluate(`(()=>{const c=document.querySelector('.collie-portrait-stage canvas'),w=c.width,h=c.height,d=c.getContext('2d').getImageData(Math.floor(w*.28),Math.floor(h*.56),Math.floor(w*.4),Math.floor(h*.34)).data;let n=0;for(let i=0;i<d.length;i+=4){const r=d[i],g=d[i+1],b=d[i+2];if(r>g+20&&r>b*1.08&&b>g*.8)n++}return n/(d.length/4)})()`)
+    assert(tongueRatio>.02,'The friendly smile must show a substantial pink tongue, not a narrow mouth line')
     writeFileSync(resolve(output,'happy-reaction.png'),Buffer.from((await command('Page.captureScreenshot',{format:'png'})).data,'base64'))
-    await sleep(1450)
+    await sleep(2200)
     await evaluate(`window.dispatchEvent(new Event('blur'))`)
     await sleep(600)
     assert(!(await evaluate(`document.querySelector('.collie-portrait-stage').className`)).includes('pointer_look'), 'Window blur must release attention')

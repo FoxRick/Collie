@@ -3187,7 +3187,8 @@ button {
 
 .collie-portrait-clip {
   z-index: 1;
-  inset: 5px;
+  /* Let fur run beneath the foreground stroke instead of leaving an orange gap. */
+  inset: 2px;
   overflow: hidden;
   background: linear-gradient(160deg, #f5b638 0%, #c97811 100%);
 }
@@ -3404,7 +3405,7 @@ button {
     padding-top: 6px;
   }
   .collie-portrait-stage { width: 52px; flex-basis: 52px; margin-top: 30px; }
-  .collie-portrait-clip { inset: 3px; }
+  .collie-portrait-clip { inset: 1px; }
   .collie-ring-foreground { border-width: 2px; }
   .collie-portrait-status,
   .portrait-agent-list { display: none; }

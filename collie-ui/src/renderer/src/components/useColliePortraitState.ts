@@ -8,7 +8,7 @@ import {
 
 const DEEP_WORK_DELAY_MS = 11_000
 const COMPLETION_DURATION_MS = 2_400
-const CLICK_REACTION_DURATION_MS = 1_400
+const CLICK_REACTION_DURATION_MS = 2_100
 const CLICK_COOLDOWN_MS = 1_000
 
 interface PortraitModel {
@@ -26,7 +26,6 @@ export function useColliePortraitState(
   pointerTarget: number | null
 ): PortraitModel {
   const [transient, setTransient] = useState<PortraitState | null>(null)
-  const [sleepy, setSleepy] = useState(false)
   const [paused, setPaused] = useState(document.hidden)
   const [reducedMotion, setReducedMotion] = useState(() =>
     window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -37,7 +36,6 @@ export function useColliePortraitState(
 
   const engineState = portraitStateForEngine(thinking?.state)
   const isAssistantWorking = engineState === 'working'
-  const isActive = isAssistantWorking || engineState === 'review' || isTyping || activeAgents.length > 0
 
   const setTimedTransient = useCallback((next: PortraitState, duration: number): void => {
     if (transientTimer.current !== null) window.clearTimeout(transientTimer.current)
@@ -60,13 +58,6 @@ export function useColliePortraitState(
     query.addEventListener('change', onChange)
     return () => query.removeEventListener('change', onChange)
   }, [])
-
-  useEffect(() => {
-    setSleepy(false)
-    if (isActive) return
-    const timer = window.setTimeout(() => setSleepy(true), 20_000)
-    return () => window.clearTimeout(timer)
-  }, [isActive])
 
   useEffect(() => {
     setDeepWorkReady(false)
@@ -108,8 +99,8 @@ export function useColliePortraitState(
     if (engineState) return engineState
     if (isTyping || activeAgents.length > 0) return 'working'
     if (!reducedMotion && pointerTarget !== null) return 'pointer_look'
-    return sleepy ? 'sleepy' : 'idle'
-  }, [deepWorkReady, engineState, isAssistantWorking, pointerTarget, reducedMotion, sleepy, thinking?.state, transient])
+    return 'idle'
+  }, [deepWorkReady, engineState, isAssistantWorking, pointerTarget, reducedMotion, thinking?.state, transient])
 
   const triggerReaction = useCallback(() => {
     if (state === 'error' || state === 'waiting' || state === 'completion') return
@@ -127,7 +118,7 @@ export function useColliePortraitState(
     triggerHappyReaction: () => {
       if (state === 'error' || state === 'waiting' || state === 'completion') return
       // A double click promotes the first click's wave even during cooldown.
-      setTimedTransient('happy_reaction', 1_650)
+      setTimedTransient('happy_reaction', 2_400)
     }
   }
 }

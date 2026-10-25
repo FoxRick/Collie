@@ -10,6 +10,7 @@ interface Props {
   className?: string
 }
 const ease = (v: number): number => { const t = Math.max(0, Math.min(1, v)); return t * t * (3 - 2 * t); }
+const logoSrc = new URL('../../../../build/icon.png', import.meta.url).href
 export default function ColliePortraitFrame({ state, reducedMotion, fallbackSrc, className }: Props): React.JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null), fallbackRef = useRef<HTMLImageElement>(null), stateRef = useRef(state)
   const poseRef = useRef({ x: 0, y: 0, time: 0, mouth: 0, wave: 0, glasses: 0 })
@@ -23,6 +24,7 @@ export default function ColliePortraitFrame({ state, reducedMotion, fallbackSrc,
       return
     let disposed = false, lost = false, art: FaceArtwork | null = null, raf: number | null = null, last = 0, nextDraw = 0, reaction = 0, wasReacting = false
     let target = { x: 0, y: 0 }
+    let outside = true, desktopPending = false, lastDesktopPoll = -1000
     const pose = poseRef.current
     const stop = (): void => {
       if (raf !== null) cancelAnimationFrame(raf)
@@ -43,7 +45,7 @@ export default function ColliePortraitFrame({ state, reducedMotion, fallbackSrc,
       drawRig(ctx, art.neutral.texture, pose)
       if (pose.mouth > .001)
         drawRig(ctx, art.mouth.texture, pose, ease(pose.mouth))
-      const blink = reducedMotion ? 0 : stateRef.current === 'sleepy' ? 1 : Math.max(0, 1 - Math.abs(pose.time % 5.1 - 4.7) / .13)
+      const blink = reducedMotion ? 0 : Math.max(0, 1 - Math.abs(pose.time % 5.1 - 4.7) / .13)
       if (blink > 0)
         drawRig(ctx, art.blink.texture, pose, blink)
       const landmarks = art.neutral.features.map(p => rigPoint(p.x, p.y, pose))
@@ -89,6 +91,18 @@ export default function ColliePortraitFrame({ state, reducedMotion, fallbackSrc,
       raf = null
       if (disposed || document.hidden || lost || !art)
         return
+      // Read-only desktop coordinates only while the pointer is outside the
+      // visible app. Window pointer events remain the immediate inside path.
+      if (outside && !desktopPending && now - lastDesktopPoll >= 66 && window.collie?.portraitPointer) {
+        lastDesktopPoll = now
+        desktopPending = true
+        void window.collie.portraitPointer().then(point => {
+          if (!point || disposed || document.hidden || !outside) return
+          const rect = canvas.getBoundingClientRect(), radius = Math.max(1, rect.width / 2)
+          target = attentionTarget((point.x - rect.left - radius) / radius, (point.y - rect.top - rect.height / 2) / radius)
+          canvas.dataset.pointerSource = 'desktop'
+        }).catch(() => { /* Retain the last look if the platform cannot read it. */ }).finally(() => { desktopPending = false })
+      }
       if (now < nextDraw - .5) {
         raf = requestAnimationFrame(frame)
         return
@@ -105,12 +119,12 @@ export default function ColliePortraitFrame({ state, reducedMotion, fallbackSrc,
       wasReacting = reacting
       if (reacting)
         reaction += dt
-      const busy = ['working', 'review', 'deep_work_glasses'].includes(current), attention = current === 'sleepy' ? 0 : busy ? .4 : 1, f = smoothFactor(8, dt)
+      const busy = ['working', 'review', 'deep_work_glasses'].includes(current), attention = busy ? .4 : 1, f = smoothFactor(8, dt)
       pose.x += (target.x * attention - pose.x) * f
       pose.y += (target.y * attention - pose.y) * f
       const wave = reacting ? ease((reaction - .12) / .24) * (1 - ease((reaction - .85) / .4)) : 0
       pose.wave += (wave - pose.wave) * smoothFactor(18, dt)
-      const smile = reacting && reaction < 1.18 ? (current === 'happy_reaction' || current === 'completion' ? 1 : .35) : 0
+      const smile = reacting && reaction < 1.7 ? 1 : 0
       pose.mouth += (smile - pose.mouth) * smoothFactor(11, dt)
       pose.glasses += ((current === 'deep_work_glasses' ? 1 : 0) - pose.glasses) * f
       try {
@@ -135,26 +149,26 @@ export default function ColliePortraitFrame({ state, reducedMotion, fallbackSrc,
       else
         raf = requestAnimationFrame(frame)
     } }
-    const move = (event: PointerEvent): void => { const r = canvas.getBoundingClientRect(), radius = Math.max(1, r.width / 2); target = attentionTarget((event.clientX - r.left - radius) / radius, (event.clientY - r.top - r.height / 2) / radius); }
-    const leave = (): void => { target = { x: 0, y: 0 }; }
+    const move = (event: PointerEvent): void => { outside = false; canvas.dataset.pointerSource = 'window'; const r = canvas.getBoundingClientRect(), radius = Math.max(1, r.width / 2); target = attentionTarget((event.clientX - r.left - radius) / radius, (event.clientY - r.top - r.height / 2) / radius); }
+    const leave = (): void => { outside = true }
     const contextLost = (event: Event): void => { event.preventDefault(); lost = true; stop(); fallback.hidden = false; canvas.hidden = true; }
     const restored = (): void => {
       lost = false
       try {
         // Source canvases can lose their backing stores along with the main
         // context. Rebuild layers from the retained original image elements.
-        art = prepareFaceArtwork(images[0], images[1], images[2])
+        art = prepareFaceArtwork(images[0], images[1], images[2], images[3])
         start()
       } catch {
         fallback.hidden = false
         canvas.hidden = true
       }
     }
-    const images = [new Image(), new Image(), new Image()]
-    let pending = 3, failed = false
+    const images = [new Image(), new Image(), new Image(), new Image()]
+    let pending = 4, failed = false
     const loaded = (): void => { if (--pending || disposed || failed)
       return; try {
-      art = prepareFaceArtwork(images[0], images[1], images[2])
+      art = prepareFaceArtwork(images[0], images[1], images[2], images[3])
       start()
     }
     catch {
@@ -168,6 +182,7 @@ export default function ColliePortraitFrame({ state, reducedMotion, fallbackSrc,
     images[0].src = FACE_ONLY_ASSET_MANIFEST.pointerLook.src
     images[1].src = FACE_ONLY_ASSET_MANIFEST.clickReaction.src
     images[2].src = FACE_ONLY_ASSET_MANIFEST.idle.src
+    images[3].src = logoSrc
     window.addEventListener('pointermove', move, { passive: true })
     window.addEventListener('blur', leave)
     document.addEventListener('pointerleave', leave)

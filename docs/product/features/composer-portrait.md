@@ -8,21 +8,35 @@ continuous yaw and pitch. The muzzle projects farther than the forehead, so
 the snout turns relative to the eyes instead of shifting the whole portrait.
 The mesh is 12 by 16 quads with a fixed chest root. It uses one frontal painting
 from the original direction atlas, avoiding competing head silhouettes. The
-turn range is deliberately bounded (about 35 degrees yaw and 22 degrees pitch);
+turn range is deliberately bounded (about 29 degrees yaw and 15 degrees pitch);
 this does not add unseen back-of-head artwork or full profile geometry.
+Rotation feathers out above the chest instead of twisting the lower neck.
+Independent, restrained ear sway and a small happy perk keep the ears alive.
+The chest overshoots the circular clip so fur meets the lower ring edge.
 
 Pointer attention covers the app window with a soft central dead zone. Leaving
-the portrait ring does not change tracking. Leaving the window or losing focus
-returns smoothly to center. Engine waiting and error states retain priority;
+the portrait ring does not change tracking. On Windows/macOS and Linux X11,
+the visible app can continue tracking beyond its borders through a guarded,
+read-only Electron bridge. Only content-relative pointer coordinates cross it;
+there are no hooks, clicks/keys, screen capture, logs, or stored pointer history.
+Polling is limited to about 15 Hz while outside the visible window and stops
+when hidden. Electron cannot supply global pointer positions on Wayland;
+there the portrait retains its last look until window pointer events resume.
+See [Electron screen documentation](https://www.electronjs.org/docs/latest/api/screen/).
+Windows native outside-window tracking has been exercised; macOS/X11 remain
+native acceptance gates for this shared API path.
+Engine waiting and error states retain priority;
 work reduces attention and deep work adds aligned glasses.
 
 A click raises the original illustrated foreleg, pivoted from the chest with
 anticipation, a hold, and a gradual return. A double click promotes that reaction
-to the original painted open-mouth smile even during the first click's cooldown.
-Enter/Space activate the wave; Shift+Enter activates the smile. The jaw opens
-geometrically while the registered mouth layer appears. Original painted
-closed-eyelid layers blink on the same projected face and stay closed while
-sleepy. Mouth and eyelid registration happens once at load; whole heads do not
+to the happy reaction even during the first click's cooldown. Both clicks and
+double clicks show the full tongue-out smile taken from the actual app logo.
+Enter/Space activate the wave; Shift+Enter activates the smile. A small jaw
+settle accompanies the painted mouth at its full proportions.
+Original painted eyelids continue natural blinks. There is no automatic sleepy
+or persistent closed-eye state on leave, blur, or inactivity.
+Mouth and eyelid registration happens once at load; whole heads do not
 crossfade. Current head position and the animation clock survive state changes.
 
 The static portrait is visible until Canvas successfully draws, then hidden.

@@ -20,19 +20,26 @@ export function attentionTarget(x: number, y: number): Point {
 * Project yaw/pitch around the head pivot, feathering to a fixed chest root.
 * Unlike a translation, the nose moves substantially relative to the eyes. */
 export function rigPoint(x: number, y: number, pose: RigPose): Point {
-  const head = 1 - ease((y - 250) / 90)
+  // Bind above the chest. Letting rotation reach the lower neck makes its
+  // fur shear like a stretched photograph at diagonal targets.
+  const head = 1 - ease((y - 210) / 80)
   const face = Math.exp(-(((x - 190) / 110) ** 2 + ((y - 170) / 130) ** 2))
   const muzzle = Math.exp(-(((x - 184) / 65) ** 2 + ((y - 195) / 60) ** 2))
   const depth = 30 * face + 95 * muzzle
-  const yaw = pose.x * 0.62, pitch = -pose.y * 0.38
+  const yaw = pose.x * 0.50, pitch = -pose.y * 0.26
   const rx = (x - 190) * Math.cos(yaw) + depth * Math.sin(yaw)
   const rz = -(x - 190) * Math.sin(yaw) + depth * Math.cos(yaw)
   const ry = (y - 195) * Math.cos(pitch) - rz * Math.sin(pitch)
-  const jaw = Math.exp(-(((y - 255) / 45) ** 2)) * Math.exp(-(((x - 187) / 65) ** 2))
+  const jaw = ease((y - 232) / 24) * (1 - ease((y - 270) / 114)) * Math.exp(-(((x - 187) / 85) ** 2))
+  const leftEar = Math.exp(-(((x - 78) / 52) ** 2 + ((y - 50) / 60) ** 2))
+  const rightEar = Math.exp(-(((x - 310) / 52) ** 2 + ((y - 65) / 60) ** 2))
+  const earX = leftEar * Math.sin(pose.time * 1.1) * 3 + rightEar * Math.sin(pose.time * .9 + 1.7) * 3
+  const earY = (leftEar + rightEar) * (-4 * (pose.mouth || 0) + Math.sin(pose.time * .8) * 1.8)
   const eye = Math.exp(-(((x - 145) / 20) ** 2 + ((y - 130) / 18) ** 2)) + Math.exp(-(((x - 235) / 20) ** 2 + ((y - 136) / 18) ** 2))
   return {
-    x: x + (190 + rx - x) * head + eye * pose.x * 2,
-    y: y + (195 + ry - y) * head + jaw * (pose.mouth || 0) * 18
+    x: x + (190 + rx - x) * head + eye * pose.x * 2 + earX,
+    y: y + (195 + ry - y) * head + jaw * (pose.mouth || 0) * 8 + earY
+      + 16 * ease((y - 280) / 104)
       + Math.sin(pose.time * 1.8) * 0.65 * Math.max(0, (384 - y) / 384)
   }
 }

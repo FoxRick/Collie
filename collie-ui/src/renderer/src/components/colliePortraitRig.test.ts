@@ -2,11 +2,25 @@ import { describe, expect, it } from 'vitest'
 import { attentionTarget, rigPoint, type RigPose } from './colliePortraitRig'
 const neutral: RigPose = { x: 0, y: 0, mouth: 0, time: 0 }
 describe('portrait geometry', () => {
+  it('keeps the lower neck stationary at corner targets and gives the ears their own small motion', () => {
+    const base = rigPoint(192, 300, neutral)
+    for (const x of [-.707, .707]) for (const y of [-.707, .707]) {
+      const neck = rigPoint(192, 300, { ...neutral, x, y })
+      expect(neck.x).toBeCloseTo(base.x, 6)
+      expect(neck.y).toBeCloseTo(base.y, 6)
+    }
+    expect(Math.abs(rigPoint(78, 50, { ...neutral, time: 2 }).x - rigPoint(78, 50, neutral).x)).toBeGreaterThan(1)
+  })
+  it('keeps the jaw settle bounded while the original wide painted smile appears', () => {
+    const opening = (mouth: number): number => rigPoint(187, 255, { ...neutral, mouth }).y - rigPoint(187, 232, { ...neutral, mouth }).y
+    expect(opening(1) - opening(0)).toBeGreaterThan(5)
+    expect(opening(1) - opening(0)).toBeLessThan(10)
+  })
   it('rotates the snout relative to the eyes instead of translating the face', () => {
     const relativeNose = (x: number): number => rigPoint(184, 183, { ...neutral, x }).x - rigPoint(145, 130, { ...neutral, x }).x
     expect(relativeNose(1) - relativeNose(-1)).toBeGreaterThan(60)
     const relativePitch = (y: number): number => rigPoint(184, 183, { ...neutral, y }).y - rigPoint(145, 130, { ...neutral, y }).y
-    expect(relativePitch(1) - relativePitch(-1)).toBeGreaterThan(40)
+    expect(relativePitch(1) - relativePitch(-1)).toBeGreaterThan(25)
   })
   it('has a continuous dead zone and bounded window-wide attention', () => {
     expect(attentionTarget(0.1, 0.1)).toEqual({ x: 0, y: 0 })
@@ -18,7 +32,7 @@ describe('portrait geometry', () => {
       const angle = i * Math.PI / 4, x = Math.cos(angle), y = Math.sin(angle)
       const point = rigPoint(180, 180, { ...neutral, x, y })
       expect((point.x - 180) * x + (point.y - 180) * y).toBeGreaterThan(5)
-      expect(rigPoint(180, 384, { ...neutral, x, y })).toEqual({ x: 180, y: 384 })
+      expect(rigPoint(180, 384, { ...neutral, x, y })).toEqual({ x: 180, y: 400 })
     }
   })
   it('keeps every triangle orientation through extreme directions and reactions', () => {

@@ -62,6 +62,16 @@ afterEach(() => {
 })
 
 describe('InteractiveColliePortrait settled-row expiry', () => {
+  it('stays awake after the pointer leaves and the idle timer has elapsed', () => {
+    render()
+    act(() => {
+      window.dispatchEvent(new Event('blur'))
+      document.dispatchEvent(new Event('pointerleave'))
+      vi.advanceTimersByTime(120_000)
+    })
+    expect(host!.querySelector('.is-idle')).not.toBeNull()
+    expect(host!.querySelector('.is-sleepy')).toBeNull()
+  })
   it('promotes a first-click wave to an open-mouth happy reaction on double click', () => {
     render()
     const ring = host!.querySelector('.collie-portrait-ring')!
@@ -71,7 +81,7 @@ describe('InteractiveColliePortrait settled-row expiry', () => {
     expect(host!.querySelector('.is-happy_reaction')).not.toBeNull()
     act(() => vi.advanceTimersByTime(1_000))
     expect(host!.querySelector('.is-happy_reaction')).not.toBeNull()
-    act(() => vi.advanceTimersByTime(651))
+    act(() => vi.advanceTimersByTime(1_401))
     expect(host!.querySelector('.is-happy_reaction')).toBeNull()
   })
   it.each(['awaiting_approval', 'error'])('keeps %s above pointer attention and pet reactions', (engine) => {

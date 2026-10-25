@@ -85,13 +85,16 @@ function anchor(texture: HTMLCanvasElement, landmarks: Point[]): FaceAnchor {
   }
   return { texture, features: landmarks, points: faceGrid(landmarks, contour) }
 }
-export function prepareFaceArtwork(pointer: HTMLImageElement, click: HTMLImageElement, idle: HTMLImageElement): FaceArtwork {
+export function prepareFaceArtwork(pointer: HTMLImageElement, click: HTMLImageElement, idle: HTMLImageElement, logo?: HTMLImageElement): FaceArtwork {
   const neutral = anchor(crop(pointer, 4, 4, 0), NEUTRAL_FEATURES)
-  const mouth = anchor(crop(click, 2, 2, 0), features([68, 60, 322, 73, 196, 111, 146, 173, 231, 174, 175, 235, 134, 263, 219, 260, 176, 275, 175, 317, 100, 221, 280, 232, 111, 308, 279, 310, 72, 338, 330, 338]))
+  // The actual app logo supplies the broad, tongue-out smile.
+  const mouth = logo
+    ? anchor(crop(logo, 1, 1, 0), features([90, 29, 339, 73, 194, 93, 123, 156, 214, 171, 131, 216, 97, 245, 227, 239, 135, 254, 154, 337, 90, 209, 290, 235, 100, 314, 290, 314, 65, 360, 345, 360]))
+    : anchor(crop(click, 2, 2, 0), features([68, 60, 322, 73, 196, 111, 146, 173, 231, 174, 175, 235, 134, 263, 219, 260, 176, 275, 175, 317, 100, 221, 280, 232, 111, 308, 279, 310, 72, 338, 330, 338]))
   const mask = document.createElement('canvas')
   mask.width = 384
   mask.height = 384
-  const mg = mask.getContext('2d')!, grad = mg.createRadialGradient(176, 286, 28, 176, 286, 65)
+  const mg = mask.getContext('2d')!, grad = mg.createRadialGradient(logo ? 158 : 176, 286, logo ? 65 : 28, logo ? 158 : 176, 286, logo ? 95 : 65)
   grad.addColorStop(0, 'white')
   grad.addColorStop(.7, 'white')
   grad.addColorStop(1, 'transparent')
@@ -134,7 +137,15 @@ export function prepareFaceArtwork(pointer: HTMLImageElement, click: HTMLImageEl
   const mouthLayer = document.createElement('canvas'), blinkLayer = document.createElement('canvas')
   mouthLayer.width = blinkLayer.width = 384
   mouthLayer.height = blinkLayer.height = 384
-  warpFace(mouthLayer.getContext('2d')!, mouth, neutral.points)
+  const mouthContext = mouthLayer.getContext('2d')!
+  if (logo) {
+    // Match the nose anchor by translation. Warping the logo's already-open
+    // jaw into the closed-mouth chin interval squashes its tongue into a line.
+    mouthContext.drawImage(mouth.texture, 53, -33)
+    mouthContext.globalCompositeOperation = 'destination-in'
+    mouthContext.drawImage(neutral.texture, 0, 0)
+    mouthContext.globalCompositeOperation = 'source-over'
+  } else warpFace(mouthContext, mouth, neutral.points)
   warpFace(blinkLayer.getContext('2d')!, blink, neutral.points)
   return { neutral, mouth: { ...neutral, texture: mouthLayer }, blink: { ...neutral, texture: blinkLayer }, arm }
 }
