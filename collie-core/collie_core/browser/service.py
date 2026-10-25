@@ -112,7 +112,7 @@ class BrowserService:
                     raise ValueError("Close a browser first (up to three sessions).")
                 if importlib.util.find_spec("playwright") is None:
                     raise ValueError(
-                        "Browser preview needs Collie's optional browser runtime and Microsoft Edge. Ask the installer owner to add the browser extra; no download runs automatically."
+                        "Collie's browser runtime is missing. Repair or reinstall Collie, and check that Microsoft Edge is installed."
                     )
                 site = origin(str(command.get("url") or ""))
                 session = BrowserSession(uuid4().hex, context.conversation_id, context.run_id, site)

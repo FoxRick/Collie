@@ -1,6 +1,6 @@
 """One local acceptance flow with the real browser worker and central broker.
 
-Run explicitly with COLLIE_BROWSER_ACCEPTANCE=1 and the browser extra installed.
+Run explicitly with COLLIE_BROWSER_ACCEPTANCE=1 and Microsoft Edge installed.
 No accounts or public network actions; the fixture binds loopback only.
 """
 
@@ -20,7 +20,7 @@ from collie_core.permissions.models import ExecutionContext
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("COLLIE_BROWSER_ACCEPTANCE") != "1",
-    reason="Explicit local visible-browser acceptance; requires optional Playwright + Edge",
+    reason="Explicit local visible-browser acceptance; requires Microsoft Edge",
 )
 
 

@@ -1158,9 +1158,9 @@ export default function ChatScreen({
               />
             </div>
           ) : null}
+          <BrowserPanel key={`browser-${activeId}`} conversationId={activeId} />
           <div className="portrait-composer-layout">
             <RememberPill conversationId={activeId} />
-            <BrowserPanel key={activeId} conversationId={activeId} />
             <InteractiveColliePortrait
               thinking={portraitThinking}
               phrase={portraitThinking?.phrase || 'Ready when you are.'}

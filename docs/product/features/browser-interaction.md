@@ -53,19 +53,18 @@ cannot silently restart itself.
 
 ## Runtime and verification
 
-Developer setup from `collie-core/`: install the `browser` Python extra
-(`python -m pip install -e ".[browser]"`) into the same Python environment that
-runs Collie. Microsoft Edge must already be installed. No browser download,
-account, subscription or service purchase runs automatically. The optional
-extra uses maintained Playwright (`>=1.64.1,<2`); its bundled browser driver
+Playwright (`>=1.64.1,<2`) is a normal core dependency, included by developer
+installs and installer builds. Staging verifies the browser worker and driver
+imports from bundled Python. Microsoft Edge must already be installed. No browser
+download, account, subscription or service purchase runs automatically. The driver
 launches Edge with a fresh disposable context. See the official
 [browser installation guide](https://playwright.dev/python/docs/browsers) and
 [isolated contexts API](https://playwright.dev/python/docs/api/class-browsercontext).
-The current installer does not stage this extra, and packaged execution has not
-been validated. Missing runtime returns an explicit setup message. Do not claim
-this preview is ready in the distributed installer.
+Missing runtime returns a repair message. The Browser panel sits above the
+portrait and composer, with its own bounded scrolling area. Published installer
+acceptance remains separate from local staging verification.
 
-One explicit acceptance test (Windows with the extra and Edge installed):
+One explicit acceptance test (Windows with Edge installed):
 
 ```powershell
 $env:COLLIE_BROWSER_ACCEPTANCE = '1'

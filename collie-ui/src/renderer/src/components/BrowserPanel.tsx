@@ -36,7 +36,10 @@ export default function BrowserPanel({ conversationId }: { conversationId: strin
       setSessions(list.sessions || [])
       if (response.closed) setSelected('')
     } catch (cause) {
-      if (generation.current === current) setError(cause instanceof Error ? cause.message : 'I could not reach the browser.')
+      if (generation.current === current) {
+        const message = cause instanceof Error ? cause.message : 'I could not reach the browser.'
+        setError(message.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/, ''))
+      }
     } finally {
       if (generation.current === current) setBusy(false)
     }
@@ -46,10 +49,10 @@ export default function BrowserPanel({ conversationId }: { conversationId: strin
     if (operation === 'fill') setText('')
   }
   const handedOff = sessions.find(s => s.session_id === selected)?.handed_off
-  return <section aria-label="Browser" style={{ padding: '8px 16px', maxHeight: 400, overflow: 'auto' }}>
+  return <section aria-label="Browser" style={{ padding: '8px 16px', maxHeight: 280, overflow: 'auto', flexShrink: 0, minWidth: 0 }}>
     <button type="button" onClick={() => { setExpanded(!expanded); if (!expanded) invoke('list') }}>Browser · preview</button>
     {expanded && <div>
-      <p>A separate visible Edge window. Each action asks permission. Use “Take over” for sign-in or final actions; close it when finished. Requires the optional browser runtime.</p>
+      <p>A separate visible Edge window. Each action asks permission. Use “Take over” for sign-in or final actions; close it when finished. Microsoft Edge must be installed.</p>
       <input aria-label="Browser address" placeholder="https://example.com" value={url} onChange={e => setUrl(e.target.value)} />
       <button disabled={busy} onClick={() => invoke('open')}>Open browser</button>
       <select aria-label="Browser session" value={selected} onChange={e => { setSelected(e.target.value); setResult({}) }}>

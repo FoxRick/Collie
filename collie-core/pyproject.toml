@@ -53,6 +53,7 @@ dependencies = [
     "python-telegram-bot>=22.6,<23.0",
     "python-dateutil>=2.8.0,<3.0.0",
     "moonshine-voice==0.0.73",
+    "playwright>=1.64.1,<2.0.0",
 ]
 
 [project.urls]
@@ -60,7 +61,6 @@ Repository = "https://github.com/FoxRick/Collie"
 Upstream = "https://github.com/HKUDS/nanobot"
 
 [project.optional-dependencies]
-browser = ["playwright>=1.64.1,<2.0.0"]
 api = [
     "aiohttp>=3.9.0,<4.0.0",
 ]
