@@ -27,10 +27,9 @@ export default function ConnectorCard({
             : 'Coming soon'
   return (
     <article
-      className="flex min-h-52 flex-col rounded-2xl border bg-white p-4"
+      className="flex min-h-52 flex-col rounded-2xl border connector-surface p-4"
       style={{
-        borderColor: 'var(--collie-border)',
-        opacity: connector.available ? 1 : 0.62
+        borderColor: 'var(--collie-border)'
       }}
     >
       <div className="flex items-start gap-3">

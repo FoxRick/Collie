@@ -26,7 +26,7 @@ export default function ConnectedAccountCard({
     <button
       type="button"
       onClick={() => onOpen(connection)}
-      className="flex w-full items-center gap-3 rounded-2xl border bg-white p-4 text-left"
+      className="flex w-full items-center gap-3 rounded-2xl border connector-surface p-4 text-left"
       style={{ borderColor: 'var(--collie-border)' }}
     >
       <ConnectorIcon providerId={connection.provider_id} name={connection.provider_name} />

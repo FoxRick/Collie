@@ -1,5 +1,26 @@
 @import 'tailwindcss';
 
+/* Connection cards and modal portals share the same theme contract. */
+.connector-surface {
+  background: var(--collie-surface);
+  color: var(--collie-text);
+  border-color: var(--collie-border);
+  /* Secondary copy still needs readable contrast on either surface. */
+  --collie-paw: color-mix(in srgb, var(--collie-text) 65%, var(--collie-surface));
+}
+
+.connector-surface :is(input, select, textarea),
+select.connector-surface {
+  background: var(--collie-surface);
+  color: var(--collie-text);
+  border-color: var(--collie-border);
+}
+
+.connector-surface :is(input, textarea)::placeholder {
+  color: var(--collie-paw);
+  opacity: 1;
+}
+
 /* ── Collie renderer design system ─────────────────────────────────── */
 :root {
   --collie-min-font-size: 0.75rem;

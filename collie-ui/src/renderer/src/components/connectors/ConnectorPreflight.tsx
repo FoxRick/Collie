@@ -16,7 +16,7 @@ export default function ConnectorPreflight({
         role="dialog"
         aria-modal="true"
         aria-labelledby="connector-preflight-title"
-        className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl"
+        className="w-full max-w-md rounded-2xl connector-surface p-5 shadow-xl"
       >
         <div className="flex items-center gap-3">
           <ConnectorIcon providerId={connector.id} name={connector.name} />
