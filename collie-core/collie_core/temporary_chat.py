@@ -58,9 +58,7 @@ class DesktopSessionManager:
     def fork_session_before_user_index(self, source_key, target_key, *args, **kwargs):
         if source_key.startswith("ghost:") or target_key.startswith("ghost:"):
             raise ValueError("Temporary chats cannot be copied into saved history.")
-        return self.durable.fork_session_before_user_index(
-            source_key, target_key, *args, **kwargs
-        )
+        return self.durable.fork_session_before_user_index(source_key, target_key, *args, **kwargs)
 
     def delete_session(self, key):
         if key.startswith("ghost:"):
@@ -86,8 +84,14 @@ class TemporaryChatService:
                 if not result.get("configured"):
                     raise ValueError("Connect a model provider before starting a temporary chat.")
             outbound = await self.loop_provider().process_direct(
-                content, session_key=key, channel="ghost", chat_id=key,
-                ephemeral=True, tools=NoTemporaryTools(), hooks=[], hook_factories=[],
+                content,
+                session_key=key,
+                channel="ghost",
+                chat_id=key,
+                ephemeral=True,
+                tools=NoTemporaryTools(),
+                hooks=[],
+                hook_factories=[],
                 on_stream=on_stream,
             )
             return outbound.content if outbound else ""
@@ -118,20 +122,28 @@ class TemporaryChatCommands:
 
         async def stream(text):
             if self._temporary_owners.get(key) is connection:
-                await self._send(connection, {"type": "temporary_delta", "session_id": key,
-                                              "text": text})
+                await self._send(
+                    connection, {"type": "temporary_delta", "session_id": key, "text": text}
+                )
 
         async def run():
             try:
                 answer = await self.temporary_chat.turn(key, content, stream)
                 if self._temporary_owners.get(key) is connection:
-                    await self._send(connection, {"type": "temporary_done", "session_id": key,
-                                                  "content": answer})
+                    await self._send(
+                        connection, {"type": "temporary_done", "session_id": key, "content": answer}
+                    )
             except asyncio.CancelledError:
                 pass
             except Exception:
-                await self._send(connection, {"type": "temporary_done", "session_id": key,
-                                              "content": "I couldn't finish that reply. Try again?"})
+                await self._send(
+                    connection,
+                    {
+                        "type": "temporary_done",
+                        "session_id": key,
+                        "content": "I couldn't finish that reply. Try again?",
+                    },
+                )
             finally:
                 self._temporary_tasks.pop(key, None)
 

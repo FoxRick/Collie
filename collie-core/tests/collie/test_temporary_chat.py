@@ -30,10 +30,16 @@ class ProbeProvider(LLMProvider):
         if "ghost-secret-7612" in text:
             assert not tools  # a model-supplied memory call must still be refused
             if not any(m.get("role") == "tool" for m in messages):
-                return LLMResponse(content=None, tool_calls=[ToolCallRequest(
-                    id="memory-attempt", name="remember",
-                    arguments={"fact": "ghost-secret-7612"},
-                )])
+                return LLMResponse(
+                    content=None,
+                    tool_calls=[
+                        ToolCallRequest(
+                            id="memory-attempt",
+                            name="remember",
+                            arguments={"fact": "ghost-secret-7612"},
+                        )
+                    ],
+                )
             return LLMResponse(content="ghost-secret-7612 reply")
         return LLMResponse(content="ordinary persisted reply")
 
