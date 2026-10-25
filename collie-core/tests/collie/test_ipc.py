@@ -819,7 +819,8 @@ async def test_chat_without_runner_reports_friendly_error(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_provider_failure_is_not_a_successful_reply_or_title(tmp_path):
+@pytest.mark.parametrize("with_file_card", [False, True])
+async def test_provider_failure_is_not_a_successful_reply_or_title(tmp_path, with_file_card):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
 
@@ -829,6 +830,22 @@ async def test_provider_failure_is_not_a_successful_reply_or_title(tmp_path):
     db = CollieDB(tmp_path / "provider.db")
 
     async def runner(*args, **kwargs):
+        if with_file_card:
+            await kwargs["on_progress"](
+                tool_events=[
+                    {
+                        "phase": "end",
+                        "name": "local_files",
+                        "result": json.dumps(
+                            {
+                                "operation": "save",
+                                "path": "synthetic.txt",
+                                "undo_entry_id": "synthetic-undo",
+                            }
+                        ),
+                    }
+                ]
+            )
         return SimpleNamespace(
             content="Check Settings → Providers and your API key.",
             metadata={"_stop_reason": "error"},
@@ -854,9 +871,17 @@ async def test_provider_failure_is_not_a_successful_reply_or_title(tmp_path):
         assert "Settings" in terminal["message"]
         assert "Providers" in terminal["message"]
         assert "API key" in terminal["message"]
+        assert terminal["recovery_action"] == "open_provider_settings"
         await asyncio.gather(*list(srv._background_tasks))
         assert db.get_conversation(conv_id)["title"] != "raw-title-error"
-        assert not [m for m in db.get_messages(conv_id) if m["role"] == "assistant"]
+        assistant = [m for m in db.get_messages(conv_id) if m["role"] == "assistant"]
+        if with_file_card:
+            assert len(assistant) == 1
+            assert assistant[0]["content"] == "I couldn't finish that task."
+            assert assistant[0]["card_type"] == "files_changed"
+            assert assistant[0]["card_data"]["files"][0]["undo_entry_id"] == "synthetic-undo"
+        else:
+            assert not assistant
         await ws.close()
     finally:
         await srv.stop()

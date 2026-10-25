@@ -2320,7 +2320,7 @@ class CollieIPCServer(
                 logger.info("Chat turn stopped for a requested plan change: {}", conv_id)
                 await self.send_thinking(conv_id, "idle")
                 return
-            if isinstance(e, _ProviderChatError):
+            if isinstance(e, _ProviderChatError) and not tool_results and terminal_task is None:
                 logger.warning("Chat turn ended in provider failure")
                 await self.send_thinking(conv_id, "error")
                 await self.broadcast(
@@ -2355,7 +2355,10 @@ class CollieIPCServer(
                     "message": failure_message,
                 }
             )
-            logger.exception("Chat turn failed for {}", conv_id)
+            if isinstance(e, _ProviderChatError):
+                logger.warning("Chat turn ended in provider failure after tool work")
+            else:
+                logger.exception("Chat turn failed for {}", conv_id)
             await self.send_thinking(conv_id, "error")
             await self.broadcast(
                 {
@@ -2363,6 +2366,11 @@ class CollieIPCServer(
                     "conversation_id": conv_id,
                     "message": safe_error,
                     "detail": safe_error,
+                    **(
+                        {"recovery_action": "open_provider_settings"}
+                        if isinstance(e, _ProviderChatError)
+                        else {}
+                    ),
                 }
             )
             return
