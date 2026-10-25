@@ -12,6 +12,7 @@ from typing import Any
 
 from collie_core.db import CollieDB
 from collie_core.permissions.models import PermissionRequest, Risk
+from collie_core.routines.schedule import validate_recurrence
 from nanobot.agent.tools.base import Tool, tool_parameters
 
 __all__ = ["RemindersTool", "bind_reminders_db"]
@@ -212,7 +213,7 @@ def _parse_due(value: str, label: str) -> datetime:
             },
             "recurrence": {
                 "type": "string",
-                "description": "For action=create: optional recurrence rule. e.g. 'daily', 'weekly', 'weekdays', or a cron expression.",
+                "description": "For action=create: optional recurrence rule. e.g. 'daily', 'weekdays', 'weekly', 'monthly', or a cron expression like '0 9 * * *'.",
             },
             "reminder_id": {
                 "type": "string",
@@ -292,7 +293,12 @@ class RemindersTool(Tool):
                     due = _normalize_due(due)
                 except ValueError as error:
                     return self.error(str(error))
-            recurrence = str(kwargs.get("recurrence") or "") or None
+            recurrence = str(kwargs.get("recurrence") or "").strip() or None
+            if recurrence:
+                try:
+                    recurrence = validate_recurrence(recurrence)
+                except ValueError as error:
+                    return self.error(str(error))
             reminder = db.add_reminder(text, due, recurrence=recurrence)
             friendly = reminder.get("due_at", due)
             return (

@@ -223,6 +223,18 @@ class LifeDomain:
             )
             return cursor.rowcount > 0
 
+    def reschedule_reminder(self, reminder_id: str, due_at: str) -> bool:
+        """Roll a repeating reminder to its next due time, keeping the row active."""
+        with self._write() as conn:
+            resolved_id = self._resolve_reminder_id(conn, reminder_id)
+            if resolved_id is None:
+                return False
+            cursor = conn.execute(
+                "UPDATE reminders SET due_at = ?, snoozed_until = NULL, completed = 0 WHERE id = ?",
+                (due_at, resolved_id),
+            )
+            return cursor.rowcount > 0
+
     def snooze_reminder(self, reminder_id: str, until: str) -> bool:
         with self._write() as conn:
             resolved_id = self._resolve_reminder_id(conn, reminder_id)
