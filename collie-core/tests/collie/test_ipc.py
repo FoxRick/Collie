@@ -191,6 +191,58 @@ async def test_unknown_and_invalid_frames(server: CollieIPCServer) -> None:
 
 
 @pytest.mark.asyncio
+async def test_shopping_checkbox_persists_and_reloads(server):
+    from collie_core.tools.shopping import _card
+
+    db = server.db
+    conv = db.create_conversation()
+    oats = db.add_shopping_item("oats", list_name="QA groceries")
+    duplicate = db.add_shopping_item("oats", list_name="QA groceries")
+    card = json.loads(_card(db, "QA groceries"))
+    card.pop("card_type")
+    db.add_message(conv["id"], "assistant", "Groceries", card_type="shopping_list", card_data=card)
+    ws = await _connect(server)
+    try:
+        await _send(
+            ws, type="set_shopping_item_checked", id="check", item_id=oats["id"], checked=True
+        )
+        reply = json.loads(await ws.recv())
+        assert reply["type"] == "ok", reply
+        assert (
+            next(r for r in db.list_shopping_items("QA groceries") if r["id"] == oats["id"])[
+                "checked"
+            ]
+            == 1
+        )
+        assert (
+            next(r for r in db.list_shopping_items("QA groceries") if r["id"] == duplicate["id"])[
+                "checked"
+            ]
+            == 0
+        )
+        await _send(ws, type="get_messages", id="reload", conversation_id=conv["id"])
+        messages = (await _recv_until(ws, "ok"))["data"]["messages"]
+        items = messages[0]["card_data"]["categories"]["Other"]
+        assert next(r for r in items if r["id"] == oats["id"])["done"] is True
+        await _send(
+            ws, type="set_shopping_item_checked", id="bad", item_id=oats["id"], checked="false"
+        )
+        assert (await _recv_until(ws, "error"))["type"] == "error"
+        await _send(
+            ws, type="set_shopping_item_checked", id="uncheck", item_id=oats["id"], checked=False
+        )
+        await _recv_until(ws, "ok")
+        assert (
+            next(r for r in db.list_shopping_items("QA groceries") if r["id"] == oats["id"])[
+                "checked"
+            ]
+            == 0
+        )
+    finally:
+        await ws.close()
+
+
+@pytest.mark.asyncio
 async def test_conversation_crud(server: CollieIPCServer) -> None:
     ws = await _connect(server)
     await _send(ws, type="new_conversation", id="1", title="Groceries")

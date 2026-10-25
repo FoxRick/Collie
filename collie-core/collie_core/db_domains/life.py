@@ -295,6 +295,17 @@ class LifeDomain:
             )
             return cur.rowcount
 
+    def set_shopping_item_checked(self, item_id: str, checked: bool) -> bool:
+        """Update the exact row selected on a shopping card, including duplicates."""
+        with self._write() as conn:
+            return (
+                conn.execute(
+                    "UPDATE shopping_items SET checked = ? WHERE id = ?",
+                    (int(checked), item_id),
+                ).rowcount
+                > 0
+            )
+
     def delete_shopping_item_by_name(self, item: str, list_name: str) -> int:
         """Delete every row with the given name (duplicates included)."""
         with self._write() as conn:
