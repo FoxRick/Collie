@@ -480,6 +480,8 @@ class CollieIPCServer(
                 except (TypeError, ValueError):
                     pass
                 if kind in {
+                    "prepare_voice",
+                    "transcribe",
                     "begin_connector_auth",
                     "begin_definition_auth",
                     "test_connector",
@@ -602,6 +604,11 @@ class CollieIPCServer(
                 }
             )
         return {"conversation": result["conversation"], "greeted": result["greeted"]}
+
+    async def _cmd_prepare_voice(self, connection: ServerConnection, frame: dict) -> dict:
+        """Prepare the reused local model while the user records."""
+        await self._voice.prepare()
+        return {"ready": True}
 
     async def _cmd_transcribe(self, connection: ServerConnection, frame: dict) -> dict:
         """Turn a renderer-captured WAV into English text without a cloud service."""

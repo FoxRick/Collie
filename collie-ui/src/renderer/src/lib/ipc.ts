@@ -571,6 +571,7 @@ export class CollieClient {
   private seq = 0
   private closed = false
   private coreEventsUnsub: (() => void) | null = null
+  private voicePreparation: Promise<{ ready: boolean }> | null = null
   connected = false
 
   /** Legacy transport arguments remain accepted; main now owns the connection. */
@@ -733,6 +734,14 @@ export class CollieClient {
       conversation_id: conversationId,
       file_access_scope: fileAccessScope
     })
+  }
+
+  prepareVoice(): Promise<{ ready: boolean }> {
+    if (!this.voicePreparation) {
+      this.voicePreparation = this.command<{ ready: boolean }>('prepare_voice', {}, 600_000)
+        .finally(() => { this.voicePreparation = null })
+    }
+    return this.voicePreparation
   }
 
   transcribe(audio: string): Promise<{ text: string }> {

@@ -1155,6 +1155,8 @@ export default function ChatScreen({
               onFileAccessScopeChange={changeFileAccessScope}
               onChooseFileAccessFolders={() => void chooseFileAccessFolders()}
               onTypingChange={setIsTyping}
+              conversationId={activeId}
+              onPrepareVoice={() => collieClient.prepareVoice()}
               onTranscribe={async (audio) => (await collieClient.transcribe(audio)).text}
               commandCatalog={commandCatalog}
               taskProgress={activeTask && !isTaskTerminal(activeTask) ? activeTask : null}

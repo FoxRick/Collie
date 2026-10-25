@@ -67,6 +67,8 @@ class LocalVoiceService:
         self._transcriber: Any = None
         self._load_lock = threading.Lock()
         self._transcribe_lock = threading.Lock()
+        self._prepare_task: asyncio.Task | None = None
+        self._transcription_task: asyncio.Task | None = None
 
     def _get_transcriber(self) -> Any:
         if self._transcriber is not None:
@@ -114,9 +116,49 @@ class LocalVoiceService:
             if str(getattr(line, "text", "")).strip()
         ).strip()
 
-    async def transcribe_data_url(self, data_url: str) -> str:
-        audio, sample_rate = _decode_wav_data_url(data_url)
-        text = await asyncio.to_thread(self._transcribe, audio, sample_rate)
+    @staticmethod
+    def _observe_completion(task: asyncio.Task) -> None:
+        # A renderer may disappear while native work finishes. Consume failures
+        # without logging audio/text or leaving an unobserved task exception.
+        if not task.cancelled():
+            task.exception()
+
+    async def prepare(self) -> None:
+        """Single-flight preparation, shared with the final transcription request."""
+        if self._prepare_task is None or (
+            self._prepare_task.done() and self._transcriber is None
+        ):
+            self._prepare_task = asyncio.create_task(asyncio.to_thread(self._get_transcriber))
+            self._prepare_task.add_done_callback(self._observe_completion)
+        await asyncio.shield(self._prepare_task)
+
+    async def _transcribe_recording(self, audio: list[float], sample_rate: int) -> str:
+        await self.prepare()
+
+        def run() -> str:
+            return self._transcribe(audio, sample_rate)
+
+        text = await asyncio.to_thread(run)
         if not text:
             raise VoiceInputError("I did not catch any words. Try speaking a little closer?")
         return text
+
+    async def transcribe_data_url(self, data_url: str) -> str:
+        # Do not let repeated cancel/retry gestures queue native inference jobs.
+        # Shield retains the slot until native work really ends, even on disconnect.
+        if self._transcription_task is not None and not self._transcription_task.done():
+            raise VoiceInputError("I am finishing the previous recording. Try again in a moment.")
+        if not isinstance(data_url, str) or len(data_url) > MAX_AUDIO_BYTES * 4 // 3 + 64:
+            raise VoiceInputError("Keep each recording under one minute.")
+        # Validate before any model download. Size and duration are bounded.
+        audio, sample_rate = _decode_wav_data_url(data_url)
+        self._transcription_task = asyncio.create_task(
+            self._transcribe_recording(audio, sample_rate)
+        )
+        self._transcription_task.add_done_callback(self._observe_completion)
+        def release(task: asyncio.Task) -> None:
+            if self._transcription_task is task:
+                self._transcription_task = None
+
+        self._transcription_task.add_done_callback(release)
+        return await asyncio.shield(self._transcription_task)
