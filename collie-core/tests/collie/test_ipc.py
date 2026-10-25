@@ -719,6 +719,63 @@ async def test_custom_anthropic_endpoint_persists_runtime_fields(tmp_path: Path)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "question,answer",
+    [
+        ("What is the codename in my attachment?", "ORANGE-OTTER-427, with 13 boxes"),
+        ("What is my saved mascot's name?", "Your mascot is Otter"),
+    ],
+)
+async def test_title_summarizes_completed_exchange(tmp_path, question, answer):
+    from types import SimpleNamespace
+
+    from collie_core.runtime import CollieRuntime
+    from nanobot.providers.base import LLMResponse
+
+    db = CollieDB(tmp_path / "titles.db")
+    release = asyncio.Event()
+    captured = []
+
+    async def runner(*args, **kwargs):
+        await release.wait()
+        return FakeOutbound(answer)
+
+    async def title_provider(*, messages, model):
+        assert "Do not answer" in messages[0]["content"]
+        captured.append(messages[1]["content"])
+        return LLMResponse(content="Mascot and attachment details")
+
+    runtime = CollieRuntime.__new__(CollieRuntime)
+    runtime.loop = SimpleNamespace(
+        llm_runtime=lambda: SimpleNamespace(
+            provider=SimpleNamespace(chat=title_provider),
+            model="fake-title-model",
+        )
+    )
+
+    srv = CollieIPCServer(
+        db, port=_free_port(), chat_runner=runner, title_generator=runtime._generate_chat_title
+    )
+    await srv.start()
+    try:
+        ws = await _connect(srv)
+        await _send(ws, type="chat", id="chat", content=question)
+        await _recv_until(ws, "ok")
+        await asyncio.sleep(0.02)
+        assert not captured, "Title ran before the answer was available"
+        release.set()
+        await _recv_until(ws, "conversation_updated")
+        assert len(captured) == 1
+        assert question in captured[0]
+        assert answer in captured[0]
+        await ws.close()
+    finally:
+        release.set()
+        await srv.stop()
+        db.close()
+
+
+@pytest.mark.asyncio
 async def test_chat_persists_project_and_generates_title(tmp_path: Path) -> None:
     db = CollieDB(tmp_path / "collie.db")
     project = tmp_path / "Project Atlas"
