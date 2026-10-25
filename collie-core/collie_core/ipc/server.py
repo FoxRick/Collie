@@ -190,13 +190,13 @@ def _safe_preview_data_url(attachment: dict[str, Any]) -> str | None:
 
 
 class CollieIPCServer(
-    TemporaryChatCommands,
     CollaborationCommands,
     MemoryCommands,
     RoutineCommands,
     ProviderCommands,
     ConnectorCommands,
     FileCommands,
+    TemporaryChatCommands,
     AgentCommands,
     MessengerCommands,
 ):
