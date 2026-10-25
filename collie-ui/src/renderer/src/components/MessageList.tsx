@@ -1,4 +1,4 @@
-import { memo, useLayoutEffect, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { CollieMessage } from '../lib/ipc'
 import { useT } from '../lib/i18n'
 import MessageBubble from './MessageBubble'
@@ -29,6 +29,20 @@ function MessageList({ messages, streamText, streaming = false, activityLabel, c
       endRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' })
     }
   }, [lastId, messages, streamText, streaming, cardPreview])
+
+  useEffect(() => {
+    const showSource = (event: Event): void => {
+      const id = (event as CustomEvent<string>).detail
+      const index = messages.findIndex((message) => message.id === id)
+      if (index < 0) return
+      shouldFollowRef.current = false
+      setFollowing(false)
+      setVisibleCount((count) => Math.max(count, messages.length - index))
+      window.setTimeout(() => document.getElementById(`source-${id}`)?.scrollIntoView({ block: 'center' }), 0)
+    }
+    window.addEventListener('collie-source-message', showSource)
+    return () => window.removeEventListener('collie-source-message', showSource)
+  }, [messages])
 
   const visibleStream = stableMarkdownStreamText(visibleStreamText(streamText))
   const hidden = Math.max(0, messages.length - visibleCount)
@@ -77,15 +91,14 @@ function MessageList({ messages, streamText, streaming = false, activityLabel, c
           </button>
         )}
         {visible.map((msg) => (
-          <MessageBubble
-            key={msg.id}
+          <div key={msg.id} id={`source-${msg.id}`}><MessageBubble
             role={msg.role}
             content={msg.content}
             cardType={msg.card_type}
             cardData={msg.card_data}
             attachments={msg.attachments}
             taskState={msg.task_state}
-          />
+          /></div>
         ))}
         {(visibleStream || cardPreview) && (
           <MessageBubble

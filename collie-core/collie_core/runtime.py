@@ -204,6 +204,9 @@ class CollieRuntime:
             self.ipc.broadcast,
             context_validator=self._validate_execution_context,
         )
+        from collie_core.tools.cross_session import bind_cross_session
+
+        bind_cross_session(self.ipc.cross_session)
         self.ipc.approval_broker = self.approvals
         self.messengers.broadcaster = self.ipc.broadcast
         self._scheduler = AutomationScheduler(

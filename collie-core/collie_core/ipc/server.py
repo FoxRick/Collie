@@ -70,6 +70,7 @@ from collie_core.ipc.commands import (
     ProviderCommands,
     RoutineCommands,
 )
+from collie_core.ipc.commands.cross_session import CrossSessionCommands
 from collie_core.ipc.commands.providers import _OAuthAttemptState
 from collie_core.ipc.thinking import phrase_for_state, thinking_state_for_tool
 from collie_core.onboarding import (
@@ -189,6 +190,7 @@ def _safe_preview_data_url(attachment: dict[str, Any]) -> str | None:
 
 
 class CollieIPCServer(
+    CrossSessionCommands,
     CollaborationCommands,
     MemoryCommands,
     RoutineCommands,
@@ -301,6 +303,12 @@ class CollieIPCServer(
         self._oauth_worker_tasks: set[asyncio.Task] = set()
         self.approval_broker: Any = None
         self._voice = LocalVoiceService()
+        from collie_core.cross_session import CrossSession
+
+        self.cross_session = CrossSession(
+            db, self._launch_cross_session,
+            lambda: {cid for cid, task in self._chat_tasks.items() if not task.done()},
+        )
 
     # -- lifecycle -----------------------------------------------------------
 

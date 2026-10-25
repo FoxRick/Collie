@@ -671,6 +671,23 @@ export default function ChatScreen({
     (agent) => agent.conversation_id === activeId
   )
   const activeTiming = activeId ? taskTimings[activeId] : undefined
+  useEffect(() => {
+    const openChatLink = (event: MouseEvent): void => {
+      const anchor = (event.target as Element | null)?.closest?.('a')
+      const match = anchor?.getAttribute('href')?.match(/^#chat\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]*)$/)
+      if (!match || !activeId) return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      void collieClient.readChatContext(activeId, match[1]).then(async () => {
+        await refreshConversations()
+        await openConversation(match[1])
+        if (match[2]) window.setTimeout(() => window.dispatchEvent(new CustomEvent('collie-source-message', { detail: match[2] })), 0)
+      }).catch(() => setErrorText('That chat is not available for cross-chat access.'))
+    }
+    document.addEventListener('click', openChatLink, true)
+    return () => document.removeEventListener('click', openChatLink, true)
+  }, [activeId, openConversation, refreshConversations])
+
   const activeTask = activeId ? tasksByConversation[activeId] : undefined
   const taskIsActive = activeTask ? !isTaskTerminal(activeTask) : false
   const isWorkActive = streaming || activeThinking !== null || activeAgents.length > 0 || taskIsActive

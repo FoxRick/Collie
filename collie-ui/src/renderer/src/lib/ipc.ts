@@ -771,6 +771,10 @@ export class CollieClient {
     return this.command('list_things', { conversation_id: conversationId })
   }
 
+  readChatContext(conversationId: string, targetId: string): Promise<{ conversation_id: string; captured_at: string }> {
+    return this.command('cross_session_read', { conversation_id: conversationId, target_id: targetId })
+  }
+
   getMessages(conversationId: string): Promise<{ messages: CollieMessage[] }> {
     return this.command('get_messages', { conversation_id: conversationId })
   }
