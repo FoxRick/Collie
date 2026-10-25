@@ -151,9 +151,17 @@ class CollieRuntime:
         self._auto_reconfiguring = False
         # One session manager for every rebuilt loop: conversation history
         # survives provider switches and loop restarts.
-        from nanobot.session.manager import SessionManager
+        from collie_core.temporary_chat import (
+            DesktopSessionManager,
+            TemporaryChatService,
+            redact_temporary_logs,
+        )
 
-        self._session_manager = SessionManager(self.workspace)
+        logger.configure(patcher=redact_temporary_logs)
+        self._session_manager = DesktopSessionManager(self.workspace)
+        temporary_chat = TemporaryChatService(
+            self._session_manager, lambda: self.loop, self._configure
+        )
         self._scheduler: AutomationScheduler | None = None
         self.commands = CommandController(
             workspace=self.workspace,
@@ -203,6 +211,7 @@ class CollieRuntime:
             collaboration_identity_binder=self._bind_collaboration_identity,
             collaboration_run_controller=self._control_shared_run,
         )
+        self.ipc.temporary_chat = temporary_chat
         self.approvals = ApprovalBroker(
             self.db,
             self.permission_evaluator,

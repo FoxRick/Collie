@@ -144,6 +144,12 @@ HANDLERS: dict[str, tuple[str, ...]] = {
         "update_automation",
         "update_routine",
     ),
+    "temporary_chat": (
+        "temporary_open",
+        "temporary_turn",
+        "temporary_stop",
+        "temporary_close",
+    ),
 }
 
 # The server state each command module reaches for, minus its own handlers.
@@ -227,6 +233,9 @@ HOST_DEPENDENCIES: dict[str, frozenset[str]] = {
             "broadcast",
             "db",
         }
+    ),
+    "temporary_chat": frozenset(
+        {"temporary_chat", "_temporary_owners", "_temporary_tasks", "_send"}
     ),
 }
 

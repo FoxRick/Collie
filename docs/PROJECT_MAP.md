@@ -85,6 +85,16 @@ are not part of this public source tree.
   [saved skill management](product/features/saved-skill-management.md).
 - `AGENTS.md` contains core-specific contributor instructions.
 
+### Temporary desktop chat
+
+`collie_core/temporary_chat.py` owns memory-only session routing;
+`collie_core/ipc/commands/temporary_chat.py` owns the connection-scoped
+`temporary_*` IPC family. Runtime injects its session manager
+into the existing engine. Ghost sessions never become conversation rows or
+saved session files; retrieval, export, Dream and Gardener see durable stores
+only. See [temporary chat](product/features/temporary-chat.md) for the bounded
+text-only scope and provider-retention caveat.
+
 ### Desktop shell: `collie-ui/`
 
 - `src/main/` owns Electron lifecycle, Python-core supervision, protected
