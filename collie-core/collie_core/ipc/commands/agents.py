@@ -13,11 +13,38 @@ from __future__ import annotations
 from loguru import logger
 from websockets.asyncio.server import ServerConnection
 
-from nanobot.webui.skills_api import webui_skill_detail_payload, webui_skills_payload
+from nanobot.webui.skills_api import webui_skill_detail_payload
 
 
 class AgentCommands:
     """Subagent and skill commands. Mixed into :class:`CollieIPCServer` by composition."""
+
+    def _skill_library(self):
+        from collie_core.skills import SkillManager
+        from collie_core.tools.skill_management import skill_manager
+
+        if self._skills_workspace is None:
+            raise ValueError("Skills are not available yet.")
+        manager = skill_manager(self._skills_workspace)
+        if manager is not None:
+            return manager
+        if not hasattr(self, "_owned_skills"):
+            self._owned_skills = SkillManager(self._skills_workspace, self.db)
+        return self._owned_skills
+
+    async def _cmd_get_skill_editor(self, connection: ServerConnection, frame: dict) -> dict:
+        return {"skill": self._skill_library().detail(str(frame.get("name") or ""))}
+
+    async def _cmd_manage_skill(self, connection: ServerConnection, frame: dict) -> dict:
+        # Authenticated desktop UI is an explicit owner action. Agent calls use
+        # ManageSkillTool through the central authorizer with hard approval.
+        return self._skill_library().change(
+            action=str(frame.get("action") or ""),
+            name=str(frame.get("name") or ""),
+            revision=str(frame.get("revision") or ""),
+            content=str(frame.get("content") or ""),
+            version=frame.get("version"),
+        )
 
     async def _cmd_get_subagent_activity(self, connection: ServerConnection, frame: dict) -> dict:
         """Cheap subagent roster for poll-heavy surfaces (Agents tab).
@@ -40,8 +67,14 @@ class AgentCommands:
     async def _cmd_list_skills(self, connection: ServerConnection, frame: dict) -> dict:
         if self._skills_workspace is None:
             return {"skills": []}
-        disabled = set(self.db.get_setting("agent.disabled_skills", []) or [])
-        return webui_skills_payload(self._skills_workspace, disabled_skills=disabled)
+        inventory = self._skill_library().inventory()
+        for skill in inventory["skills"]:
+            skill.pop("content", None)
+        # Pending proposals can include instructions: expose only status to lists.
+        inventory["pending"] = [
+            {"name": p["name"], "action": p["action"]} for p in inventory["pending"]
+        ]
+        return inventory
 
     async def _cmd_get_skill(self, connection: ServerConnection, frame: dict) -> dict:
         if self._skills_workspace is None:

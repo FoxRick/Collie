@@ -171,6 +171,7 @@ def build_config(db: CollieDB, *, mcp_servers: dict[str, Any] | None = None) -> 
                 "workspace": str(ws),
                 "provider": provider_name,
                 "botName": str(settings.get("agent.bot_name") or "Collie"),
+                "disabled_skills": list(settings.get("agent.disabled_skills") or []),
             }
         },
         "providers": {provider_name: provider_section},
