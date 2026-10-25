@@ -104,6 +104,11 @@ class CollieRuntime:
         from collie_core.versions import VersionStore
 
         self.versions = VersionStore(self.db)
+        from collie_core.skills import SkillManager
+        from collie_core.tools.skill_management import bind_skill_manager
+
+        self.skills = SkillManager(self.workspace, self.db)
+        bind_skill_manager(self.skills)
         self.profile = ProfileStore(self.db, self.workspace, version_store=self.versions)
         self.profile.regenerate_memory_md()
         bind_profile_store(self.profile)
@@ -146,9 +151,17 @@ class CollieRuntime:
         self._auto_reconfiguring = False
         # One session manager for every rebuilt loop: conversation history
         # survives provider switches and loop restarts.
-        from nanobot.session.manager import SessionManager
+        from collie_core.temporary_chat import (
+            DesktopSessionManager,
+            TemporaryChatService,
+            redact_temporary_logs,
+        )
 
-        self._session_manager = SessionManager(self.workspace)
+        logger.configure(patcher=redact_temporary_logs)
+        self._session_manager = DesktopSessionManager(self.workspace)
+        temporary_chat = TemporaryChatService(
+            self._session_manager, lambda: self.loop, self._configure
+        )
         self._scheduler: AutomationScheduler | None = None
         self.commands = CommandController(
             workspace=self.workspace,
@@ -198,12 +211,16 @@ class CollieRuntime:
             collaboration_identity_binder=self._bind_collaboration_identity,
             collaboration_run_controller=self._control_shared_run,
         )
+        self.ipc.temporary_chat = temporary_chat
         self.approvals = ApprovalBroker(
             self.db,
             self.permission_evaluator,
             self.ipc.broadcast,
             context_validator=self._validate_execution_context,
         )
+        from collie_core.tools.cross_session import bind_cross_session
+
+        bind_cross_session(self.ipc.cross_session)
         self.ipc.approval_broker = self.approvals
         from collie_core.browser import BrowserService
         from collie_core.tools.browser import bind_browser_service
@@ -308,7 +325,7 @@ class CollieRuntime:
         bus = CollieBus(on_inbound=self._on_messenger_inbound)
         bind_things(bus=bus)
         provider_override = self._provider_override()
-        telemetry_factories = [create_telemetry_hook_factory(self.db)]
+        telemetry_factories = [create_telemetry_hook_factory(self.db), self.skills.turn_hook]
         if provider_override is not None:
             loop = AgentLoop.from_config(
                 config,
@@ -328,6 +345,14 @@ class CollieRuntime:
         # directly with their own _SubagentHook) — mirror the factories so
         # subagent turns are telemetry-recorded too.
         loop.subagents.hook_factories = list(telemetry_factories)
+
+        # Public loader configuration only, updated when all tracked runs finish.
+        # Never replace engine methods or rebuild/cancel a running loop.
+        def activate_skills(disabled: set[str]) -> None:
+            loop.context.skills.disabled_skills = set(disabled)
+            loop.subagents.disabled_skills = set(disabled)
+
+        self.skills.on_activate = activate_skills
         loop.context.command_guidance = True
 
         from nanobot.runtime_context import RuntimeContextBlock
@@ -1586,6 +1611,15 @@ class CollieRuntime:
                 raise RuntimeError(result.get("error") or "no provider configured")
         default_provider = self.db.default_provider()
         session_key, channel, target_chat_id = self._conversation_target(conversation_id)
+        turn_options = {}
+        if self.db.get_setting(f"cross_session.child.{conversation_id}"):
+            from collie_core.cross_session import handoff_tools
+
+            turn_options["tools"] = handoff_tools(self.loop.tools)
+            content = (
+                "This is already the new independent chat requested by the user. "
+                "Perform the task here; do not create or request another chat.\n\n" + content
+            )
         outbound = await self.loop.process_direct(
             content,
             session_key=session_key,
@@ -1596,6 +1630,7 @@ class CollieRuntime:
             on_progress=on_progress,
             media=media,
             message_metadata=message_metadata,
+            **turn_options,
             permission_context={
                 "execution_mode": execution_mode,
                 "conversation_id": conversation_id,

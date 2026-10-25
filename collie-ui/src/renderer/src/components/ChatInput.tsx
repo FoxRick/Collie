@@ -26,11 +26,8 @@ import type {
   ProviderInfo,
   TaskState
 } from '../lib/ipc'
-import {
-  MICROPHONE_STORAGE_KEY,
-  startLocalDictation,
-  type LocalDictationRecorder
-} from '../lib/audio'
+import { MICROPHONE_STORAGE_KEY } from '../lib/audio'
+import { DictationSession, type DictationState } from '../lib/dictation'
 import BrandLogo from './BrandLogo'
 import TaskProgress from './tasks/TaskProgress'
 
@@ -262,6 +259,8 @@ interface Props {
   onChooseFileAccessFolders: () => void
   onTypingChange?: (isTyping: boolean) => void
   onTranscribe: (audio: string) => Promise<string>
+  onPrepareVoice?: () => Promise<unknown>
+  conversationId?: string | null
   commandCatalog?: CommandCatalog
   taskProgress?: TaskState | null
   /** Focus the composer once on mount (fresh onboarding straight into chat). */
@@ -290,6 +289,8 @@ export default function ChatInput({
   onChooseFileAccessFolders,
   onTypingChange,
   onTranscribe,
+  onPrepareVoice,
+  conversationId,
   commandCatalog,
   taskProgress,
   autofocus = false
@@ -298,7 +299,7 @@ export default function ChatInput({
   const [attachments, setAttachments] = useState<AttachmentDraft[]>([])
   const [attachmentError, setAttachmentError] = useState('')
   const [openMenu, setOpenMenu] = useState<'model' | 'files' | 'approvals' | null>(null)
-  const [voiceState, setVoiceState] = useState<'idle' | 'recording' | 'transcribing'>('idle')
+  const [voiceState, setVoiceState] = useState<DictationState>('idle')
   const [voiceError, setVoiceError] = useState('')
   const [commandIndex, setCommandIndex] = useState(0)
   const [promptIndex, setPromptIndex] = useState(0)
@@ -306,7 +307,7 @@ export default function ChatInput({
   const [deletingPrompt, setDeletingPrompt] = useState(false)
   const textRef = useRef(text)
   const submittingRef = useRef(false)
-  const recorderRef = useRef<LocalDictationRecorder | null>(null)
+  const dictationRef = useRef<DictationSession | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const footerRef = useRef<HTMLDivElement>(null)
   const onTypingChangeRef = useRef(onTypingChange)
@@ -417,9 +418,12 @@ export default function ChatInput({
     }
   }, [openMenu])
 
-  useEffect(() => () => {
-    void recorderRef.current?.cancel()
-  }, [])
+  useEffect(() => {
+    return () => {
+      dictationRef.current?.cancel()
+      dictationRef.current = null
+    }
+  }, [conversationId])
 
   useEffect(() => {
     const compose = (event: Event): void => {
@@ -435,6 +439,7 @@ export default function ChatInput({
 
   const submit = async (): Promise<void> => {
     if (submittingRef.current) return
+    dictationRef.current?.cancel()
     const trimmed = text.trim()
     if (!trimmed && attachments.length === 0) return
     if (steering && attachments.length > 0) {
@@ -478,41 +483,24 @@ export default function ChatInput({
     }
   }
 
-  const stopDictation = async (): Promise<void> => {
-    const recorder = recorderRef.current
-    if (!recorder) return
-    recorderRef.current = null
-    setVoiceState('transcribing')
-    try {
-      const audio = await recorder.stop()
-      const transcript = (await onTranscribe(audio)).trim()
-      setText((current) => current.trim() ? `${current.trimEnd()} ${transcript}` : transcript)
-      onTypingChange?.(Boolean(transcript))
-    } catch (error) {
-      setVoiceError(error instanceof Error ? error.message : 'I could not hear that clearly.')
-    } finally {
-      setVoiceState('idle')
-    }
-  }
-
   const toggleDictation = async (): Promise<void> => {
     setVoiceError('')
-    if (voiceState === 'recording') {
-      await stopDictation()
-      return
+    if (!dictationRef.current) {
+      dictationRef.current = new DictationSession({
+        prepare: () => onPrepareVoice?.() || Promise.resolve(),
+        transcribe: onTranscribe,
+        state: setVoiceState,
+        transcript: (transcript) => {
+          setText((current) => current.trim() ? `${current.trimEnd()} ${transcript}` : transcript)
+          onTypingChangeRef.current?.(true)
+        },
+        error: setVoiceError
+      })
     }
-    if (voiceState !== 'idle') return
-    try {
-      recorderRef.current = await startLocalDictation(
-        () => void stopDictation(),
-        localStorage.getItem(MICROPHONE_STORAGE_KEY) || undefined
-      )
-      setVoiceState('recording')
-    } catch (error) {
-      setVoiceError(
-        error instanceof Error ? error.message : 'I could not open the microphone.'
-      )
-    }
+    const session = dictationRef.current
+    if (session.state === 'recording') await session.stop()
+    else if (session.state !== 'idle') session.cancel()
+    else await session.start(localStorage.getItem(MICROPHONE_STORAGE_KEY) || undefined)
   }
 
   const formatSize = (size: number): string =>
@@ -727,14 +715,14 @@ export default function ChatInput({
               ? 'Stop dictation'
               : voiceState === 'transcribing'
                 ? 'Transcribing locally'
-                : 'Dictate with local voice'
+                : voiceState === 'starting' ? 'Opening microphone' : 'Dictate with local voice'
           }
-          aria-label={voiceState === 'recording' ? 'Stop dictation' : 'Start dictation'}
+          aria-label={voiceState === 'recording' ? 'Stop dictation' : voiceState !== 'idle' ? 'Cancel dictation' : 'Start dictation'}
           aria-pressed={voiceState === 'recording'}
-          disabled={busy || voiceState === 'transcribing'}
+          disabled={busy && voiceState === 'idle'}
           onClick={() => void toggleDictation()}
         >
-          {voiceState === 'transcribing'
+          {(voiceState === 'transcribing' || voiceState === 'starting')
             ? <LoaderCircle size={17} className="voice-spinner" />
             : <Mic size={17} />}
         </button>
