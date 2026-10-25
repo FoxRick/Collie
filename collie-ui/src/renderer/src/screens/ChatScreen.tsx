@@ -1109,7 +1109,7 @@ export default function ChatScreen({
             />
           )}
         </header>
-        {activeId && <NativeControlPanel key={activeId} conversationId={activeId} />}
+        {activeId && <NativeControlPanel key={`native-${activeId}`} conversationId={activeId} />}
         <div className={`workspace-body flex min-h-0 flex-1 ${thingsOpen && things.length > 0 ? 'has-things' : ''}`}>
         <div className="conversation-panel">
           <MessageList key={activeId} messages={messages} streamText={streamText} streaming={streaming} cardPreview={cardPreview} activityLabel={streaming ? (activeThinking?.phrase || "Collie is thinking…") : undefined} />

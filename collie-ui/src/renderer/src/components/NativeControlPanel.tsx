@@ -8,11 +8,12 @@ export default function NativeControlPanel({ conversationId }: { conversationId:
   const [busy, setBusy] = useState(false)
   const run = async (operation: 'discover' | 'select' | 'observe' | 'focus' | 'scroll' | 'stop', target?: NativeWindow): Promise<void> => {
     setBusy(true)
+    setNotice('')
     try {
       const result = await collieClient.nativeControl(conversationId, operation, { target, scope: 'unsaved_editor' })
       if (operation === 'discover') {
         setWindows(result.windows || [])
-        setNotice(result.windows?.length ? 'Choose the window you want Collie to use.' : 'No supported window found. Open an unsaved classic Notepad window titled Untitled - Notepad.')
+        setNotice(result.windows?.length ? 'Choose the window you want Collie to use.' : 'No supported editor found. This preview needs classic Notepad; modern Notepad is not supported.')
       } else if (operation === 'select') {
         setSelected(true)
         setNotice('Selected for this chat: unsaved editor only. Ask Collie to replace text, focus or scroll. Each action needs approval.')
@@ -23,7 +24,9 @@ export default function NativeControlPanel({ conversationId }: { conversationId:
         setNotice(result.stopped ? 'Native control stopped.' : 'Done. Observation confirms editor availability; document text is never captured.')
       }
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error))
+      setSelected(false)
+      const message = error instanceof Error ? error.message : String(error)
+      setNotice(message.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/, ''))
     } finally {
       setBusy(false)
     }

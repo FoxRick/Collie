@@ -9,7 +9,9 @@ No account, database migration, extra package, or engine change is required.
 ## Supported scope
 
 - Discover English windows titled `Untitled - Notepad`, process `notepad`,
-  window class `Notepad`. Select an exact returned identity in a private chat.
+  window class `Notepad`, with exactly one enabled non-password classic `Edit`
+  control. Modern windows without that editor are excluded before selection.
+  Select an exact returned identity in a private chat.
 - Observe returns editor class and availability only, without reading document
   text, descendant names, clipboard, password values or screenshots.
 - Focus and semantic `click` call the sole classic `Edit` control's `SetFocus`.

@@ -23,7 +23,10 @@ function Identity($w) {
 }
 function Supported($w) {
   $p = Get-Process -Id $w.Current.ProcessId
-  ($p.ProcessName -eq 'notepad' -and $w.Current.ClassName -eq 'Notepad' -and $w.Current.Name -eq 'Untitled - Notepad')
+  if (!($p.ProcessName -eq 'notepad' -and $w.Current.ClassName -eq 'Notepad' -and $w.Current.Name -eq 'Untitled - Notepad')) { return $false }
+  $condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ClassNameProperty, 'Edit')
+  $editors = $w.FindAll([System.Windows.Automation.TreeScope]::Descendants,$condition)
+  return ($editors.Count -eq 1 -and !$editors.Item(0).Current.IsPassword -and $editors.Item(0).Current.IsEnabled)
 }
 $root = [System.Windows.Automation.AutomationElement]::RootElement
 if ($q.operation -eq 'discover') {
