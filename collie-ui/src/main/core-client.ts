@@ -355,6 +355,13 @@ export function coreSend(frame: CoreCommandFrame): Promise<unknown> {
   if (type.startsWith('collaboration_')) {
     return Promise.reject(new Error('Use the protected collaboration bridge.'))
   }
+  if (
+    type === 'preview_connector_import' ||
+    ((type === 'save_connector_definition' || type === 'begin_definition_auth' || type === 'reconnect_connector') &&
+      Object.prototype.hasOwnProperty.call(payload, 'secret'))
+  ) {
+    return Promise.reject(new Error('Connector credentials require the protected bridge'))
+  }
   return coreBroker.send(type, id, payload)
 }
 

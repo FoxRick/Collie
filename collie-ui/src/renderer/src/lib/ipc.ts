@@ -2,6 +2,30 @@
  * CollieClient — typed client for the Python core's WebSocket IPC.
  * Auto-reconnects; commands fail closed while the core is unavailable.
  */
+import type {
+  ConnectorDefinitionInput,
+  ConnectorDefinitionValidation,
+  ConnectorImportPreview,
+  ConnectorOperationResult,
+  ConnectorToolInspection
+} from '../../../shared/connectors'
+
+export type {
+  ConnectorAuthStrategy,
+  ConnectorCredentialSubmission,
+  ConnectorDefinitionInput,
+  ConnectorDefinitionPreview,
+  ConnectorDefinitionValidation,
+  ConnectorFailure,
+  ConnectorImportEntry,
+  ConnectorImportFilePreview,
+  ConnectorImportPreview,
+  ConnectorOperationResult,
+  ConnectorSecretInput,
+  ConnectorToolInfo,
+  ConnectorToolInspection,
+  ConnectorTransport
+} from '../../../shared/connectors'
 
 export interface CollieMessage {
   id: string
@@ -242,9 +266,13 @@ export interface ConnectorConnection {
   permissions: string[]
   capabilities: string[]
   route: string
+  operation_id?: string | null
+  operation_revision?: number
+  failure?: import('../../../shared/connectors').ConnectorFailure | null
 }
 
 export type RemoteRevocationStatus =
+  | 'pending'
   | 'revoked'
   | 'unsupported'
   | 'failed'
@@ -351,40 +379,6 @@ export interface CollieRun {
   started_at?: string | null
   finished_at?: string | null
   error_message?: string | null
-}
-
-/** One recorded agent turn (PR 1 run records / telemetry). */
-export interface TurnEvent {
-  id: string
-  conversation_id?: string | null
-  session_key?: string | null
-  turn_kind: string
-  provider?: string | null
-  model?: string | null
-  status: string
-  error_message?: string | null
-  tokens_in?: number
-  tokens_out?: number
-  latency_ms?: number | null
-  tool_count?: number
-  started_at: string
-  finished_at?: string | null
-}
-
-/** One recorded tool call within a turn (PR 1 run records / telemetry). */
-export interface ToolEvent {
-  id: string
-  turn_id: string
-  tool_name: string
-  action?: string | null
-  resource?: string | null
-  input_summary?: string | null
-  output_summary?: string | null
-  status: string
-  error_message?: string | null
-  latency_ms?: number | null
-  started_at: string
-  finished_at?: string | null
 }
 
 /** One snapshotted artifact edit (PR 2 versioned rollback rail). */
@@ -532,8 +526,12 @@ export type CollieEvent =
         | 'connector_tools_changed'
       provider_id?: string
       connection_id?: string
+      definition_id?: string
+      operation_id?: string
+      operation_revision?: number
       status?: string
       message?: string
+      failure?: import('../../../shared/connectors').ConnectorFailure
       origin?: string
       remote_revocation?: RemoteRevocationStatus
     }
@@ -782,23 +780,6 @@ export class CollieClient {
     return this.command('get_active_task', { conversation_id: conversationId })
   }
 
-  getRunRecords(opts?: {
-    conversation_id?: string
-    session_key?: string
-    since?: string
-    limit?: number
-  }): Promise<{ turns: TurnEvent[] }> {
-    return this.command('get_run_records', opts ?? {})
-  }
-
-  getToolEvents(opts?: {
-    turn_id?: string
-    tool_name?: string
-    limit?: number
-  }): Promise<{ tool_events: ToolEvent[] }> {
-    return this.command('get_tool_events', opts ?? {})
-  }
-
   listVersions(opts?: {
     artifact_type?: string
     artifact_key?: string
@@ -836,11 +817,6 @@ export class CollieClient {
     message?: string
   }> {
     return this.command('run_dream', {})
-  }
-
-  /** Past Dream consolidations (memory_dream versions), newest first. */
-  getDreamHistory(): Promise<{ versions: ArtifactVersion[] }> {
-    return this.command('get_dream_history', {})
   }
 
   /** Pending Dream proposal state (Settings -> Memory self-review section). */
@@ -950,10 +926,6 @@ export class CollieClient {
     providers_count?: number
   }> {
     return this.command('refresh_provider_catalogue', { url })
-  }
-
-  rollbackProviderCatalogue(): Promise<{ rolled_back: boolean; error?: string }> {
-    return this.command('rollback_provider_catalogue')
   }
 
   detectProviderForKey(apiKey: string): Promise<{
@@ -1238,10 +1210,6 @@ export class CollieClient {
     return this.command('delete_subagent', { subagent_id: subagentId })
   }
 
-  cancelSubagent(conversationId: string): Promise<{ cancelled: number }> {
-    return this.command('cancel_subagent', { conversation_id: conversationId })
-  }
-
   listSkills(): Promise<{ skills: CollieSkill[] }> {
     return this.command('list_skills')
   }
@@ -1278,8 +1246,27 @@ export class CollieClient {
     return this.command('list_connector_connections')
   }
 
-  getConnector(connectionId: string): Promise<{ connection: ConnectorConnection }> {
-    return this.command('get_connector', { connection_id: connectionId })
+  validateConnectorDefinition(
+    definition: ConnectorDefinitionInput
+  ): Promise<ConnectorDefinitionValidation> {
+    return this.command('validate_connector_definition', { definition })
+  }
+
+  saveConnectorDefinition(
+    definition: ConnectorDefinitionInput
+  ): Promise<ConnectorOperationResult> {
+    return this.command('save_connector_definition', { definition })
+  }
+
+  beginDefinitionAuth(
+    definitionId: string,
+    displayName?: string
+  ): Promise<ConnectorOperationResult> {
+    return this.command(
+      'begin_definition_auth',
+      { definition_id: definitionId, display_name: displayName, origin: 'connectors_ui' },
+      300_000
+    )
   }
 
   beginConnectorAuth(
@@ -1304,13 +1291,36 @@ export class CollieClient {
   }
 
   cancelConnectorAuth(
-    connectionId: string
-  ): Promise<{ connection_id: string; cancelled: boolean }> {
-    return this.command('cancel_connector_auth', { connection_id: connectionId })
+    connectionId: string,
+    operationId?: string,
+    operationRevision?: number
+  ): Promise<ConnectorOperationResult & { cancelled: boolean }> {
+    return this.command('cancel_connector_auth', {
+      connection_id: connectionId,
+      operation_id: operationId,
+      operation_revision: operationRevision
+    })
   }
 
-  testConnector(connectionId: string): Promise<{ connection: ConnectorConnection }> {
-    return this.command('test_connector', { connection_id: connectionId }, 120_000)
+  reconnectConnector(
+    connectionId: string,
+    operationRevision?: number
+  ): Promise<ConnectorOperationResult> {
+    return this.command(
+      'reconnect_connector',
+      { connection_id: connectionId, operation_revision: operationRevision },
+      300_000
+    )
+  }
+
+  testConnector(
+    connectionId: string,
+    operationRevision?: number
+  ): Promise<{ connection: ConnectorConnection }> {
+    return this.command('test_connector', {
+      connection_id: connectionId,
+      operation_revision: operationRevision
+    })
   }
 
   updateConnector(
@@ -1318,6 +1328,7 @@ export class CollieClient {
     patch: {
       display_name?: string
       enabled_capabilities?: string[]
+      enabled_tools?: string[]
       approval_preference?: string
     }
   ): Promise<{ connection: ConnectorConnection }> {
@@ -1325,7 +1336,8 @@ export class CollieClient {
   }
 
   removeConnector(
-    connectionId: string
+    connectionId: string,
+    operationRevision?: number
   ): Promise<{
     connection_id: string
     status: string
@@ -1334,12 +1346,17 @@ export class CollieClient {
   }> {
     return this.command('remove_connector', {
       connection_id: connectionId,
+      operation_revision: operationRevision,
       origin: 'connectors_ui'
     })
   }
 
-  listConnectorTools(connectionId: string): Promise<{ tools: Array<Record<string, unknown>> }> {
-    return this.command('list_connector_tools', { connection_id: connectionId })
+  listConnectorTools(
+    connectionId: string,
+    query?: string,
+    limit = 50
+  ): Promise<ConnectorToolInspection> {
+    return this.command('list_connector_tools', { connection_id: connectionId, query, limit })
   }
 
   getMessengers(): Promise<{ messengers: MessengerInfo[] }> {

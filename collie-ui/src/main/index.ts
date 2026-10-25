@@ -71,6 +71,11 @@ import {
   type CoreSettleState
 } from './update-boot-settle'
 import { readUpdateBootRecord } from './update-boot-record'
+import {
+  discardConnectorImportSecrets,
+  previewConnectorImport,
+  submitConnectorCredentials
+} from './connector-credentials'
 
 // A detached dev terminal can close stdout while Electron is still running.
 // Treat that transport failure as harmless instead of surfacing an app error dialog.
@@ -104,11 +109,30 @@ function writeCrashBreadcrumb(kind: string, detail: string): void {
   }
 }
 
+/**
+ * Backstop for the crash path. Quitting now tears the child processes down
+ * asynchronously, and a child that ignores both signals must not keep a
+ * crashed app alive.
+ */
+const SHUTDOWN_BACKSTOP_MS = 5000
+let shutdownBackstop: NodeJS.Timeout | null = null
+
+function armShutdownBackstop(): void {
+  if (shutdownBackstop) return
+  shutdownBackstop = setTimeout(() => process.exit(1), SHUTDOWN_BACKSTOP_MS)
+  shutdownBackstop.unref()
+}
+
+function clearShutdownBackstop(): void {
+  if (!shutdownBackstop) return
+  clearTimeout(shutdownBackstop)
+  shutdownBackstop = null
+}
+
 process.on('uncaughtException', (error) => {
   writeCrashBreadcrumb('uncaughtException', error?.stack || String(error))
   // Let the app exit on its own terms so will-quit stops the core cleanly.
-  const forceExit = setTimeout(() => process.exit(1), 3000)
-  forceExit.unref()
+  armShutdownBackstop()
   app.quit()
 })
 
@@ -401,6 +425,31 @@ function registerIpc(): void {
   // Count only — the values themselves are pushed to the core by the main
   // process (core-client.ts); decrypted secrets never cross into the renderer.
   handle('collie:stored-secret-count', () => listSecretProviders().length)
+  handle('collie:submit-connector-credentials', (submission: unknown) =>
+    submitConnectorCredentials(submission)
+  )
+  handle('collie:preview-connector-import', (source: string | Record<string, unknown>) =>
+    previewConnectorImport(source)
+  )
+  handle('collie:discard-connector-import-secrets', (handles: unknown) =>
+    discardConnectorImportSecrets(handles)
+  )
+  handle('collie:preview-connector-import-file', async () => {
+    if (!mainWindow) return null
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Import a connection file',
+      properties: ['openFile'],
+      filters: [{ name: 'JSON files', extensions: ['json'] }]
+    })
+    if (result.canceled || result.filePaths.length !== 1) return null
+    const path = result.filePaths[0]
+    const stats = await statAsync(path)
+    if (!stats.isFile() || stats.size > 1024 * 1024) {
+      throw new Error('Choose a JSON connection file smaller than 1 MB.')
+    }
+    const preview = await previewConnectorImport(await readFileAsync(path, 'utf8'))
+    return { file_name: basename(path), ...preview }
+  })
   handle('account:start-sign-in', () => startAccountSignIn())
   handle('collie:submit-feedback', (submission: unknown) => submitFeedback(submission))
   handle('account:get-state', () => getAccountState())
@@ -580,7 +629,7 @@ function registerIpc(): void {
     if (typeof enabled !== 'boolean') return { enabled: petEnabled(), running: petRunning() }
     setPetEnabled(enabled)
     if (enabled) spawnPet(isDev)
-    else stopPet()
+    else void stopPet()
     return { enabled: petEnabled(), running: petRunning() }
   })
   handle('collie:update-status', () => updates.getStatus())
@@ -737,13 +786,23 @@ app.on('before-quit', () => {
   }
 })
 
-app.on('will-quit', () => {
+let childrenStopped = false
+
+app.on('will-quit', (event) => {
+  // Quit is held open while the core and the pet are torn down. Both escalate
+  // from a polite signal to a forced tree kill, which cannot be done
+  // synchronously, so the quit is re-issued once cleanup settles.
+  if (childrenStopped) return
+  event.preventDefault()
   stopCollaborationReconciliation()
   stopHeartbeat()
-  stopCore()
   stopCoreBroker()
-  stopPet()
   stopKeychainServer()
+  void Promise.allSettled([stopCore(), stopPet()]).then(() => {
+    childrenStopped = true
+    clearShutdownBackstop()
+    app.quit()
+  })
 })
 
 app.on('window-all-closed', () => {

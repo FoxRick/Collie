@@ -200,33 +200,6 @@ def seed_gardener_automations(db: CollieDB) -> None:
     db.set_setting("automations.gardener_seeded", True)
 
 
-def _match_schedule(schedule_str: str, now: datetime) -> bool:
-    """Check if ``now`` matches a schedule string.
-
-    Formats:
-    - ``HH:MM``                    — daily at that time
-    - ``Mon|Tue|...|Sun HH:MM``    — weekly on that day
-    - ``DD HH:MM``                 — monthly on that day
-    """
-    schedule_str = schedule_str.strip() if schedule_str else ""
-    if not schedule_str:
-        return False
-
-    now_str = now.strftime("%H:%M")
-    weekday = now.strftime("%a")
-    day = now.strftime("%d")
-
-    parts = schedule_str.split()
-    if len(parts) == 1:
-        return parts[0] == now_str
-    if len(parts) == 2:
-        if parts[0] in ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"):
-            return parts[0] == weekday and parts[1] == now_str
-        if parts[0].isdigit():
-            return parts[0] == day and parts[1] == now_str
-    return False
-
-
 class AutomationScheduler:
     """Background task that fires automations on schedule."""
 

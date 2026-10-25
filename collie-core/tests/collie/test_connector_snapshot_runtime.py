@@ -139,10 +139,10 @@ def test_probe_keeps_cached_enabled_flags_in_sync(tmp_path: Path, monkeypatch) -
             driver_factory=lambda _: _RecordingDriver(),
         )
         manager.test("account")
-        assert db.list_connector_tools("account")[0]["enabled"] == 1
-        assert next(iter(manager.mcp_servers_for_config().values()))["enabledTools"] == [
-            "read_page"
-        ]
+        # A newly discovered tool is not silently enabled when the account had
+        # an explicit allowlist. It waits for the user to review the change.
+        assert db.list_connector_tools("account")[0]["enabled"] == 0
+        assert next(iter(manager.mcp_servers_for_config().values()))["enabledTools"] == []
         db.upsert_connector_connection(
             "account",
             provider_id="notion",

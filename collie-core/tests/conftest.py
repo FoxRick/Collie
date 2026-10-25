@@ -72,3 +72,22 @@ def _use_windows_system_ca_for_default_http_clients() -> Iterator[None]:
         yield
     finally:
         ssl.create_default_context = original
+
+
+@pytest.fixture(autouse=True)
+def _reset_connector_authority_resolver() -> Iterator[None]:
+    """Prevent the process-global connector authority resolver leaking between tests.
+
+    The resolver is a module-level global (``policy._authority_resolver``) bound by
+    whatever ``CollieRuntime`` last built a loop. A test that constructs a runtime
+    and calls ``_configure*`` (binding the resolver) without shutting the loop down
+    leaves the global pointing at its DB. A later connector tool-authority read then
+    resolves through that stale runtime and reports the tool disconnected (or raises
+    a raw ``sqlite3.ProgrammingError`` on a closed DB). Resetting before and after
+    every test keeps connector tool-authority checks scoped to the test under way.
+    """
+    from collie_core.connectors.policy import bind_connector_tool_authority
+
+    bind_connector_tool_authority(None)
+    yield
+    bind_connector_tool_authority(None)

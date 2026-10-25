@@ -20,6 +20,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 import { coreRoot, findPython } from './python'
+import { terminateProcessTree } from './process-tree'
 
 let child: ChildProcess | null = null
 let stopping = false
@@ -88,7 +89,9 @@ export function spawnPet(isDev: boolean): boolean {
     cwd: coreRoot(isDev),
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true
+    windowsHide: true,
+    // Group leader on POSIX so the pet's own children are reachable too.
+    detached: process.platform !== 'win32'
   })
   spawnedAt = Date.now()
 
@@ -127,18 +130,13 @@ export function spawnPet(isDev: boolean): boolean {
   return true
 }
 
-export function stopPet(): void {
+export async function stopPet(): Promise<void> {
   stopping = true
   if (respawnTimer) {
     clearTimeout(respawnTimer)
     respawnTimer = null
   }
-  if (child) {
-    try {
-      child.kill()
-    } catch {
-      // already gone
-    }
-    child = null
-  }
+  const running = child
+  child = null
+  if (running) await terminateProcessTree(running)
 }
