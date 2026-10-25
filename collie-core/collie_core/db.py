@@ -1554,10 +1554,6 @@ class CollieDB(
         if seeded:
             self._bump_run_task_revision_with(conn, run_id)
 
-    def _seed_run_steps(self, run_id: str, plan_id: str | None, plan_version: int | None) -> None:
-        with self._write() as conn:
-            self._seed_run_steps_with(conn, run_id, plan_id, plan_version)
-
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         return self._row("SELECT * FROM runs WHERE id = ?", (run_id,))
 

@@ -381,40 +381,6 @@ export interface CollieRun {
   error_message?: string | null
 }
 
-/** One recorded agent turn (PR 1 run records / telemetry). */
-export interface TurnEvent {
-  id: string
-  conversation_id?: string | null
-  session_key?: string | null
-  turn_kind: string
-  provider?: string | null
-  model?: string | null
-  status: string
-  error_message?: string | null
-  tokens_in?: number
-  tokens_out?: number
-  latency_ms?: number | null
-  tool_count?: number
-  started_at: string
-  finished_at?: string | null
-}
-
-/** One recorded tool call within a turn (PR 1 run records / telemetry). */
-export interface ToolEvent {
-  id: string
-  turn_id: string
-  tool_name: string
-  action?: string | null
-  resource?: string | null
-  input_summary?: string | null
-  output_summary?: string | null
-  status: string
-  error_message?: string | null
-  latency_ms?: number | null
-  started_at: string
-  finished_at?: string | null
-}
-
 /** One snapshotted artifact edit (PR 2 versioned rollback rail). */
 export interface ArtifactVersion {
   id: string
@@ -814,23 +780,6 @@ export class CollieClient {
     return this.command('get_active_task', { conversation_id: conversationId })
   }
 
-  getRunRecords(opts?: {
-    conversation_id?: string
-    session_key?: string
-    since?: string
-    limit?: number
-  }): Promise<{ turns: TurnEvent[] }> {
-    return this.command('get_run_records', opts ?? {})
-  }
-
-  getToolEvents(opts?: {
-    turn_id?: string
-    tool_name?: string
-    limit?: number
-  }): Promise<{ tool_events: ToolEvent[] }> {
-    return this.command('get_tool_events', opts ?? {})
-  }
-
   listVersions(opts?: {
     artifact_type?: string
     artifact_key?: string
@@ -868,11 +817,6 @@ export class CollieClient {
     message?: string
   }> {
     return this.command('run_dream', {})
-  }
-
-  /** Past Dream consolidations (memory_dream versions), newest first. */
-  getDreamHistory(): Promise<{ versions: ArtifactVersion[] }> {
-    return this.command('get_dream_history', {})
   }
 
   /** Pending Dream proposal state (Settings -> Memory self-review section). */
@@ -982,10 +926,6 @@ export class CollieClient {
     providers_count?: number
   }> {
     return this.command('refresh_provider_catalogue', { url })
-  }
-
-  rollbackProviderCatalogue(): Promise<{ rolled_back: boolean; error?: string }> {
-    return this.command('rollback_provider_catalogue')
   }
 
   detectProviderForKey(apiKey: string): Promise<{
@@ -1270,10 +1210,6 @@ export class CollieClient {
     return this.command('delete_subagent', { subagent_id: subagentId })
   }
 
-  cancelSubagent(conversationId: string): Promise<{ cancelled: number }> {
-    return this.command('cancel_subagent', { conversation_id: conversationId })
-  }
-
   listSkills(): Promise<{ skills: CollieSkill[] }> {
     return this.command('list_skills')
   }
@@ -1331,10 +1267,6 @@ export class CollieClient {
       { definition_id: definitionId, display_name: displayName, origin: 'connectors_ui' },
       300_000
     )
-  }
-
-  getConnector(connectionId: string): Promise<{ connection: ConnectorConnection }> {
-    return this.command('get_connector', { connection_id: connectionId })
   }
 
   beginConnectorAuth(

@@ -109,18 +109,6 @@ class VersionStore:
         )
         return str(row["id"])
 
-    def latest_version_id(self, artifact_type: str, key: str) -> str | None:
-        """Return the newest applied version id for an artifact, if any."""
-        rows = self.db.list_artifact_versions(
-            artifact_type=artifact_type, artifact_key=key, limit=1
-        )
-        if not rows:
-            return None
-        for row in rows:
-            if row.get("status") == "applied":
-                return str(row["id"])
-        return None
-
     # -- rollback ------------------------------------------------------------
 
     def rollback(

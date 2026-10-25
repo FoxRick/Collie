@@ -133,12 +133,6 @@ class SubagentLoader:
             logger.exception("subagent version snapshot failed (swallowed)")
             return None
 
-    def latest_version_id(self, filename: str) -> str | None:
-        try:
-            return VersionStore(self.db).latest_version_id("subagent", filename)
-        except Exception:
-            return None
-
     # -- disk <-> db sync ----------------------------------------------------
 
     def sync(self) -> list[dict[str, Any]]:
