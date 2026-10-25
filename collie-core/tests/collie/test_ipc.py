@@ -819,6 +819,51 @@ async def test_chat_without_runner_reports_friendly_error(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_provider_failure_is_not_a_successful_reply_or_title(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from collie_core.runtime import CollieRuntime
+    from nanobot.providers.base import LLMResponse
+
+    db = CollieDB(tmp_path / "provider.db")
+
+    async def runner(*args, **kwargs):
+        return SimpleNamespace(
+            content="Check Settings → Providers and your API key.",
+            metadata={"_stop_reason": "error"},
+        )
+
+    # Title inference can fail independently too; that must never become a title.
+    runtime = CollieRuntime.__new__(CollieRuntime)
+    provider = SimpleNamespace(
+        chat=AsyncMock(return_value=LLMResponse(content="raw-title-error", finish_reason="error"))
+    )
+    runtime.loop = SimpleNamespace(
+        llm_runtime=lambda: SimpleNamespace(provider=provider, model="fake")
+    )
+    srv = CollieIPCServer(
+        db, port=_free_port(), chat_runner=runner, title_generator=runtime._generate_chat_title
+    )
+    await srv.start()
+    try:
+        ws = await _connect(srv)
+        await _send(ws, type="chat", id="chat", content="hello")
+        conv_id = (await _recv_until(ws, "ok"))["data"]["conversation_id"]
+        terminal = await _recv_until(ws, "error")
+        assert "Settings" in terminal["message"]
+        assert "Providers" in terminal["message"]
+        assert "API key" in terminal["message"]
+        await asyncio.gather(*list(srv._background_tasks))
+        assert db.get_conversation(conv_id)["title"] != "raw-title-error"
+        assert not [m for m in db.get_messages(conv_id) if m["role"] == "assistant"]
+        await ws.close()
+    finally:
+        await srv.stop()
+        db.close()
+
+
+@pytest.mark.asyncio
 async def test_chat_runner_exception_is_friendly(tmp_path: Path) -> None:
     private_detail = "C:\\Users\\alice\\.collie\\provider-secret.txt"
 

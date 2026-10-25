@@ -430,6 +430,7 @@ async def test_streamed_flag_not_set_on_llm_error(tmp_path):
 
     assert result is not None
     assert "503" in result.content
+    assert result.metadata["_stop_reason"] == "error"
     assert not isinstance(result.event, StreamedResponseEvent), (
         "streamed response event must not be set when stop_reason is error"
     )

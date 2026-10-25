@@ -84,6 +84,74 @@ async def _fake_openai_app() -> web.Application:
 
 
 @pytest.mark.asyncio
+async def test_rejected_key_through_runtime_and_ipc(tmp_path, monkeypatch):
+    """A real SDK 401 must remain a failure all the way to the desktop client."""
+    monkeypatch.setenv("COLLIE_HOME", str(tmp_path / "home"))
+
+    async def reject(request):
+        return web.json_response(
+            {
+                "error": {
+                    "type": "authentication_error",
+                    "message": "synthetic-secret request-id-123",
+                }
+            },
+            status=401,
+        )
+
+    app = web.Application()
+    app.router.add_post("/v1/chat/completions", reject)
+    endpoint = web.AppRunner(app)
+    await endpoint.setup()
+    port = _free_port()
+    await web.TCPSite(endpoint, "127.0.0.1", port).start()
+    db = CollieDB(tmp_path / "home" / "collie.db")
+    db.set_setting("provider.name", "custom")
+    db.set_setting("provider.api_base", f"http://127.0.0.1:{port}/v1")
+    db.set_setting("provider.model", "test-model")
+    db.upsert_provider("custom", name="Test", auth_type="api_key", is_default=True)
+    runtime = CollieRuntime(port=_free_port(), db=db)
+    await runtime.ipc.start()
+    try:
+        async with websockets.connect(f"ws://127.0.0.1:{runtime.ipc.port}") as ws:
+            await ws.recv()
+            for frame in [
+                {
+                    "type": "set_api_key",
+                    "id": "key",
+                    "provider": "custom",
+                    "key": "synthetic-secret",
+                },
+                {"type": "configure", "id": "configure"},
+            ]:
+                await ws.send(json.dumps(frame))
+                assert json.loads(await ws.recv())["type"] == "ok"
+            await ws.send(json.dumps({"type": "chat", "id": "chat", "content": "hello"}))
+            conv_id = None
+            for _ in range(100):
+                event = json.loads(await asyncio.wait_for(ws.recv(), 10))
+                assert "synthetic-secret" not in json.dumps(event)
+                assert "request-id-123" not in json.dumps(event)
+                if event["type"] == "ok" and event.get("id") == "chat":
+                    conv_id = event["data"]["conversation_id"]
+                if event["type"] == "error":
+                    assert "API key" in event["message"]
+                    assert event["recovery_action"] == "open_provider_settings"
+                    break
+            else:
+                pytest.fail("Provider failure never reached the client")
+            await asyncio.gather(*list(runtime.ipc._background_tasks))
+            assert conv_id
+            assert db.get_conversation(conv_id)["title"] == "Hello"
+            assert [m["role"] for m in db.get_messages(conv_id)] == ["user"]
+    finally:
+        await runtime._shutdown_loop()
+        await runtime.ipc.stop()
+        db.close()
+        await endpoint.cleanup()
+
+
+@pytest.mark.asyncio
 async def test_phase1_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("COLLIE_HOME", str(tmp_path / ".collie"))
 

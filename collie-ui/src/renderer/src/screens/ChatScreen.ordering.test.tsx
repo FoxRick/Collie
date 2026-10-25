@@ -138,6 +138,19 @@ describe('ChatScreen paced assistant completion order', () => {
     vi.useRealTimers()
   })
 
+  it('offers provider settings for credential failures without creating an assistant answer', async () => {
+    const navigate = vi.fn()
+    await act(async () => root.render(<ChatScreen activeView="chat" onNavigate={navigate} onRedoOnboarding={vi.fn()} />))
+    await act(async () => hooks.chatInput().onSend('hello', []))
+    await act(async () => hooks.listener()({ type: 'error', conversation_id: conversationId, message: 'Check your API key in Settings → Providers.', recovery_action: 'open_provider_settings' }))
+    expect(container.textContent).toContain('API key')
+    expect(container.querySelector('[data-message^="assistant:"]')).toBeNull()
+    const button = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Open provider settings')!
+    expect(button).toBeDefined()
+    act(() => button.click())
+    expect(navigate).toHaveBeenCalledWith('settings')
+  })
+
   it('shows the entire final answer immediately, even with a large reveal backlog', async () => {
     const emit = hooks.listener()
     await act(async () => emit({ type: 'message', conversation_id: conversationId,

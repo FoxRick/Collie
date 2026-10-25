@@ -141,6 +141,7 @@ export default function ChatScreen({
   const [streaming, setStreaming] = useState(false)
   const [thinkingMap, setThinkingMap] = useState<Record<string, ThinkingState>>({})
   const [errorText, setErrorText] = useState('')
+  const [providerRecovery, setProviderRecovery] = useState(false)
   const [planChangeNotice, setPlanChangeNotice] = useState('')
   const [portraitThinking, setPortraitThinking] = useState<ThinkingState | null>(null)
   const [isTyping, setIsTyping] = useState(false)
@@ -275,6 +276,7 @@ export default function ChatScreen({
     setStreamText('')
     setStreaming(false)
     setErrorText('')
+    setProviderRecovery(false)
     setPlanChangeNotice('')
     setPortraitThinking(null)
     setCardPreview(null)
@@ -625,6 +627,7 @@ export default function ChatScreen({
             streamDisplayRef.current = ''
             setStreaming(false)
             setErrorText(event.message)
+            setProviderRecovery(event.recovery_action === 'open_provider_settings')
             setStreamText('')
             setCardPreview(null)
             setPortraitThinking({
@@ -699,6 +702,7 @@ export default function ChatScreen({
   const send = useCallback(
     async (text: string, attachments: AttachmentDraft[]): Promise<boolean> => {
       setErrorText('')
+      setProviderRecovery(false)
       const conversationId = activeIdRef.current
       if (isWorkActive && conversationId) {
         try {
@@ -998,6 +1002,7 @@ export default function ChatScreen({
 
   const changeProvider = useCallback(async (providerId: string) => {
     setErrorText('')
+    setProviderRecovery(false)
     setPortraitThinking({
       state: 'searching',
       phrase: 'Switching models…',
@@ -1085,6 +1090,7 @@ export default function ChatScreen({
             style={{ borderColor: 'var(--collie-snoot)' }}>
             <CollieFace size={16} />
             <span>{errorText}</span>
+            {providerRecovery && <button type="button" className="shrink-0 rounded border px-3 py-1" onClick={() => { setErrorText(''); setProviderRecovery(false); onNavigate('settings') }}>Open provider settings</button>}
           </div>
         )}
         {planChangeNotice ? (
