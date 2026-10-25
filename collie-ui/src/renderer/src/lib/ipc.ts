@@ -486,7 +486,7 @@ export type CollieEvent =
   | { type: 'artifact'; conversation_id: string; artifact: Thing }
   | { type: 'card'; conversation_id: string; card_type: string; card_data: Record<string, unknown> }
   | { type: 'conversation_updated'; conversation: Conversation }
-  | { type: 'error'; conversation_id?: string; id?: string; message: string; detail?: string }
+  | { type: 'error'; conversation_id?: string; id?: string; message: string; detail?: string; recovery_action?: 'open_provider_settings' }
   | { type: 'ok'; id?: string; data: Record<string, unknown> }
   | { type: 'messenger_qr'; messenger: string; qr: string }
   | { type: 'messenger_status'; messenger: string; status: string; error?: string }

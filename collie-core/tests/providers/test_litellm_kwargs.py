@@ -1406,7 +1406,8 @@ async def test_openai_compat_closes_chat_stream_on_midstream_error() -> None:
     )
 
     assert result.finish_reason == "error"
-    assert "stream failed" in (result.content or "")
+    assert "Settings" in (result.content or "")
+    assert "stream failed" not in (result.content or "")
     stream.close.assert_awaited_once()
 
 

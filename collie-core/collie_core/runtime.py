@@ -1481,6 +1481,8 @@ class CollieRuntime:
             ],
             model=runtime.model,
         )
+        if response.finish_reason == "error":
+            return ""
         return (response.content or "").strip()
 
     def _status(self) -> dict[str, Any]:

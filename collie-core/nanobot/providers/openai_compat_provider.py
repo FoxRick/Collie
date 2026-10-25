@@ -1511,7 +1511,26 @@ class OpenAICompatProvider(LLMProvider):
             or getattr(getattr(e, "response", None), "text", None)
         )
         body_text = body if isinstance(body, str) else str(body) if body is not None else ""
-        msg = f"Error: {body_text.strip()[:500]}" if body_text.strip() else f"Error calling LLM: {e}"
+        metadata = OpenAICompatProvider._extract_error_metadata(e)
+        auth_failed = metadata["error_status_code"] in {401, 403} or metadata["error_type"] in {
+            "authentication_error",
+            "invalid_api_key",
+            "invalid_authentication",
+        }
+        if auth_failed:
+            msg = (
+                "Your model provider couldn't accept the saved credential. "
+                "Open Settings → Providers, update the API key or sign in again, then retry."
+            )
+        else:
+            msg = "I couldn't reach your model provider. Please try again or check Settings → Providers."
+        # Provider bodies can echo keys and request identifiers. Keep only bounded,
+        # structured diagnostics; never log the exception, headers, or body.
+        logger.warning(
+            "Model provider request failed (HTTP {}, category={})",
+            metadata["error_status_code"],
+            "authentication" if auth_failed else metadata["error_kind"] or "provider",
+        )
 
         text = f"{body_text} {e}".lower()
         if spec and spec.is_local and ("502" in text or "connection" in text or "refused" in text):
@@ -1522,14 +1541,16 @@ class OpenAICompatProvider(LLMProvider):
             )
 
         response = getattr(e, "response", None)
-        retry_after = LLMProvider._extract_retry_after_from_headers(getattr(response, "headers", None))
+        retry_after = LLMProvider._extract_retry_after_from_headers(
+            getattr(response, "headers", None)
+        )
         if retry_after is None:
             retry_after = LLMProvider._extract_retry_after(msg)
         return LLMResponse(
             content=msg,
             finish_reason="error",
             retry_after=retry_after,
-            **OpenAICompatProvider._extract_error_metadata(e),
+            **metadata,
         )
 
     # ------------------------------------------------------------------

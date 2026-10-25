@@ -161,3 +161,17 @@ def test_local_provider_502_error_includes_reachability_hint() -> None:
     assert "local model endpoint" in result.content
     assert "http://localhost:11434/v1" in result.content
     assert "proxy/tunnel" in result.content
+
+
+def test_authentication_error_is_actionable_and_redacted():
+    error = RuntimeError("provider echoed synthetic-secret and request-id-123")
+    error.status_code = 401
+    error.body = {"error": {"type": "authentication_error", "message": "synthetic-secret"}}
+    result = OpenAICompatProvider._handle_error(error)
+    assert result.finish_reason == "error"
+    assert result.error_status_code == 401
+    assert result.error_type == "authentication_error"
+    assert "Settings" in result.content and "Providers" in result.content
+    assert "API key" in result.content
+    assert "synthetic-secret" not in result.content
+    assert "request-id" not in result.content

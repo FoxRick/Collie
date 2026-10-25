@@ -146,6 +146,10 @@ def _public_error_message(
     return fallback
 
 
+class _ProviderChatError(ValueError):
+    """Safe recovery text for an engine turn that ended in provider failure."""
+
+
 def _fallback_chat_title(content: str) -> str:
     clean = " ".join(content.strip().split())
     clean = _TITLE_PREFIX.sub("", clean).strip(" \t\r\n.,:;!?-")
@@ -2183,6 +2187,11 @@ class CollieIPCServer(
                     key: value for key, value in chat_kwargs.items() if key in parameters
                 }
             outbound = await self._chat_runner(content, **chat_kwargs)
+            if (getattr(outbound, "metadata", None) or {}).get("_stop_reason") == "error":
+                raise _ProviderChatError(
+                    "I couldn't get a reply from your model provider. Open Settings → Providers "
+                    "to check your API key or sign in again, then retry."
+                )
         except asyncio.CancelledError:
             if run_id:
                 self._active_material_runs.pop(run_id, None)
@@ -2339,6 +2348,18 @@ class CollieIPCServer(
                 logger.info("Chat turn stopped for a requested plan change: {}", conv_id)
                 await self.send_thinking(conv_id, "idle")
                 return
+            if isinstance(e, _ProviderChatError) and not tool_results and terminal_task is None:
+                logger.warning("Chat turn ended in provider failure")
+                await self.send_thinking(conv_id, "error")
+                await self.broadcast(
+                    {
+                        "type": "error",
+                        "conversation_id": conv_id,
+                        "message": safe_error,
+                        "recovery_action": "open_provider_settings",
+                    }
+                )
+                return
             card_type, card_data = self._extract_card(tool_results)
             files_card_type, files_card_data = self._files_changed_card(tool_results, conv_id)
             if files_card_type:
@@ -2362,7 +2383,10 @@ class CollieIPCServer(
                     "message": failure_message,
                 }
             )
-            logger.exception("Chat turn failed for {}", conv_id)
+            if isinstance(e, _ProviderChatError):
+                logger.warning("Chat turn ended in provider failure after tool work")
+            else:
+                logger.exception("Chat turn failed for {}", conv_id)
             await self.send_thinking(conv_id, "error")
             await self.broadcast(
                 {
@@ -2370,6 +2394,11 @@ class CollieIPCServer(
                     "conversation_id": conv_id,
                     "message": safe_error,
                     "detail": safe_error,
+                    **(
+                        {"recovery_action": "open_provider_settings"}
+                        if isinstance(e, _ProviderChatError)
+                        else {}
+                    ),
                 }
             )
             return
