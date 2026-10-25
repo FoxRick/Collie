@@ -1677,6 +1677,7 @@ class CollieIPCServer(
         if command_result is None:
             capture_starter_name(self.db, self._profile_store, conv_id, content)
 
+        title_request: tuple[str, str] | None = None
         user_msg = self.db.add_message(
             conv_id,
             "user",
@@ -1688,11 +1689,7 @@ class CollieIPCServer(
             title = _fallback_chat_title(title_source)
             self.db.rename_conversation(conv_id, title)
             if content and self._title_generator is not None:
-                title_task = asyncio.create_task(
-                    self._generate_conversation_title(conv_id, content, title)
-                )
-                self._background_tasks.add(title_task)
-                title_task.add_done_callback(self._background_tasks.discard)
+                title_request = (content, title)
 
         await self._send(
             connection,
@@ -1761,6 +1758,7 @@ class CollieIPCServer(
                 project_path=project_path,
                 file_access_scope=file_access_scope,
                 message_metadata=message_metadata,
+                title_request=title_request,
             )
         )
         self._chat_tasks[conv_id] = task
@@ -1921,6 +1919,7 @@ class CollieIPCServer(
         project_path: str | None = None,
         file_access_scope: dict[str, Any] | None = None,
         message_metadata: dict[str, Any] | None = None,
+        title_request: tuple[str, str] | None = None,
     ) -> None:
         streamed = False
         parts: list[str] = []
@@ -2397,6 +2396,17 @@ class CollieIPCServer(
             # files_changed card (with its one-tap undo) over any info card.
             card_type, card_data = files_card_type, files_card_data
         final = getattr(outbound, "content", None) or "".join(parts)
+        if title_request and final and self._title_generator is not None:
+            first_request, provisional_title = title_request
+            transcript = json.dumps(
+                {"user_request": first_request[:2000], "assistant_answer": final[:4000]},
+                ensure_ascii=False,
+            )
+            title_task = asyncio.create_task(
+                self._generate_conversation_title(conv_id, transcript, provisional_title)
+            )
+            self._background_tasks.add(title_task)
+            title_task.add_done_callback(self._background_tasks.discard)
         message_task = terminal_task
         if run_id:
             change = self.db.get_plan_change_request(run_id)
