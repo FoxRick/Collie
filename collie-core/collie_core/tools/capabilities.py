@@ -257,6 +257,7 @@ class LoadSkillTool(Tool):
 
     def __init__(self, workspace: Path) -> None:
         self._loader = SkillsLoader(workspace)
+        self._workspace = workspace
 
     @property
     def name(self) -> str:
@@ -279,9 +280,13 @@ class LoadSkillTool(Tool):
 
     async def execute(self, **kwargs: Any) -> Any:
         name = str(kwargs.get("name") or "").strip()
-        content = self._loader.load_skill(name)
+        from collie_core.tools.skill_management import skill_manager
+
+        manager = skill_manager(self._workspace)
+        loader = manager.loader() if manager else self._loader
+        content = loader.load_skill(name)
         if content is None:
-            available = [entry["name"] for entry in self._loader.list_skills()]
+            available = [entry["name"] for entry in loader.list_skills()]
             return ToolResult.error(
                 f"Skill '{name}' was not found. Available skills: {', '.join(available) or 'none'}."
             )

@@ -78,6 +78,11 @@ are not part of this public source tree.
   and the renderer's wire contract are unchanged.
 - `tests/` contains Python unit, integration, IPC, safety, and end-to-end
   checks.
+- `collie_core/skills.py` owns saved-skill editing, enablement, recoverable
+  deletion, built-in overrides, instruction versions, and queued activation
+  after tracked agent runs finish. UI IPC and approved chat tools share this
+  manager; bundled skill files remain read-only. See
+  [saved skill management](product/features/saved-skill-management.md).
 - `AGENTS.md` contains core-specific contributor instructions.
 
 ### Desktop shell: `collie-ui/`
