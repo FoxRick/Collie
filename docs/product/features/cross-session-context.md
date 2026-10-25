@@ -26,7 +26,12 @@ version has no dedicated privacy-marker editor.
 
 When explicitly asked to start work in a **new chat** or **new session**, the
 `start_new_chat` tool submits a minimal explicit brief through the normal IPC chat
-execution path and returns a visible link. The central authorizer evaluates
+execution path and returns a visible link and the actual title. The optional
+`title` argument preserves a requested chat name. Handoff turns are explicitly
+identified as already running in the new chat, with `start_new_chat` omitted
+from their per-turn tool registry. Other chats keep their normal tools.
+Approval cards appear only in their owning chat; a notice links to a different
+chat when it needs approval. The central authorizer evaluates
 `cross_session.start` as a reversible local write. The target has its own ID and
 normal streaming, cancellation, model-provider selection and approvals. It receives
 no source transcript, attachments, project folder, file grants, or approval grants;

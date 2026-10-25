@@ -365,6 +365,7 @@ export interface ApprovalRequest {
   risk: string
   display_json: string
   run_id?: string | null
+  conversation_id?: string | null
 }
 
 export interface ApprovalRule {

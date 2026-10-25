@@ -47,7 +47,7 @@ async def test_committed_recall_and_idempotent_independent_handoff(tmp_path):
         assert snapshot["messages"][0]["link"].startswith("#chat/two/")
         assert snapshot["messages"][-1]["content"] == "committed output two"
         first, retry = await asyncio.gather(
-            StartChatTool().execute(brief="Prepare an orchid checklist"),
+            StartChatTool().execute(brief="Prepare an orchid checklist", title="Orchid work"),
             StartChatTool().execute(brief="Prepare an orchid checklist"),
         )
     ipc_snapshot = await server._cmd_cross_session_read(
@@ -55,6 +55,7 @@ async def test_committed_recall_and_idempotent_independent_handoff(tmp_path):
     )
     assert ipc_snapshot["messages"] == snapshot["messages"]
     cid = first["conversation_id"]
+    assert db.get_conversation(cid)["title"] == "Orchid work"
     assert retry["conversation_id"] == cid and retry["replayed"] is False
     if cid in server._chat_tasks:
         await server._chat_tasks[cid]
@@ -95,4 +96,35 @@ async def test_committed_recall_and_idempotent_independent_handoff(tmp_path):
     assert len(attempts) == 1 and recovered["status"] == "already_reserved"
     assert db.get_messages(recovered["conversation_id"]) == []
     await server.stop()
+    db.close()
+
+
+@pytest.mark.asyncio
+async def test_handoff_runtime_executes_here_without_offering_recursive_launch(tmp_path):
+    from unittest.mock import AsyncMock
+
+    from collie_core.runtime import CollieRuntime
+    from nanobot.agent.tools.registry import ToolRegistry
+
+    db = CollieDB(tmp_path / "runtime.db")
+    db.create_conversation(conv_id="child")
+    db.set_setting("cross_session.child.child", "source")
+    registry = ToolRegistry()
+    registry.register(StartChatTool())
+    registry.register(ReadChatsTool())
+    runtime = object.__new__(CollieRuntime)
+    runtime.db = db
+    runtime._conversation_target = lambda cid: (f"collie:{cid}", "collie", cid)
+    runtime.loop = SimpleNamespace(tools=registry, process_direct=AsyncMock())
+    await runtime._chat(
+        "Write an orchid checklist in this new chat",
+        conversation_id="child",
+        on_stream=None,
+        on_progress=None,
+    )
+    args, kwargs = runtime.loop.process_direct.call_args
+    assert "already the new independent chat" in args[0]
+    assert not kwargs["tools"].has("start_new_chat")
+    assert kwargs["tools"].has("read_previous_chats")
+    assert registry.has("start_new_chat")
     db.close()

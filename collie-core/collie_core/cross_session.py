@@ -9,6 +9,17 @@ from typing import Any
 from urllib.parse import quote
 
 from collie_core.db_primitives import utc_now
+from nanobot.agent.tools.registry import ToolRegistry
+
+
+def handoff_tools(source):
+    """Use a per-turn registry so sibling chats retain their launch capability."""
+    tools = ToolRegistry()
+    for name in source.tool_names:
+        tool = source.get(name)
+        if tool is not None and name != "start_new_chat":
+            tools.register(tool)
+    return tools
 
 
 def chat_link(conversation_id: str, message_id: str = "") -> str:
@@ -93,7 +104,9 @@ class CrossSession:
             )
         return result
 
-    async def start(self, requester: str, brief: str, request_id: str, explicit_text: str) -> dict:
+    async def start(
+        self, requester: str, brief: str, request_id: str, explicit_text: str, title: str = ""
+    ) -> dict:
         self.require_personal(requester)
         if not re.search(r"\bnew (?:chat|session)\b", explicit_text, re.I):
             raise ValueError("Ask me explicitly to start this in a new chat or new session.")
@@ -120,7 +133,7 @@ class CrossSession:
             # Reserve before dispatch: ambiguous failure/restart never replays work.
             # A reserved chat can be opened and resumed manually through normal chat.
             if not self.db.get_conversation(cid):
-                self.db.create_conversation(title=brief[:48], conv_id=cid)
+                self.db.create_conversation(title=title.strip()[:120] or brief[:48], conv_id=cid)
             self.db.set_setting(f"cross_session.child.{cid}", requester)
             self.db.set_setting(key, cid)
             try:
@@ -133,4 +146,5 @@ class CrossSession:
                 "link": chat_link(cid),
                 "status": "queued",
                 "replayed": False,
+                "title": self.db.get_conversation(cid)["title"],
             }
