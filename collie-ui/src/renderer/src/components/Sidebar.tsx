@@ -2,6 +2,7 @@ import { ui } from "../lib/i18n"
 import { useEffect, useRef, useState } from 'react'
 import {
   Bot,
+  Ghost,
   ChevronDown,
   Folder,
   FolderPlus,
@@ -40,6 +41,7 @@ interface Props {
   onNavigate: (view: AppView) => void
   onSelect: (id: string) => void
   onNewChat: () => void
+  onTemporaryChat?: () => void
   onDelete: (id: string) => void
   workspace?: string
   projects?: string[]
@@ -55,6 +57,7 @@ export default function Sidebar({
   onNavigate,
   onSelect,
   onNewChat,
+  onTemporaryChat,
   onDelete,
   workspace,
   projects = [],
@@ -290,15 +293,23 @@ export default function Sidebar({
         </button>
       </div>
 
+      <div className="mx-4 mb-3 flex gap-2">
       <button
         type="button"
         onClick={onNewChat}
-        className="new-chat-button mx-4 mb-3 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-semibold transition"
+        className="new-chat-button flex flex-1 items-center justify-center gap-2 px-3 py-2.5 text-sm font-semibold transition"
         title={t('sidebar.newChat')}
       >
         <MessageSquarePlus size={16} />
         <span>{t('sidebar.newChat')}</span>
       </button>
+
+      {onTemporaryChat && <button type="button" onClick={onTemporaryChat}
+        className="new-chat-button flex items-center justify-center px-3 py-2"
+        title="Temporary chat — forgotten when closed" aria-label="Temporary chat">
+        <Ghost size={16} />
+      </button>}
+      </div>
 
       <div
         id="sidebar-search"

@@ -126,6 +126,8 @@ vi.mock('../lib/audio', () => ({
   startLocalDictation: vi.fn()
 }))
 
+import { startLocalDictation } from '../lib/audio'
+
 import ChatInput, {
   buildImagePreviews,
   dataUrlDecodedBytes,
@@ -521,5 +523,59 @@ describe('ChatInput image preview bounds', () => {
     releaseFirst?.()
     await expect(pending).resolves.toEqual(attachments)
     expect(started).toEqual(['one.png', 'two.png'])
+  })
+})
+
+
+describe('composer dictation isolation', () => {
+  it('keeps edits made during transcription and cancels results on conversation change', async () => {
+    hooks.reset()
+    vi.unstubAllGlobals()
+    vi.stubGlobal('window', Object.assign(new EventTarget(), {
+      setTimeout: vi.fn(() => 1), clearTimeout: vi.fn()
+    }))
+    vi.stubGlobal('localStorage', { getItem: () => 'chosen-mic' })
+    const stop = vi.fn().mockResolvedValue('controlled-wav')
+    const cancel = vi.fn().mockResolvedValue(undefined)
+    vi.mocked(startLocalDictation).mockResolvedValue({ stop, cancel })
+    const result = deferred<string>()
+    const props = {
+      ...submissionProps(vi.fn().mockResolvedValue(true)),
+      conversationId: 'first',
+      onPrepareVoice: vi.fn().mockResolvedValue({ ready: true }),
+      onTranscribe: vi.fn().mockReturnValue(result.promise)
+    }
+    const render = () => { hooks.beginRender(); return ChatInput(props) }
+    const click = (label: string) => {
+      const button = findElementByAriaLabel(render(), label)
+      ;(button.props.onClick as () => void)()
+    }
+    click('Start dictation')
+    await Promise.resolve()
+    click('Stop dictation')
+    await Promise.resolve()
+    hooks.setState(0, 'edited draft')
+    result.resolve('local words')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(hooks.stateValue(0)).toBe('edited draft local words')
+    expect(props.onSend).not.toHaveBeenCalled()
+    expect(props.onPrepareVoice).toHaveBeenCalledTimes(1)
+
+    const late = deferred<string>()
+    props.onTranscribe.mockReturnValue(late.promise)
+    click('Start dictation')
+    await Promise.resolve()
+    click('Stop dictation')
+    await Promise.resolve()
+    props.conversationId = 'second'
+    render()
+    hooks.setState(0, 'new chat draft')
+    late.resolve('stale words')
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(hooks.stateValue(0)).toBe('new chat draft')
+    expect(hooks.stateValue(4)).toBe('idle')
+    hooks.unmount()
   })
 })

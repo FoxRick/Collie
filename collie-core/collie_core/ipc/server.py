@@ -62,14 +62,17 @@ from collie_core.db import CollieDB, collie_home
 from collie_core.ipc.command_support import _bounded_list_limit
 from collie_core.ipc.commands import (
     AgentCommands,
+    BrowserCommands,
     CollaborationCommands,
     ConnectorCommands,
+    CrossSessionCommands,
     FileCommands,
     MemoryCommands,
     MessengerCommands,
     NativeControlCommands,
     ProviderCommands,
     RoutineCommands,
+    TemporaryChatCommands,
 )
 from collie_core.ipc.commands.providers import _OAuthAttemptState
 from collie_core.ipc.thinking import phrase_for_state, thinking_state_for_tool
@@ -193,9 +196,12 @@ class CollieIPCServer(
     CollaborationCommands,
     MemoryCommands,
     RoutineCommands,
+    CrossSessionCommands,
     ProviderCommands,
+    BrowserCommands,
     ConnectorCommands,
     FileCommands,
+    TemporaryChatCommands,
     AgentCommands,
     NativeControlCommands,
     MessengerCommands,
@@ -292,6 +298,8 @@ class CollieIPCServer(
         self._shared_chat_runner = shared_chat_runner
         self._collaboration_identity_binder = collaboration_identity_binder
         self._collaboration_run_controller = collaboration_run_controller
+        self._temporary_owners: dict[str, ServerConnection] = {}
+        self._temporary_tasks: dict[str, asyncio.Task] = {}
         self._clients: set[ServerConnection] = set()
         self._server: Any = None
         self._chat_tasks: dict[str, asyncio.Task] = {}
@@ -301,8 +309,16 @@ class CollieIPCServer(
         self._oauth_attempts: dict[str, _OAuthAttemptState] = {}
         self._oauth_generations: dict[str, int] = {}
         self._oauth_worker_tasks: set[asyncio.Task] = set()
+        self.browser_service = None
         self.approval_broker: Any = None
         self._voice = LocalVoiceService()
+        from collie_core.cross_session import CrossSession
+
+        self.cross_session = CrossSession(
+            db,
+            self._launch_cross_session,
+            lambda: set(self._chat_tasks),
+        )
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -319,7 +335,11 @@ class CollieIPCServer(
         logger.info("Collie IPC listening on ws://{}:{}", self.host, self.port)
 
     async def stop(self) -> None:
+        for key, owner in list(self._temporary_owners.items()):
+            await self._cmd_temporary_close(owner, {"session_id": key})
         oauth_attempts = list(self._oauth_attempts.values())
+        if self.browser_service is not None:
+            await self.browser_service.close()
         tasks = (
             list(self._chat_tasks.values())
             + list(self._background_tasks)
@@ -500,6 +520,9 @@ class CollieIPCServer(
         except Exception:
             logger.debug("IPC connection closed")
         finally:
+            for key, owner in list(self._temporary_owners.items()):
+                if owner is connection:
+                    await self._cmd_temporary_close(connection, {"session_id": key})
             self._clients.discard(connection)
             if not self._clients and getattr(self, "native_control", None) is not None:
                 self.native_control.stop_all()
@@ -610,6 +633,11 @@ class CollieIPCServer(
                 }
             )
         return {"conversation": result["conversation"], "greeted": result["greeted"]}
+
+    async def _cmd_prepare_voice(self, connection: ServerConnection, frame: dict) -> dict:
+        """Prepare the reused local model while the user records."""
+        await self._voice.prepare()
+        return {"ready": True}
 
     async def _cmd_transcribe(self, connection: ServerConnection, frame: dict) -> dict:
         """Turn a renderer-captured WAV into English text without a cloud service."""
@@ -1727,6 +1755,7 @@ class CollieIPCServer(
             content,
             attachments=attachment_meta or None,
         )
+        message_metadata = {**(message_metadata or {}), "message_id": user_msg["id"]}
         if conversation.get("title") in (None, "", "New chat"):
             title_source = content or attachment_meta[0]["name"]
             title = _fallback_chat_title(title_source)

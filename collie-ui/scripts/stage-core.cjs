@@ -339,6 +339,8 @@ function verifyBundle() {
         'import nanobot',
         'import websockets',
         'import pydantic',
+        'from playwright.sync_api import sync_playwright',
+        'from collie_core.browser import worker',
         "print('Collie bundled core imports OK')"
       ].join(';')
     ],

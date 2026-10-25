@@ -131,7 +131,10 @@ class CommandController:
 
     def catalog(self) -> dict[str, Any]:
         agents = self.subagents.sync() if self.subagents is not None else []
-        loader = SkillsLoader(self.workspace)
+        from collie_core.tools.skill_management import skill_manager
+
+        manager = skill_manager(self.workspace)
+        loader = manager.loader() if manager else SkillsLoader(self.workspace)
         skills: list[dict[str, Any]] = []
         for entry in loader.list_skills(filter_unavailable=False):
             metadata = loader.get_skill_metadata(entry["name"]) or {}

@@ -33,6 +33,14 @@ are not part of this public source tree.
   runtime composition, and the internal headless engine
   mode (`collie_core/headless.py` — one task, one JSON result document,
   exit; an engineering-only benchmark entry, not a user-facing CLI).
+- **Owned browser preview**: `collie-core/collie_core/browser/` owns task/conversation/origin-scoped browser
+  sessions and a lazy supervised Playwright worker. The `browser` chat tool and
+  `browser_action` IPC command call the same service and central authorizer.
+  `collie-ui/src/shared/browser.ts` owns the typed data contract and the chat's
+  `BrowserPanel` supplies inspection, capture, takeover and recovery controls.
+  Contexts never attach to personal browser profiles; shared execution is denied.
+  See [visible browser interaction](product/features/browser-interaction.md) for
+  runtime setup, explicit approvals, network limits and the packaged-app gate.
 - **Storage** (architecture: `docs/engineering/architecture/storage-domains.md`):
   `collie_core/db.py` owns the connection, schema, migrations, shared row
   helpers and the run/plan/telemetry cluster. One storage domain per module
@@ -78,7 +86,22 @@ are not part of this public source tree.
   and the renderer's wire contract are unchanged.
 - `tests/` contains Python unit, integration, IPC, safety, and end-to-end
   checks.
+- `collie_core/skills.py` owns saved-skill editing, enablement, recoverable
+  deletion, built-in overrides, instruction versions, and queued activation
+  after tracked agent runs finish. UI IPC and approved chat tools share this
+  manager; bundled skill files remain read-only. See
+  [saved skill management](product/features/saved-skill-management.md).
 - `AGENTS.md` contains core-specific contributor instructions.
+
+### Temporary desktop chat
+
+`collie_core/temporary_chat.py` owns memory-only session routing;
+`collie_core/ipc/commands/temporary_chat.py` owns the connection-scoped
+`temporary_*` IPC family. Runtime injects its session manager
+into the existing engine. Ghost sessions never become conversation rows or
+saved session files; retrieval, export, Dream and Gardener see durable stores
+only. See [temporary chat](product/features/temporary-chat.md) for the bounded
+text-only scope and provider-retention caveat.
 
 ### Desktop shell: `collie-ui/`
 
@@ -96,6 +119,15 @@ submission ID to a dedicated Cloudflare Worker. The Worker stores feedback in
 the existing Supabase project and notifies the team through Resend; server
 credentials remain in Worker secrets. See [in-app feedback](product/feedback.md)
 for deployment ownership and the live verification gate.
+
+### Explicit personal chat context
+
+`collie_core/cross_session.py` owns bounded committed-message recall and durable
+handoff reservations. Agent tools under `tools/cross_session.py` and read-only
+IPC commands under `ipc/commands/cross_session.py` share that implementation.
+Handoffs reuse normal IPC chat execution with fresh scope and central approvals;
+shared and nonpersistent temporary chats are excluded. See
+[cross-session context](product/features/cross-session-context.md).
 
 ### Shared conversations
 

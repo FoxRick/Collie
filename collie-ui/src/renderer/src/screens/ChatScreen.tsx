@@ -17,8 +17,10 @@ import {
   type ThinkingState
 } from '../lib/ipc'
 import Sidebar from '../components/Sidebar'
+import TemporaryChat from '../components/TemporaryChat'
 import MessageList from '../components/MessageList'
 import RememberPill from '../components/RememberPill'
+import BrowserPanel from '../components/BrowserPanel'
 import ChatInput from '../components/ChatInput'
 import CollieFace from '../components/CollieFace'
 import InteractiveColliePortrait from '../components/InteractiveColliePortrait'
@@ -135,6 +137,7 @@ export default function ChatScreen({
   onRedoOnboarding,
   autoOpenStarter = false
 }: Props): React.JSX.Element {
+  const [temporaryOpen, setTemporaryOpen] = useState(false)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [messages, setMessages] = useState<CollieMessage[]>([])
@@ -152,6 +155,8 @@ export default function ChatScreen({
   const [approvalPreset, setApprovalPreset] = useState<ApprovalPreset>('ask')
   const [fileAccessScope, setFileAccessScope] = useState<FileAccessScope>(loadFileAccessScope)
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([])
+  const visibleApprovals = approvals.filter((item) => !item.conversation_id || item.conversation_id === activeId)
+  const otherApprovals = approvals.filter((item) => item.conversation_id && item.conversation_id !== activeId)
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatus>({})
   const [commandCatalog, setCommandCatalog] = useState<CommandCatalog>({
     commands: [],
@@ -440,7 +445,7 @@ export default function ChatScreen({
               ? current
               : [...current, event.approval]
           )
-          setPortraitThinking({
+          if (!event.approval.conversation_id || event.approval.conversation_id === current) setPortraitThinking({
             state: 'waiting',
             phrase: 'Approval needed before I can continue.',
             pet_animation: 'concerned'
@@ -672,6 +677,23 @@ export default function ChatScreen({
     (agent) => agent.conversation_id === activeId
   )
   const activeTiming = activeId ? taskTimings[activeId] : undefined
+  useEffect(() => {
+    const openChatLink = (event: MouseEvent): void => {
+      const anchor = (event.target as Element | null)?.closest?.('a')
+      const match = anchor?.getAttribute('href')?.match(/^#chat\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]*)$/)
+      if (!match || !activeId) return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      void collieClient.readChatContext(activeId, match[1]).then(async () => {
+        await refreshConversations()
+        await openConversation(match[1])
+        if (match[2]) window.setTimeout(() => window.dispatchEvent(new CustomEvent('collie-source-message', { detail: match[2] })), 0)
+      }).catch(() => setErrorText('That chat is not available for cross-chat access.'))
+    }
+    document.addEventListener('click', openChatLink, true)
+    return () => document.removeEventListener('click', openChatLink, true)
+  }, [activeId, openConversation, refreshConversations])
+
   const activeTask = activeId ? tasksByConversation[activeId] : undefined
   const taskIsActive = activeTask ? !isTaskTerminal(activeTask) : false
   const isWorkActive = streaming || activeThinking !== null || activeAgents.length > 0 || taskIsActive
@@ -1031,8 +1053,9 @@ export default function ChatScreen({
         activeId={activeId}
         busyIds={new Set(Object.keys(thinkingMap))}
         activeView={activeView}
-        onNavigate={onNavigate}
+        onNavigate={(view) => { setTemporaryOpen(false); onNavigate(view) }}
         onSelect={(id) => {
+          setTemporaryOpen(false)
           onNavigate('chat')
           const conversation = conversations.find((item) => item.id === id)
           void openConversation(
@@ -1040,14 +1063,17 @@ export default function ChatScreen({
             conversation?.project_path ?? null
           )
         }}
-        onNewChat={newChat}
+        onNewChat={() => { setTemporaryOpen(false); newChat() }}
+        onTemporaryChat={() => { onNavigate('chat'); setTemporaryOpen(true) }}
         onDelete={(id) => void deleteConversation(id)}
         workspace={currentProject}
         projects={projects}
         onProjectChange={openProject}
         onAddProject={() => void addProject()}
       />
-      {activeView === 'settings' ? (
+      {temporaryOpen ? (
+        <TemporaryChat onClose={() => setTemporaryOpen(false)} />
+      ) : activeView === 'settings' ? (
         <main className="settings-workspace min-w-0 flex-1 overflow-hidden">
           <SettingsScreen
             onRedoOnboarding={onRedoOnboarding}
@@ -1105,27 +1131,36 @@ export default function ChatScreen({
             {planChangeNotice}
           </div>
         ) : null}
-          {approvals.length > 0 ? (
+          {otherApprovals.length > 0 ? (
+            <div className="mx-4 mb-2 text-sm" role="status">
+              Approval needed in another chat.{' '}
+              <button type="button" onClick={() => { setActiveId(otherApprovals[0].conversation_id!); onNavigate('chat') }}>
+                Open {conversations.find((item) => item.id === otherApprovals[0].conversation_id)?.title || 'chat'}
+              </button>
+            </div>
+          ) : null}
+          {visibleApprovals.length > 0 ? (
             <div className="approval-stack">
-              {approvals.length > 1 ? (
+              {visibleApprovals.length > 1 ? (
                 <div className="approval-stack-count" role="status">
-                  {approvals.length} approvals waiting — approve them one at a time
+                  {visibleApprovals.length} approvals waiting — approve them one at a time
                 </div>
               ) : null}
               <ApprovalSheet
-                key={approvals[approvals.length - 1].id}
-                approval={approvals[approvals.length - 1]}
+                key={visibleApprovals[visibleApprovals.length - 1].id}
+                approval={visibleApprovals[visibleApprovals.length - 1]}
                 inline
                 onResolved={() =>
                   setApprovals((current) =>
                     current.filter(
-                      (item) => item.id !== approvals[approvals.length - 1].id
+                      (item) => item.id !== visibleApprovals[visibleApprovals.length - 1].id
                     )
                   )
                 }
               />
             </div>
           ) : null}
+          <BrowserPanel key={`browser-${activeId}`} conversationId={activeId} />
           <div className="portrait-composer-layout">
             <RememberPill conversationId={activeId} />
             <InteractiveColliePortrait
@@ -1157,6 +1192,8 @@ export default function ChatScreen({
               onFileAccessScopeChange={changeFileAccessScope}
               onChooseFileAccessFolders={() => void chooseFileAccessFolders()}
               onTypingChange={setIsTyping}
+              conversationId={activeId}
+              onPrepareVoice={() => collieClient.prepareVoice()}
               onTranscribe={async (audio) => (await collieClient.transcribe(audio)).text}
               commandCatalog={commandCatalog}
               taskProgress={activeTask && !isTaskTerminal(activeTask) ? activeTask : null}

@@ -63,7 +63,7 @@ vi.mock('../components/ChatInput', () => ({
 }))
 vi.mock('../components/CollieFace', () => ({ default: () => <span /> }))
 vi.mock('../components/InteractiveColliePortrait', () => ({ default: () => <aside /> }))
-vi.mock('../components/approvals/ApprovalSheet', () => ({ default: () => null }))
+vi.mock('../components/approvals/ApprovalSheet', () => ({ default: () => <div data-approval-sheet /> }))
 vi.mock('../components/tasks/TaskProgress', () => ({
   default: () => null,
   isTaskTerminal: () => false
@@ -136,6 +136,20 @@ describe('ChatScreen paced assistant completion order', () => {
   afterEach(() => {
     act(() => root.unmount())
     vi.useRealTimers()
+  })
+
+  it('shows another chat approval only after opening its chat', async () => {
+    await act(async () => hooks.chatInput().onSend('hello', []))
+    await act(async () => hooks.listener()({ type: 'approval_requested', approval: {
+      id: 'child-approval', action: 'file_write', resource: 'draft', risk: 'local_write',
+      display_json: '{}', conversation_id: 'child'
+    } }))
+    expect(container.querySelector('[data-approval-sheet]')).toBeNull()
+    expect(container.textContent).toContain('Approval needed in another chat')
+    const open = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Open chat')!
+    await act(async () => open.click())
+    expect(container.querySelector('[data-approval-sheet]')).not.toBeNull()
+    expect(container.textContent).not.toContain('Approval needed in another chat')
   })
 
   it('offers provider settings for credential failures without creating an assistant answer', async () => {
