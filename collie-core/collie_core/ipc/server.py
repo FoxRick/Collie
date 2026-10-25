@@ -69,6 +69,7 @@ from collie_core.ipc.commands import (
     MessengerCommands,
     ProviderCommands,
     RoutineCommands,
+    TemporaryChatCommands,
 )
 from collie_core.ipc.commands.providers import _OAuthAttemptState
 from collie_core.ipc.thinking import phrase_for_state, thinking_state_for_tool
@@ -80,7 +81,6 @@ from collie_core.permissions.classifier import classify_tool
 from collie_core.permissions.models import Risk
 from collie_core.providers.storage import legacy_oauth_data_root
 from collie_core.session_identity import desktop_session_key
-from collie_core.temporary_chat import TemporaryChatCommands
 from collie_core.voice import LocalVoiceService, VoiceInputError
 from nanobot.security.workspace_access import (
     WorkspaceScopeError,

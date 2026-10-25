@@ -17,6 +17,7 @@ from collie_core.ipc.commands.memory import MemoryCommands
 from collie_core.ipc.commands.messengers import MessengerCommands
 from collie_core.ipc.commands.providers import ProviderCommands
 from collie_core.ipc.commands.routines import RoutineCommands
+from collie_core.ipc.commands.temporary_chat import TemporaryChatCommands
 
 __all__ = [
     "AgentCommands",
@@ -27,4 +28,5 @@ __all__ = [
     "MessengerCommands",
     "ProviderCommands",
     "RoutineCommands",
+    "TemporaryChatCommands",
 ]
