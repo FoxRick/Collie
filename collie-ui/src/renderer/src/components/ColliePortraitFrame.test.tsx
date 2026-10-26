@@ -105,6 +105,20 @@ it('draws a single reduced-motion frame without scheduling animation', () => {
   expect(draw).toHaveBeenCalled()
   expect(frames.size).toBe(0)
 })
+it('keeps the fallback visible when a preference restart waits for images', () => {
+  render()
+  act(() => { const batch = [...frames.values()]; frames.clear(); batch.forEach(cb => cb(16)) })
+  expect(host.querySelector('img')!.hidden).toBe(true)
+  const loadedCount = images.length
+  act(() => root.render(<ColliePortraitFrame state="idle" reducedMotion fallbackSrc="idle.webp" />))
+  expect(host.querySelector('img')!.hidden).toBe(false)
+  expect(host.querySelector('canvas')!.hidden).toBe(true)
+  expect(frames.size).toBe(0)
+  act(() => images.slice(loadedCount).forEach(image => image.onload?.()))
+  expect(host.querySelector('img')!.hidden).toBe(true)
+  expect(host.querySelector('canvas')!.hidden).toBe(false)
+  expect(frames.size).toBe(0)
+})
 it('shows the fallback on context loss and restores a single canvas on recovery', () => {
   render()
   const canvas = host.querySelector('canvas')!

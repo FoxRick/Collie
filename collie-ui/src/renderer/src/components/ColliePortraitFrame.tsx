@@ -90,6 +90,10 @@ export default function ColliePortraitFrame({ state, reducedMotion, fallbackSrc,
       canvas.removeEventListener('contextlost', contextLost)
       canvas.removeEventListener('contextrestored', restored)
       for (const image of images) { image.onload = null; image.onerror = null; image.src = '' }
+      // A preference change reruns this effect before the new images load.
+      // Keep one painted portrait visible while releasing the old surface.
+      fallback.hidden = false
+      canvas.hidden = true
       canvas.width = canvas.height = 1
     }
   }, [fallbackSrc, reducedMotion])
