@@ -62,6 +62,14 @@ async def test_text_only_local_journey(tmp_path):
                 body += b"<script>setTimeout(()=>document.querySelector('#preview2').textContent='Changed while approving',700)</script>"
             if self.path == "/large":
                 body = b"<html><body>" + b"<span>bounded text </span>" * 2200 + b"</body></html>"
+            if self.path == "/deep":
+                body = (
+                    b"<html><body>"
+                    + b"<div>" * 24
+                    + b"<span>excluded deep text</span>" * 2200
+                    + b"</div>" * 24
+                    + b"</body></html>"
+                )
             self.wfile.write(body)
 
         def do_POST(self):
@@ -167,6 +175,8 @@ async def test_text_only_local_journey(tmp_path):
         assert (
             latest["truncated"] and latest["visited_nodes"] <= 1600 and len(latest["text"]) <= 6000
         )
+        await act("navigate", url=local + "/deep")
+        assert latest["truncated"] and latest["visited_nodes"] <= 1600
         await act("navigate", url=local)
         # Keyboard and scrolling are bounded, non-arbitrary operations.
         await act("key", "Draft", key="Tab")

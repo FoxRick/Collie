@@ -27,7 +27,7 @@ SECRET = "input[type=password],input[autocomplete*=password i],input[autocomplet
 COLLECT = """root => {
  const controls=[]; let text='', visited=0;
  const walk=(e,depth)=>{
-  if (!e || depth>24 || visited++>=1600 || controls.length>=60) return;
+  if (!e || visited++>=1600 || depth>24 || controls.length>=60) return;
   if(e.nodeType===3){ if(text.length<6000) text+=e.textContent.slice(0,6000-text.length)+' '; return; }
   if(e.nodeType!==1 || e.matches('script,style,iframe,[hidden]') || !e.checkVisibility()) return;
   if(e.matches('input[type=password],input[autocomplete*=password i],input[autocomplete*=cc- i]')) return;
@@ -42,7 +42,7 @@ DESCRIBE = r"""e => {
  const text = root => {
   let out='', visited=0;
   const walk=(n,depth)=>{
-   if(!n||depth>8||visited++>=60||out.length>=120) return;
+   if(!n||visited++>=60||depth>8||out.length>=120) return;
    if(n.nodeType===3){out+=n.textContent.slice(0,120-out.length);return;}
    if(n.nodeType!==1||n.matches('input,select,textarea,script,style,[hidden],[contenteditable]')||!n.checkVisibility()) return;
    for(const c of n.childNodes){if(visited>=60||out.length>=120) break;walk(c,depth+1);}
@@ -240,11 +240,10 @@ class BrowserWorker:
             elif op == "download":
                 if info["tag"] != "a":
                     return self.reject("Choose a public download link.")
-                size = download(
-                    target.get_attribute("href") and target.evaluate("e => e.href"),
-                    command["file_path"],
-                    self.sites,
-                )
+                address = target.evaluate("e => e.href.length<=2048 ? e.href : null")
+                if not address:
+                    return self.reject("Choose a public link up to 2,048 characters.")
+                size = download(address, command["file_path"], self.sites)
                 return {
                     "message": "Download saved without opening it.",
                     "download_bytes": size,
@@ -417,7 +416,7 @@ class BrowserWorker:
             info.pop("secret")
             if info["tag"] == "select":
                 info["options"] = handle.evaluate(
-                    "e => [...e.options].slice(0,30).map(o => o.label.slice(0,120))"
+                    "e => Array.from({length:Math.min(e.options.length,30)},(_,i)=>e.options[i].label.slice(0,120))"
                 )
             elements.append({"ref": ref, **info})
         truncated = collected.get_property("truncated").json_value()
