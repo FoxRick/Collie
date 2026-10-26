@@ -50,6 +50,8 @@ async def invoke_file_edit_progress(
 
 
 def _tool_event_arguments(tool_call: Any) -> dict[str, Any]:
+    if getattr(tool_call, "name", "") == "computer":
+        return {"input": "[not recorded]"}
     arguments = getattr(tool_call, "arguments", {}) or {}
     return arguments if isinstance(arguments, dict) else {}
 
@@ -82,6 +84,8 @@ def build_tool_event_finish_payloads(context: AgentHookContext) -> list[dict[str
     for idx in range(count):
         tool_call = context.tool_calls[idx]
         result = context.tool_results[idx]
+        if getattr(tool_call, "name", "") == "computer":
+            result = "Computer request finished; inspect fresh state in the Computer panel."
         event = context.tool_events[idx] if isinstance(context.tool_events[idx], dict) else {}
         status = event.get("status")
         phase = "end" if status == "ok" else "error"

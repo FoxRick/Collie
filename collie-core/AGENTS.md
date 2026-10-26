@@ -93,6 +93,12 @@ schemas; `tests/collie/test_prompt_hashes.py` covers the hash telemetry
   (`bind_life_db`, `bind_reminders_db`, …) set by the runtime; MCP-backed
   tools (calendar, email, notes, smart home, documents) return guidance
   toward `mcp_<service>_*` tools once a service is connected.
+- **Local computer control**: `collie_core/computer/` owns the Windows-only,
+  hash-pinned private native worker and single task/chat input lease. The
+  `computer` tool and `computer_action` IPC share its hard central approvals.
+  Never expose the driver's arbitrary-code, clipboard, install or daemon APIs.
+  Preserve content-free telemetry/history and stale-observation refusal. See
+  `docs/product/features/local-computer-use.md` for verified scope and gaps.
 - **Owned browser preview**: `collie_core/browser/` supervises disposable visible browser workers. Both the
   `browser` tool and `browser_action` IPC call its central permission boundary.
   Never add personal-profile attachment, arbitrary JS/keyboard, secrets export,

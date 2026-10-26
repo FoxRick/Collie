@@ -78,7 +78,9 @@ class ContextGovernor:
         messages: list[dict[str, Any]],
         compacted_tool_call_ids: set[str],
     ) -> list[dict[str, Any]]:
-        updated = self.strip_placeholder_assistant_messages(messages)
+        from collie_core.computer.privacy import compact_computer_context
+
+        updated = self.strip_placeholder_assistant_messages(compact_computer_context(messages))
         updated = self.strip_malformed_tool_calls(updated)
         updated = self.drop_orphan_tool_results(updated)
         updated = self.backfill_missing_tool_results(updated)
@@ -114,7 +116,7 @@ class ContextGovernor:
         result: Any,
     ) -> Any:
         result = ensure_nonempty_tool_result(tool_name, result)
-        if tool_name in TOOL_RESULT_OFFLOAD_EXEMPT_TOOLS:
+        if tool_name == "computer" or tool_name in TOOL_RESULT_OFFLOAD_EXEMPT_TOOLS:
             return result
         try:
             content = maybe_persist_tool_result(

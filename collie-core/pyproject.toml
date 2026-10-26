@@ -54,6 +54,7 @@ dependencies = [
     "python-dateutil>=2.8.0,<3.0.0",
     "moonshine-voice==0.0.73",
     "playwright>=1.64.1,<2.0.0",
+    "cua-driver==0.37.0; sys_platform == 'win32'",
 ]
 
 [project.urls]
@@ -113,6 +114,8 @@ include = [
     "collie_core/**/*.py",
     "collie_core/**/*.png",
     "collie_core/**/*.webp",
+    "collie_core/computer/*.json",
+    "collie_core/computer/*.md",
     "nanobot/templates/**/*.md",
     "nanobot/skills/**/*.md",
     "nanobot/skills/**/*.sh",

@@ -341,6 +341,7 @@ function verifyBundle() {
         'import pydantic',
         'from playwright.sync_api import sync_playwright',
         'from collie_core.browser import worker',
+        'import sys; from collie_core.computer.package_check import validate_artifacts; validate_artifacts() if sys.platform == "win32" else None',
         "print('Collie bundled core imports OK')"
       ].join(';')
     ],
