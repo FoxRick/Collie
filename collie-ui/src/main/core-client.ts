@@ -101,7 +101,7 @@ function command(
       settled = true
       ws.removeEventListener('message', onMessage)
       reject(new Error(`${type} timed out`))
-    }, COMMAND_TIMEOUT_MS)
+    }, type === 'browser_action' ? 360_000 : COMMAND_TIMEOUT_MS)
     ws.addEventListener('message', onMessage)
     ws.send(JSON.stringify({ type, id, ...payload }))
   })

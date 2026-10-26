@@ -341,6 +341,9 @@ function verifyBundle() {
         'import pydantic',
         'from playwright.sync_api import sync_playwright',
         'from collie_core.browser import worker',
+        'from collie_core.browser.inventory import inventory',
+        'import json; from pathlib import Path',
+        "Path('browser-runtime-inventory.json').write_text(json.dumps(inventory(), indent=2), encoding='utf-8')",
         "print('Collie bundled core imports OK')"
       ].join(';')
     ],
