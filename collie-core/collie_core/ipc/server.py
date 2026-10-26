@@ -64,6 +64,7 @@ from collie_core.ipc.commands import (
     AgentCommands,
     BrowserCommands,
     CollaborationCommands,
+    ComputerCommands,
     ConnectorCommands,
     CrossSessionCommands,
     FileCommands,
@@ -198,6 +199,7 @@ class CollieIPCServer(
     CrossSessionCommands,
     ProviderCommands,
     BrowserCommands,
+    ComputerCommands,
     ConnectorCommands,
     FileCommands,
     TemporaryChatCommands,
@@ -308,6 +310,7 @@ class CollieIPCServer(
         self._oauth_generations: dict[str, int] = {}
         self._oauth_worker_tasks: set[asyncio.Task] = set()
         self.browser_service = None
+        self.computer_service = None
         self.approval_broker: Any = None
         self._voice = LocalVoiceService()
         from collie_core.cross_session import CrossSession
@@ -338,6 +341,8 @@ class CollieIPCServer(
         oauth_attempts = list(self._oauth_attempts.values())
         if self.browser_service is not None:
             await self.browser_service.close()
+        if self.computer_service is not None:
+            await self.computer_service.close()
         tasks = (
             list(self._chat_tasks.values())
             + list(self._background_tasks)
@@ -501,6 +506,7 @@ class CollieIPCServer(
                     pass
                 if kind in {
                     "browser_action",
+                    "computer_action",
                     "native_control",
                     "prepare_voice",
                     "transcribe",

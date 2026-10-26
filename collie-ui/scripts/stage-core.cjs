@@ -22,7 +22,14 @@ function safeResetStage() {
   if (!rel || rel.startsWith(`..${sep}`) || rel === '..') {
     fail(`Refusing to reset staging path outside the UI repository: ${stageRoot}`)
   }
-  rmSync(stageRoot, { recursive: true, force: true })
+  if (existsSync(stageRoot)) {
+    if (lstatSync(stageRoot).isSymbolicLink()) fail('Refusing to clear a linked staging root.')
+    // Preserve the directory itself: Windows test hosts can retain its cwd
+    // handle. Every entry still has to be removed, so stale payloads fail closed.
+    for (const entry of readdirSync(stageRoot)) {
+      rmSync(join(stageRoot, entry), { recursive: true, force: true })
+    }
+  }
   mkdirSync(stageRoot, { recursive: true })
 }
 
@@ -341,6 +348,7 @@ function verifyBundle() {
         'import pydantic',
         'from playwright.sync_api import sync_playwright',
         'from collie_core.browser import worker',
+        'import sys; from collie_core.computer.package_check import validate_artifacts; validate_artifacts() if sys.platform == "win32" else None',
         "print('Collie bundled core imports OK')"
       ].join(';')
     ],

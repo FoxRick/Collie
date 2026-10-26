@@ -8,6 +8,7 @@ from nanobot.utils.path import abbreviate_path
 
 # Registry: tool_name -> (key_args, template, is_path, is_command)
 _TOOL_FORMATS: dict[str, tuple[list[str], str, bool, bool]] = {
+    "computer": ([], "computer control", False, False),
     "read_file":  (["path", "file_path"],              "read {}",     True,  False),
     "write_file": (["path", "file_path"],              "write {}",    True,  False),
     "edit":       (["file_path", "path"],              "edit {}",     True,  False),

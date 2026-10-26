@@ -32,6 +32,7 @@ from collie_core.ipc.server import CollieIPCServer
 # this table moves with it; the test then tells you the wire contract still binds.
 HANDLERS: dict[str, tuple[str, ...]] = {
     "browser": ("browser_action",),
+    "computer": ("computer_action",),
     "agents": (
         "cancel_subagent",
         "create_subagent",
@@ -172,6 +173,7 @@ HOST_DEPENDENCIES: dict[str, frozenset[str]] = {
         }
     ),
     "browser": frozenset({"browser_service", "db"}),
+    "computer": frozenset({"computer_service", "db"}),
     "collaboration": frozenset(
         {
             "_archive_manager",

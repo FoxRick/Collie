@@ -117,6 +117,11 @@ class ApprovalBroker:
             await self.broadcaster({"type": "approval_requested", "approval": row})
         try:
             resolution = await asyncio.wait_for(future, self.timeout_seconds)
+        except asyncio.CancelledError:
+            resolved = self.db.resolve_approval_request(request_id, "cancelled")
+            if self.broadcaster:
+                await self.broadcaster({"type": "approval_resolved", "approval": resolved})
+            raise
         except TimeoutError as exc:
             self.db.resolve_approval_request(request_id, "timeout")
             raise PermissionDeniedError("Approval timed out; the action was not run.") from exc

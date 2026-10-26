@@ -41,6 +41,13 @@ are not part of this public source tree.
   Contexts never attach to personal browser profiles; shared execution is denied.
   See [visible browser interaction](product/features/browser-interaction.md) for
   runtime setup, explicit approvals, network limits and the packaged-app gate.
+- **Local Windows computer control**: `collie_core/computer/` owns the private,
+  pinned Cua Driver process, native artifact inventory, bounded accessibility
+  observations and one task/chat input lease. The `computer` tool and
+  `computer_action` IPC share its central broker; `ComputerPanel` supplies
+  target selection, explicit capture and owning-chat stop/takeover. See
+  [local computer use](product/features/local-computer-use.md) for supported
+  operations, text-only agent limits, privacy and release acceptance gates.
 - **Storage** (architecture: `docs/engineering/architecture/storage-domains.md`):
   `collie_core/db.py` owns the connection, schema, migrations, shared row
   helpers and the run/plan/telemetry cluster. One storage domain per module
