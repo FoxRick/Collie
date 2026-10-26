@@ -67,7 +67,9 @@ async def test_real_windows_accessibility_and_broker(tmp_path):
         )
         await asyncio.sleep(1)
         await driver._rpc("tools/call", {"name": "launch_app", "arguments": {"name": "Calculator"}})
-        await asyncio.sleep(1)
+        # The launcher's bounded foreground-restore guard lasts up to three
+        # seconds. Measure input delivery only after app startup has settled.
+        await asyncio.sleep(3.2)
         windows = (await computer.execute(ctx, {"operation": "windows"}))["windows"]
         calc = next((w for w in windows if w.get("title") == "Calculator"), None)
         note = next(
@@ -135,27 +137,60 @@ async def test_real_windows_accessibility_and_broker(tmp_path):
             for e in result["postcondition"]["elements"]
         )
         assert verified, "Notepad edit could not be read back"
-        result = await computer.execute(
+        obs = await observe(note, query="File", max_depth=4, max_elements=250)
+        menu = next(
+            (
+                e
+                for e in obs["elements"]
+                if e.get("label") == "File" and e.get("role") in {"MenuItem", "Button"}
+            ),
+            None,
+        )
+        assert menu is not None, "File menu control unavailable"
+        await computer.execute(
             ctx,
             {
-                "operation": "hotkey",
+                "operation": "click",
                 "pid": note["pid"],
                 "window_id": note["window_id"],
-                "observation_id": result["postcondition"]["observation_id"],
-                "keys": ["ctrl", "s"],
-                "delivery_mode": "foreground",
+                "observation_id": obs["observation_id"],
+                "element_token": menu["element_token"],
+                "expand": True,
+            },
+        )
+        obs = await observe(note, query="Save", max_elements=250)
+        save = next(
+            (
+                e
+                for e in obs["elements"]
+                if e.get("label", "").startswith("Save")
+                and "as" not in e.get("label", "").lower()
+                and e.get("role") in {"MenuItem", "Button"}
+            ),
+            None,
+        )
+        assert save is not None, "Save control unavailable after explicit menu expansion"
+        await computer.execute(
+            ctx,
+            {
+                "operation": "click",
+                "pid": note["pid"],
+                "window_id": note["window_id"],
+                "observation_id": obs["observation_id"],
+                "element_token": save["element_token"],
             },
         )
         assert "Collie disposable local edit" in scratch.read_text(encoding="utf-8"), (
             "Approved Notepad save hotkey did not verify"
         )
-        # Harness cleanup closes only the just-saved disposable tab, without reading another tab.
+        # Attempt cleanup only on the just-saved disposable tab; refusal is safe
+        # and can leave the scratch tab for manual cleanup.
         await driver.call(
             "hotkey",
             {
                 "target": {"kind": "window", "pid": note["pid"], "window_id": note["window_id"]},
                 "keys": ["ctrl", "w"],
-                "delivery_mode": "foreground",
+                "delivery_mode": "background",
             },
         )
 

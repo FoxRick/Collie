@@ -305,3 +305,35 @@ def test_capture_coordinates_reject_outside_frame_and_changed_pixels():
     assert pixel_fingerprint(first, 10, 10) != pixel_fingerprint(second, 10, 10)
     with pytest.raises(ValueError, match="outside"):
         pixel_fingerprint(first, 99, 10)
+
+
+async def test_agent_entry_uses_bound_task_context_and_text_only_controller(setup):
+    from collie_core.tools.computer import ComputerTool, bind_computer_service
+    from nanobot.agent.tools.context import RequestContext, request_context
+
+    service, _, _, ctx = setup
+    bind_computer_service(service)
+    try:
+        with request_context(
+            RequestContext(
+                channel="local",
+                chat_id="chat",
+                metadata={"permission_context": {"conversation_id": "chat", "run_id": "task"}},
+            )
+        ):
+            tool = ComputerTool()
+            result = await tool.execute(operation="observe", pid=1, window_id=2)
+            assert not result.is_error
+            obs = json.loads(result)
+            result = await tool.execute(**action(obs))
+            assert json.loads(result)["postcondition"]["elements"][0]["value"] == "disposable"
+            assert (await tool.execute(operation="desktop")).is_error
+            assert service.owner == (ctx.conversation_id, ctx.run_id)
+    finally:
+        await service.close()
+        bind_computer_service(None)
+
+
+def test_context_compaction_accepts_null_tool_calls():
+    messages = [{"role": "assistant", "tool_calls": None, "content": "hello"}]
+    assert compact_computer_context(messages) is messages

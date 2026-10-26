@@ -28,6 +28,7 @@ class ComputerCommand(BaseModel):
     max_elements: int = Field(default=120, ge=1, le=250)
     max_depth: int = Field(default=8, ge=1, le=16)
     screenshot: bool = False
+    expand: bool = False
     delivery_mode: Literal["background", "foreground"] = "background"
     scope: Literal["window", "desktop"] = "window"
     text: str | None = Field(default=None, max_length=2000)

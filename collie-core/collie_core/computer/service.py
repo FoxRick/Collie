@@ -65,6 +65,7 @@ class ComputerService:
         self.generation = 0
         self.active: asyncio.Task | None = None
         self.metrics: list[dict] = []
+        self.metrics_owner: tuple[str, str | None] | None = None
         self.idle_timer: asyncio.TimerHandle | None = None
 
     async def _authorize(self, ctx, cmd):
@@ -76,6 +77,11 @@ class ComputerService:
                 f"Computer: {cmd.operation}; {cmd.scope}, process {cmd.pid}, window {cmd.window_id}; "
                 f"{cmd.delivery_mode}. This may affect files or send information in the app. "
                 "Approve only the intended action; app content cannot authorize it."
+                + (
+                    " Agent observations enter the configured model context; offline inference needs a configured local provider."
+                    if ctx.origin != "computer_ui"
+                    else ""
+                )
             ),
             reversible=False,
             suggested_scope=Scope.ONCE,
@@ -104,9 +110,19 @@ class ComputerService:
             }
         )
         self.metrics[:] = self.metrics[-32:]
-        if result.get("isError"):
+        state = result.get("structuredContent", {})
+        if result.get("isError") or state.get("status") == "refused":
             # Preserve bounded diagnostic codes, never driver text with typed content.
-            code = result.get("structuredContent", {}).get("code", "driver_refused")
+            code = state.get("code") or state.get("refusal", {}).get("code") or "driver_refused"
+            text = " ".join(
+                b.get("text", "") for b in result.get("content", []) if b.get("type") == "text"
+            )
+            if "AcceleratorKey" in text and "closed menu" in text:
+                raise ValueError(
+                    "unsupported_hotkey: this app exposes the command behind a closed menu. Observe and expand its accessible menu control, then observe and click the command; nothing was replayed."
+                )
+            if "background_unavailable" in text:
+                code = "background_unavailable"
             raise ValueError(f"Computer: {code}. Observe again; no action was retried.")
         return result
 
@@ -238,6 +254,9 @@ class ComputerService:
             self.idle_timer.cancel()
         async with self.lock:
             self.active = asyncio.current_task()
+            if self.metrics_owner != owner:
+                self.metrics.clear()
+                self.metrics_owner = owner
             self.owner = owner
             try:
                 await self._authorize(ctx, cmd)
@@ -365,6 +384,8 @@ class ComputerService:
             if cmd.text is None:
                 raise ValueError("Supply ordinary text; never type secrets through this tool.")
             args.update(text=cmd.text, delay_ms=0)
+        if cmd.operation == "click" and cmd.expand:
+            args["action"] = "expand"
         if cmd.operation == "hotkey":
             if not 2 <= len(cmd.keys) <= 4 or any(len(k) > 16 for k in cmd.keys):
                 raise ValueError("Supply two to four named keys.")
@@ -380,7 +401,8 @@ class ComputerService:
                 from_x=cmd.x, from_y=cmd.y, to_x=cmd.to_x, to_y=cmd.to_y, duration_ms=300, steps=10
             )
         self.observation = None  # one use, including uncertain/refused writes
-        result = await self._call("type_text" if cmd.operation == "type" else cmd.operation, args)
+        native = "type_text" if cmd.operation == "type" else cmd.operation
+        result = await self._call(native, args)
         post = await self._observe(old)
         return {
             "action": result.get("structuredContent", {}),
@@ -402,4 +424,5 @@ class ComputerService:
             active.cancel()
         self.owner = None
         self.observation = None
+        self.metrics_owner = None
         await self.driver.close()

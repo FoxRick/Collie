@@ -24,6 +24,14 @@ its own action approval; Collie never silently escalates or replays a failed
 write. A new observation after the action reports current state, not a claim
 that the intended business outcome succeeded.
 
+Use **Open selected menu** (`click` with `expand=true`) on a freshly observed
+menu control, then observe and click the exposed command. Modern Notepad's
+closed-menu Save hotkey is refused by the driver; the observed File expansion
+and Save control route is verified, including file read-back. Native keyboard,
+scroll and drag delivery varies by app; a refused or unverifiable action needs
+fresh observation and sometimes user takeover. Human approval UI focus effects
+on transient menus still need installed-app acceptance.
+
 The manual panel can request a chosen-window screenshot or an explicit whole
 desktop capture. Capture-grounded coordinates support window click/type,
 scroll and drag. Whole-desktop mode currently supports capture and clicks;
@@ -73,6 +81,9 @@ task. User/assistant prose can naturally describe the task and follows normal
 chat retention. No secret storage or provider behavior changes here. Worker
 environment excludes provider credentials, proxies and remote configuration;
 upstream telemetry and background update checks are explicitly disabled.
+The allowlist retains required Windows `SystemDrive`/`ProgramData` values, and
+the worker uses a private temporary working directory so OS caches cannot land
+in the application installation or source directory.
 
 ## Installation, packaging and licenses
 
@@ -96,6 +107,8 @@ the file inventory is not a claim that every compiled dependency was audited.
 
 Run focused service checks normally. Run actual OS acceptance only in an
 interactive Windows desktop with disposable data:
+Keep that desktop idle during the focus-preservation assertion; unrelated
+user/app focus changes invalidate that measurement.
 
 ```powershell
 $env:COLLIE_COMPUTER_ACCEPTANCE = '1'
@@ -111,12 +124,27 @@ two-chat/task arbitration, text-only refusal of images, and bounded schemas.
 
 In a Windows x64 development run on 12 logical AMD64 processors and 34.28 GB
 RAM, Calculator arithmetic and read-back edits in modern Notepad/WPF passed.
+The same acceptance test also passed from staged Python/native resources,
+asserting that imports resolved to the staged package. It verified a saved
+Notepad scratch file, window capture/DPI-grounded click, desktop capture and
+owning-chat Stop while a real approval was pending. This is staged-runtime
+acceptance, not acceptance of an installed release.
 Settled two-second driver idle CPU was 0.0 CPU seconds after disabling the
 native animated cursor. Representative native background actions took 7–13 ms;
 bounded reads took 31–70 ms, with roughly 0.9–8.5 KB native text responses.
+Extended staged runs had warm reads up to 131 ms and cold target-switch reads
+around 316–363 ms, including native integrity checks/restart. A window pixel
+click took 23 ms; 1280-pixel desktop captures took 412–425 ms and 357–495 KB.
 These are developer-machine samples, excluding approval wait and model
 inference, not guarantees. No model tokens or inference benchmark was measured.
 A connection sample showed zero driver-owned network connections; it does not
 prove absence of all transient traffic. Full network-isolation capture,
 installer acceptance, multi-monitor DPI variations and autonomous visual-model
 support remain gates before broader release claims.
+
+When testing staged resources, run the staged interpreter with `-B` (or set
+`PYTHONDONTWRITEBYTECODE=1`) and assert `COLLIE_COMPUTER_EXPECT_ROOT` against the
+staged package. Run the portability smoke after acceptance, not concurrently:
+developer bytecode contains build paths and is deliberately rejected by the
+packaging guard. Staging clears every payload entry and refuses linked roots,
+while preserving the directory itself for Windows test-host cwd handles.

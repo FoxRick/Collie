@@ -22,7 +22,14 @@ function safeResetStage() {
   if (!rel || rel.startsWith(`..${sep}`) || rel === '..') {
     fail(`Refusing to reset staging path outside the UI repository: ${stageRoot}`)
   }
-  rmSync(stageRoot, { recursive: true, force: true })
+  if (existsSync(stageRoot)) {
+    if (lstatSync(stageRoot).isSymbolicLink()) fail('Refusing to clear a linked staging root.')
+    // Preserve the directory itself: Windows test hosts can retain its cwd
+    // handle. Every entry still has to be removed, so stale payloads fail closed.
+    for (const entry of readdirSync(stageRoot)) {
+      rmSync(join(stageRoot, entry), { recursive: true, force: true })
+    }
+  }
   mkdirSync(stageRoot, { recursive: true })
 }
 

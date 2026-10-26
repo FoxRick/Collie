@@ -6,7 +6,8 @@ import asyncio
 import json
 import os
 import subprocess
-from importlib.metadata import version
+import tempfile
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
 ALLOWED = frozenset(
@@ -33,6 +34,8 @@ def driver_environment() -> dict[str, str]:
         if k.upper()
         in {
             "SYSTEMROOT",
+            "SYSTEMDRIVE",
+            "PROGRAMDATA",
             "WINDIR",
             "TEMP",
             "TMP",
@@ -57,6 +60,7 @@ class LocalDriver:
         self.process: asyncio.subprocess.Process | None = None
         self.serial = 0
         self.lock = asyncio.Lock()
+        self.directory: tempfile.TemporaryDirectory | None = None
 
     async def _rpc(self, method: str, params: dict, *, notify: bool = False) -> dict:
         self.serial += 1
@@ -68,8 +72,12 @@ class LocalDriver:
         await self.process.stdin.drain()
         if notify:
             return {}
+        deadline = asyncio.get_running_loop().time() + 12
         for _ in range(32):
-            line = await asyncio.wait_for(self.process.stdout.readline(), 12)
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                raise TimeoutError("Computer worker deadline exceeded.")
+            line = await asyncio.wait_for(self.process.stdout.readline(), remaining)
             if not line:
                 raise ValueError("Computer worker stopped; check the app before retrying.")
             reply = json.loads(line)
@@ -85,13 +93,20 @@ class LocalDriver:
         async with self.lock:
             try:
                 if self.process is None:
-                    if os.name != "nt" or version("cua-driver") != "0.37.0":
+                    try:
+                        compatible = os.name == "nt" and version("cua-driver") == "0.37.0"
+                    except PackageNotFoundError:
+                        compatible = False
+                    if not compatible:
                         raise ValueError("Install Collie's pinned Windows computer runtime.")
                     from cua_driver.wrapper import get_binary_path
 
                     from collie_core.computer.package_check import validate_artifacts
 
                     await asyncio.to_thread(validate_artifacts)
+                    self.directory = tempfile.TemporaryDirectory(
+                        prefix="collie-computer-", ignore_cleanup_errors=True
+                    )
 
                     self.process = await asyncio.create_subprocess_exec(
                         str(get_binary_path()),
@@ -102,6 +117,7 @@ class LocalDriver:
                         stderr=asyncio.subprocess.DEVNULL,
                         limit=4 * 1024 * 1024,
                         env=driver_environment(),
+                        cwd=self.directory.name,
                         creationflags=subprocess.CREATE_NO_WINDOW,
                     )
                     await self._rpc(
@@ -136,6 +152,9 @@ class LocalDriver:
 
     async def close(self) -> None:
         process, self.process = self.process, None
+        directory, self.directory = self.directory, None
         if process and process.returncode is None:
             process.kill()
             await asyncio.wait_for(process.wait(), 3)
+        if directory:
+            directory.cleanup()

@@ -29,7 +29,7 @@ export default function ComputerPanel({ conversationId }: { conversationId: stri
     setText(''); setMessage(''); setBusy(false); setDesktop(false); setCoordinates(''); setForeground(false)
   }, [conversationId])
   if (!conversationId) return null
-  const action = async (operation: string, screenshot = false): Promise<void> => {
+  const action = async (operation: string, screenshot = false, expand = false): Promise<void> => {
     const current = ++generation.current
     setBusy(true); setMessage('')
     const window = windows.find(w => `${w.pid}:${w.window_id}` === selected)
@@ -41,6 +41,7 @@ export default function ComputerPanel({ conversationId }: { conversationId: stri
       if (!['observe', 'desktop'].includes(operation)) {
         command.observation_id = result.observation_id
         command.delivery_mode = foreground ? 'foreground' : 'background'
+        if (expand) command.expand = true
         if (token) command.element_token = token
         if (coordinates) {
           const [x, y, toX, toY] = coordinates.split(',').map(Number)
@@ -85,6 +86,7 @@ export default function ComputerPanel({ conversationId }: { conversationId: stri
         <input aria-label="Computer hotkey" value={keys} onChange={e => setKeys(e.target.value)} />
         <input aria-label="Capture coordinates" value={coordinates} placeholder="Capture pixels: x,y or drag x,y,to x,to y" onChange={e => { setCoordinates(e.target.value); setToken('') }} />
         {['click', 'type', 'hotkey', 'scroll', 'drag'].map(op => <button key={op} disabled={!result.observation_id} onClick={() => void action(op)}>{op}</button>)}
+        <button disabled={!token} onClick={() => void action('click', false, true)}>Open selected menu</button>
       </fieldset>
       {busy && <p role="status">Waiting for approval or the app… Stop remains available.</p>}
       {message && <p role="status">{message}</p>}

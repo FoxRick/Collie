@@ -8,7 +8,7 @@ def compact_computer_context(messages):
     ids = {
         call.get("id")
         for message in messages
-        for call in message.get("tool_calls", [])
+        for call in (message.get("tool_calls") or [])
         if isinstance(call, dict)
         and isinstance(call.get("function"), dict)
         and call["function"].get("name") == "computer"
