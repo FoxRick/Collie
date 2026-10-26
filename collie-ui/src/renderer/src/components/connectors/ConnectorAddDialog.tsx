@@ -113,7 +113,7 @@ export default function ConnectorAddDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onMouseDown={(event) => event.target === event.currentTarget && close()}>
-      <section ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="connector-add-title" className="max-h-[calc(100vh-2rem)] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl">
+      <section ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="connector-add-title" className="max-h-[calc(100vh-2rem)] w-full max-w-2xl overflow-y-auto rounded-2xl connector-surface p-5 shadow-xl">
         <div className="flex items-start gap-3">
           {choice ? <button type="button" aria-label="Back to add connection options" className="mt-0.5 rounded-lg p-1" onClick={() => { discardImportSecrets(); setChoice(null); setPreview(null); setImportPreview(null) }}><ArrowLeft size={18} /></button> : <Plus className="mt-0.5" size={20} />}
           <div className="min-w-0 flex-1">

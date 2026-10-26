@@ -62,13 +62,16 @@ from collie_core.db import CollieDB, collie_home
 from collie_core.ipc.command_support import _bounded_list_limit
 from collie_core.ipc.commands import (
     AgentCommands,
+    BrowserCommands,
     CollaborationCommands,
     ConnectorCommands,
+    CrossSessionCommands,
     FileCommands,
     MemoryCommands,
     MessengerCommands,
     ProviderCommands,
     RoutineCommands,
+    TemporaryChatCommands,
 )
 from collie_core.ipc.commands.providers import _OAuthAttemptState
 from collie_core.ipc.thinking import phrase_for_state, thinking_state_for_tool
@@ -146,6 +149,10 @@ def _public_error_message(
     return fallback
 
 
+class _ProviderChatError(ValueError):
+    """Safe recovery text for an engine turn that ended in provider failure."""
+
+
 def _fallback_chat_title(content: str) -> str:
     clean = " ".join(content.strip().split())
     clean = _TITLE_PREFIX.sub("", clean).strip(" \t\r\n.,:;!?-")
@@ -188,9 +195,12 @@ class CollieIPCServer(
     CollaborationCommands,
     MemoryCommands,
     RoutineCommands,
+    CrossSessionCommands,
     ProviderCommands,
+    BrowserCommands,
     ConnectorCommands,
     FileCommands,
+    TemporaryChatCommands,
     AgentCommands,
     MessengerCommands,
 ):
@@ -286,6 +296,8 @@ class CollieIPCServer(
         self._shared_chat_runner = shared_chat_runner
         self._collaboration_identity_binder = collaboration_identity_binder
         self._collaboration_run_controller = collaboration_run_controller
+        self._temporary_owners: dict[str, ServerConnection] = {}
+        self._temporary_tasks: dict[str, asyncio.Task] = {}
         self._clients: set[ServerConnection] = set()
         self._server: Any = None
         self._chat_tasks: dict[str, asyncio.Task] = {}
@@ -295,8 +307,16 @@ class CollieIPCServer(
         self._oauth_attempts: dict[str, _OAuthAttemptState] = {}
         self._oauth_generations: dict[str, int] = {}
         self._oauth_worker_tasks: set[asyncio.Task] = set()
+        self.browser_service = None
         self.approval_broker: Any = None
         self._voice = LocalVoiceService()
+        from collie_core.cross_session import CrossSession
+
+        self.cross_session = CrossSession(
+            db,
+            self._launch_cross_session,
+            lambda: set(self._chat_tasks),
+        )
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -313,7 +333,11 @@ class CollieIPCServer(
         logger.info("Collie IPC listening on ws://{}:{}", self.host, self.port)
 
     async def stop(self) -> None:
+        for key, owner in list(self._temporary_owners.items()):
+            await self._cmd_temporary_close(owner, {"session_id": key})
         oauth_attempts = list(self._oauth_attempts.values())
+        if self.browser_service is not None:
+            await self.browser_service.close()
         tasks = (
             list(self._chat_tasks.values())
             + list(self._background_tasks)
@@ -476,6 +500,10 @@ class CollieIPCServer(
                 except (TypeError, ValueError):
                     pass
                 if kind in {
+                    "browser_action",
+                    "native_control",
+                    "prepare_voice",
+                    "transcribe",
                     "begin_connector_auth",
                     "begin_definition_auth",
                     "test_connector",
@@ -490,6 +518,9 @@ class CollieIPCServer(
         except Exception:
             logger.debug("IPC connection closed")
         finally:
+            for key, owner in list(self._temporary_owners.items()):
+                if owner is connection:
+                    await self._cmd_temporary_close(connection, {"session_id": key})
             self._clients.discard(connection)
 
     async def _handle_frame(self, connection: ServerConnection, raw: str | bytes) -> None:
@@ -599,6 +630,11 @@ class CollieIPCServer(
             )
         return {"conversation": result["conversation"], "greeted": result["greeted"]}
 
+    async def _cmd_prepare_voice(self, connection: ServerConnection, frame: dict) -> dict:
+        """Prepare the reused local model while the user records."""
+        await self._voice.prepare()
+        return {"ready": True}
+
     async def _cmd_transcribe(self, connection: ServerConnection, frame: dict) -> dict:
         """Turn a renderer-captured WAV into English text without a cloud service."""
         text = await self._voice.transcribe_data_url(str(frame.get("audio") or ""))
@@ -641,7 +677,36 @@ class CollieIPCServer(
             conv_id,
             limit,
         )
+        # Cards are snapshots of tool output. Restore checkbox truth from the
+        # life-tool store rather than the old message snapshot.
+        for message in messages:
+            if message.get("card_type") != "shopping_list":
+                continue
+            card = message.get("card_data")
+            if not isinstance(card, dict):
+                continue
+            categories = card.get("categories")
+            if not isinstance(categories, dict):
+                continue
+            rows = self.db.list_shopping_items(str(card.get("list_name") or "Groceries"))
+            checked = {row["id"]: bool(row["checked"]) for row in rows}
+            for items in categories.values():
+                if isinstance(items, list):
+                    for item in items:
+                        if isinstance(item, dict) and item.get("id") in checked:
+                            item["done"] = checked[item["id"]]
         return {"messages": messages}
+
+    async def _cmd_set_shopping_item_checked(
+        self, connection: ServerConnection, frame: dict
+    ) -> dict:
+        item_id = frame.get("item_id")
+        checked = frame.get("checked")
+        if not isinstance(item_id, str) or not item_id or not isinstance(checked, bool):
+            raise ValueError("Choose a shopping item and whether it is checked.")
+        if not self.db.set_shopping_item_checked(item_id, checked):
+            raise ValueError("That shopping item is no longer on your list.")
+        return {"item_id": item_id, "checked": checked}
 
     async def _cmd_get_product_metrics(self, connection: ServerConnection, frame: dict) -> dict:
         """Only aggregate counts cross the main-process telemetry boundary."""
@@ -1677,22 +1742,20 @@ class CollieIPCServer(
         if command_result is None:
             capture_starter_name(self.db, self._profile_store, conv_id, content)
 
+        title_request: tuple[str, str] | None = None
         user_msg = self.db.add_message(
             conv_id,
             "user",
             content,
             attachments=attachment_meta or None,
         )
+        message_metadata = {**(message_metadata or {}), "message_id": user_msg["id"]}
         if conversation.get("title") in (None, "", "New chat"):
             title_source = content or attachment_meta[0]["name"]
             title = _fallback_chat_title(title_source)
             self.db.rename_conversation(conv_id, title)
             if content and self._title_generator is not None:
-                title_task = asyncio.create_task(
-                    self._generate_conversation_title(conv_id, content, title)
-                )
-                self._background_tasks.add(title_task)
-                title_task.add_done_callback(self._background_tasks.discard)
+                title_request = (content, title)
 
         await self._send(
             connection,
@@ -1761,6 +1824,7 @@ class CollieIPCServer(
                 project_path=project_path,
                 file_access_scope=file_access_scope,
                 message_metadata=message_metadata,
+                title_request=title_request,
             )
         )
         self._chat_tasks[conv_id] = task
@@ -1921,6 +1985,7 @@ class CollieIPCServer(
         project_path: str | None = None,
         file_access_scope: dict[str, Any] | None = None,
         message_metadata: dict[str, Any] | None = None,
+        title_request: tuple[str, str] | None = None,
     ) -> None:
         streamed = False
         parts: list[str] = []
@@ -2155,6 +2220,11 @@ class CollieIPCServer(
                     key: value for key, value in chat_kwargs.items() if key in parameters
                 }
             outbound = await self._chat_runner(content, **chat_kwargs)
+            if (getattr(outbound, "metadata", None) or {}).get("_stop_reason") == "error":
+                raise _ProviderChatError(
+                    "I couldn't get a reply from your model provider. Open Settings → Providers "
+                    "to check your API key or sign in again, then retry."
+                )
         except asyncio.CancelledError:
             if run_id:
                 self._active_material_runs.pop(run_id, None)
@@ -2311,6 +2381,18 @@ class CollieIPCServer(
                 logger.info("Chat turn stopped for a requested plan change: {}", conv_id)
                 await self.send_thinking(conv_id, "idle")
                 return
+            if isinstance(e, _ProviderChatError) and not tool_results and terminal_task is None:
+                logger.warning("Chat turn ended in provider failure")
+                await self.send_thinking(conv_id, "error")
+                await self.broadcast(
+                    {
+                        "type": "error",
+                        "conversation_id": conv_id,
+                        "message": safe_error,
+                        "recovery_action": "open_provider_settings",
+                    }
+                )
+                return
             card_type, card_data = self._extract_card(tool_results)
             files_card_type, files_card_data = self._files_changed_card(tool_results, conv_id)
             if files_card_type:
@@ -2334,7 +2416,10 @@ class CollieIPCServer(
                     "message": failure_message,
                 }
             )
-            logger.exception("Chat turn failed for {}", conv_id)
+            if isinstance(e, _ProviderChatError):
+                logger.warning("Chat turn ended in provider failure after tool work")
+            else:
+                logger.exception("Chat turn failed for {}", conv_id)
             await self.send_thinking(conv_id, "error")
             await self.broadcast(
                 {
@@ -2342,6 +2427,11 @@ class CollieIPCServer(
                     "conversation_id": conv_id,
                     "message": safe_error,
                     "detail": safe_error,
+                    **(
+                        {"recovery_action": "open_provider_settings"}
+                        if isinstance(e, _ProviderChatError)
+                        else {}
+                    ),
                 }
             )
             return
@@ -2397,6 +2487,17 @@ class CollieIPCServer(
             # files_changed card (with its one-tap undo) over any info card.
             card_type, card_data = files_card_type, files_card_data
         final = getattr(outbound, "content", None) or "".join(parts)
+        if title_request and final and self._title_generator is not None:
+            first_request, provisional_title = title_request
+            transcript = json.dumps(
+                {"user_request": first_request[:2000], "assistant_answer": final[:4000]},
+                ensure_ascii=False,
+            )
+            title_task = asyncio.create_task(
+                self._generate_conversation_title(conv_id, transcript, provisional_title)
+            )
+            self._background_tasks.add(title_task)
+            title_task.add_done_callback(self._background_tasks.discard)
         message_task = terminal_task
         if run_id:
             change = self.db.get_plan_change_request(run_id)

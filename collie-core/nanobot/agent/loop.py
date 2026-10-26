@@ -1855,7 +1855,7 @@ class AgentLoop:
             ctx.on_stream,
             turn_latency_ms=ctx.turn_latency_ms,
         )
-        if ctx.ephemeral and ctx.outbound is not None:
+        if ctx.outbound is not None:
             ctx.outbound.metadata["_stop_reason"] = ctx.stop_reason
         return "ok"
 

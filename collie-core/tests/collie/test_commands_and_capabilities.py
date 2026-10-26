@@ -214,15 +214,32 @@ async def test_desktop_goal_metadata_reaches_chat_runner_without_leaking_to_othe
         assert calls[0][1]["message_metadata"] == {
             "goal_requested": True,
             "original_command": "/goal",
+            "message_id": db.get_messages(conversation_id)[0]["id"],
         }
 
         await submit("ordinary message", conversation_id)
         assert calls[1][0] == "ordinary message"
-        assert "message_metadata" not in calls[1][1]
+        assert calls[1][1]["message_metadata"] == {
+            "message_id": db.get_messages(conversation_id)[2]["id"],
+        }
 
         await submit("/agent Researcher compare plans", conversation_id)
         assert "call_subagent" in calls[2][0]
-        assert "message_metadata" not in calls[2][1]
+        assert calls[2][1]["message_metadata"] == {
+            "message_id": db.get_messages(conversation_id)[4]["id"],
+        }
+        # Each turn gets its own committed user-message identity, while goal
+        # intent stays confined to the original command turn.
+        user_messages = [m for m in db.get_messages(conversation_id) if m["role"] == "user"]
+        assert [m["content"] for m in user_messages] == [
+            "/goal Finish the migration safely",
+            "ordinary message",
+            "/agent Researcher compare plans",
+        ]
+        assert [call[1]["message_metadata"]["message_id"] for call in calls] == [
+            m["id"] for m in user_messages
+        ]
+        assert len({call[1]["message_metadata"]["message_id"] for call in calls}) == 3
     finally:
         await server.stop()
         db.close()

@@ -7,20 +7,20 @@
 | Component | Path | Version |
 | --- | --- | --- |
 | Python core | `collie-core/` | `0.2.2` |
-| Electron desktop | `collie-ui/` | `0.1.0-alpha.7.4` |
+| Electron desktop | `collie-ui/` | `0.1.0-alpha.7.5` |
 
 ## Source inventory
 
-- Core Python files: **574**
-- Core Python test files: **260**
-- Desktop TypeScript/TSX files: **219**
-- Desktop test files: **83**
-- Active Markdown docs: **43**
+- Core Python files: **590**
+- Core Python test files: **264**
+- Desktop TypeScript/TSX files: **225**
+- Desktop test files: **85**
+- Active Markdown docs: **49**
 - Archived Markdown docs: **0**
 
 ## Collie-owned core module groups
 
-`automations`, `catalog`, `collaboration`, `connectors`, `db_domains`, `gardener`, `ipc`, `memory`, `messengers`, `permissions`, `pet`, `plans`, `providers`, `routines`, `services`, `subagents`, `telemetry`, `things`, `tools`, `undo`
+`automations`, `browser`, `catalog`, `collaboration`, `connectors`, `db_domains`, `gardener`, `ipc`, `memory`, `messengers`, `permissions`, `pet`, `plans`, `providers`, `routines`, `services`, `subagents`, `telemetry`, `things`, `tools`, `undo`
 
 ## Required orientation files
 

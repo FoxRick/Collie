@@ -1,7 +1,7 @@
 # Alpha 0.1.0-alpha.7.4 — release record
 
-**Status (2026-09-09):** PUBLISHED. `v0.1.0-alpha.7.4` is the current public
-installer release of Collie (patch bump on top of `v0.1.0-alpha.7.3`).
+**Status (2026-09-09):** PUBLISHED. `v0.1.0-alpha.7.4` was the public
+installer release of Collie at publication (patch bump on top of `v0.1.0-alpha.7.3`).
 
 ## What shipped
 

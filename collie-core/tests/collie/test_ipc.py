@@ -191,6 +191,58 @@ async def test_unknown_and_invalid_frames(server: CollieIPCServer) -> None:
 
 
 @pytest.mark.asyncio
+async def test_shopping_checkbox_persists_and_reloads(server):
+    from collie_core.tools.shopping import _card
+
+    db = server.db
+    conv = db.create_conversation()
+    oats = db.add_shopping_item("oats", list_name="QA groceries")
+    duplicate = db.add_shopping_item("oats", list_name="QA groceries")
+    card = json.loads(_card(db, "QA groceries"))
+    card.pop("card_type")
+    db.add_message(conv["id"], "assistant", "Groceries", card_type="shopping_list", card_data=card)
+    ws = await _connect(server)
+    try:
+        await _send(
+            ws, type="set_shopping_item_checked", id="check", item_id=oats["id"], checked=True
+        )
+        reply = json.loads(await ws.recv())
+        assert reply["type"] == "ok", reply
+        assert (
+            next(r for r in db.list_shopping_items("QA groceries") if r["id"] == oats["id"])[
+                "checked"
+            ]
+            == 1
+        )
+        assert (
+            next(r for r in db.list_shopping_items("QA groceries") if r["id"] == duplicate["id"])[
+                "checked"
+            ]
+            == 0
+        )
+        await _send(ws, type="get_messages", id="reload", conversation_id=conv["id"])
+        messages = (await _recv_until(ws, "ok"))["data"]["messages"]
+        items = messages[0]["card_data"]["categories"]["Other"]
+        assert next(r for r in items if r["id"] == oats["id"])["done"] is True
+        await _send(
+            ws, type="set_shopping_item_checked", id="bad", item_id=oats["id"], checked="false"
+        )
+        assert (await _recv_until(ws, "error"))["type"] == "error"
+        await _send(
+            ws, type="set_shopping_item_checked", id="uncheck", item_id=oats["id"], checked=False
+        )
+        await _recv_until(ws, "ok")
+        assert (
+            next(r for r in db.list_shopping_items("QA groceries") if r["id"] == oats["id"])[
+                "checked"
+            ]
+            == 0
+        )
+    finally:
+        await ws.close()
+
+
+@pytest.mark.asyncio
 async def test_conversation_crud(server: CollieIPCServer) -> None:
     ws = await _connect(server)
     await _send(ws, type="new_conversation", id="1", title="Groceries")
@@ -667,6 +719,63 @@ async def test_custom_anthropic_endpoint_persists_runtime_fields(tmp_path: Path)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "question,answer",
+    [
+        ("What is the codename in my attachment?", "ORANGE-OTTER-427, with 13 boxes"),
+        ("What is my saved mascot's name?", "Your mascot is Otter"),
+    ],
+)
+async def test_title_summarizes_completed_exchange(tmp_path, question, answer):
+    from types import SimpleNamespace
+
+    from collie_core.runtime import CollieRuntime
+    from nanobot.providers.base import LLMResponse
+
+    db = CollieDB(tmp_path / "titles.db")
+    release = asyncio.Event()
+    captured = []
+
+    async def runner(*args, **kwargs):
+        await release.wait()
+        return FakeOutbound(answer)
+
+    async def title_provider(*, messages, model):
+        assert "Do not answer" in messages[0]["content"]
+        captured.append(messages[1]["content"])
+        return LLMResponse(content="Mascot and attachment details")
+
+    runtime = CollieRuntime.__new__(CollieRuntime)
+    runtime.loop = SimpleNamespace(
+        llm_runtime=lambda: SimpleNamespace(
+            provider=SimpleNamespace(chat=title_provider),
+            model="fake-title-model",
+        )
+    )
+
+    srv = CollieIPCServer(
+        db, port=_free_port(), chat_runner=runner, title_generator=runtime._generate_chat_title
+    )
+    await srv.start()
+    try:
+        ws = await _connect(srv)
+        await _send(ws, type="chat", id="chat", content=question)
+        await _recv_until(ws, "ok")
+        await asyncio.sleep(0.02)
+        assert not captured, "Title ran before the answer was available"
+        release.set()
+        await _recv_until(ws, "conversation_updated")
+        assert len(captured) == 1
+        assert question in captured[0]
+        assert answer in captured[0]
+        await ws.close()
+    finally:
+        release.set()
+        await srv.stop()
+        db.close()
+
+
+@pytest.mark.asyncio
 async def test_chat_persists_project_and_generates_title(tmp_path: Path) -> None:
     db = CollieDB(tmp_path / "collie.db")
     project = tmp_path / "Project Atlas"
@@ -812,6 +921,76 @@ async def test_chat_without_runner_reports_friendly_error(tmp_path: Path) -> Non
         await _send(ws, type="chat", id="1", content="hello")
         err = await _recv_until(ws, "error")
         assert "provider" in err["message"].lower()
+        await ws.close()
+    finally:
+        await srv.stop()
+        db.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_file_card", [False, True])
+async def test_provider_failure_is_not_a_successful_reply_or_title(tmp_path, with_file_card):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from collie_core.runtime import CollieRuntime
+    from nanobot.providers.base import LLMResponse
+
+    db = CollieDB(tmp_path / "provider.db")
+
+    async def runner(*args, **kwargs):
+        if with_file_card:
+            await kwargs["on_progress"](
+                tool_events=[
+                    {
+                        "phase": "end",
+                        "name": "local_files",
+                        "result": json.dumps(
+                            {
+                                "operation": "save",
+                                "path": "synthetic.txt",
+                                "undo_entry_id": "synthetic-undo",
+                            }
+                        ),
+                    }
+                ]
+            )
+        return SimpleNamespace(
+            content="Check Settings → Providers and your API key.",
+            metadata={"_stop_reason": "error"},
+        )
+
+    # Title inference can fail independently too; that must never become a title.
+    runtime = CollieRuntime.__new__(CollieRuntime)
+    provider = SimpleNamespace(
+        chat=AsyncMock(return_value=LLMResponse(content="raw-title-error", finish_reason="error"))
+    )
+    runtime.loop = SimpleNamespace(
+        llm_runtime=lambda: SimpleNamespace(provider=provider, model="fake")
+    )
+    srv = CollieIPCServer(
+        db, port=_free_port(), chat_runner=runner, title_generator=runtime._generate_chat_title
+    )
+    await srv.start()
+    try:
+        ws = await _connect(srv)
+        await _send(ws, type="chat", id="chat", content="hello")
+        conv_id = (await _recv_until(ws, "ok"))["data"]["conversation_id"]
+        terminal = await _recv_until(ws, "error")
+        assert "Settings" in terminal["message"]
+        assert "Providers" in terminal["message"]
+        assert "API key" in terminal["message"]
+        assert terminal["recovery_action"] == "open_provider_settings"
+        await asyncio.gather(*list(srv._background_tasks))
+        assert db.get_conversation(conv_id)["title"] != "raw-title-error"
+        assistant = [m for m in db.get_messages(conv_id) if m["role"] == "assistant"]
+        if with_file_card:
+            assert len(assistant) == 1
+            assert assistant[0]["content"] == "I couldn't finish that task."
+            assert assistant[0]["card_type"] == "files_changed"
+            assert assistant[0]["card_data"]["files"][0]["undo_entry_id"] == "synthetic-undo"
+        else:
+            assert not assistant
         await ws.close()
     finally:
         await srv.stop()

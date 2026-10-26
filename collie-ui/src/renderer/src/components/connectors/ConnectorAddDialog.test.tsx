@@ -39,6 +39,13 @@ function change(element: HTMLInputElement | HTMLSelectElement, value: string): v
 }
 
 describe('ConnectorAddDialog', () => {
+  it('uses a theme-aware surface for the dialog and its credential form', () => {
+    const dialog = document.querySelector('[role=dialog]')!
+    expect(dialog.classList.contains('bg-white')).toBe(false)
+    expect(dialog.classList.contains('connector-surface')).toBe(true)
+    click('Connect using a link')
+    expect(document.querySelector('input')).not.toBeNull()
+  })
   it('clears a token before protected submission settles and closes on Escape', async () => {
     click('Connect using a link')
     const inputs = [...document.querySelectorAll('input')]
