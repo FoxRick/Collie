@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell, nativeImage, session, screen } from 'electron'
+import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell, nativeImage, session } from 'electron'
 import { randomUUID } from 'crypto'
 import { basename, extname, isAbsolute, join } from 'path'
 import { homedir } from 'os'

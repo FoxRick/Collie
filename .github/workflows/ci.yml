@@ -32,7 +32,7 @@ jobs:
       - run: npm run typecheck
       # Contract/build coverage only; Retina and native motion acceptance
       # remain manual gates in docs/product/features/composer-portrait.md.
-      - run: npx vitest run src/renderer/src/components/ColliePortraitFrame.test.tsx src/renderer/src/components/colliePortraitRig.test.ts src/renderer/src/components/InteractiveColliePortrait.expiry.test.tsx src/renderer/src/components/portraitStates.test.ts src/renderer/src/components/colliePortraitMotion.test.ts
+      - run: npx vitest run src/renderer/src/components/ColliePortraitFrame.test.tsx src/renderer/src/components/collieExpressions.test.ts src/renderer/src/components/InteractiveColliePortrait.expiry.test.tsx src/renderer/src/components/portraitStates.test.ts
       - run: npm run build
 
   collaboration-backend:
