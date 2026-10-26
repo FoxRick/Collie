@@ -179,3 +179,27 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 Collie uses Moonshine Voice and its English Tiny Streaming speech-to-text model
 for local dictation. Code and English-language models are provided under the
 MIT License. Source: https://github.com/moonshine-ai/moonshine
+
+## Local browser runtime
+
+The local browser adapter uses Playwright for Python **1.64.1** (Apache-2.0).
+Its distribution includes the Playwright driver (Apache-2.0), its bundled Node.js
+runtime and Node third-party notices, plus driver dependencies covered by
+`playwright/driver/package/ThirdPartyNotices.txt`. Preserve these upstream files:
+
+- `playwright/driver/LICENSE` (Node.js and bundled component licenses)
+- `playwright/driver/package/LICENSE`, `NOTICE`, and `ThirdPartyNotices.txt`
+- the Python distribution's license files and dependency notices
+
+Python dependencies pyee (MIT) and greenlet (MIT AND PSF-2.0) are included with
+their distribution licenses. Staging writes `browser-runtime-inventory.json`
+from the actual bundled files, recording versions, sizes and SHA-256 hashes.
+Do not infer the embedded driver version from the Python package version.
+The current distribution reports an embedded prerelease driver version; inspect
+that inventory before release. No Edge/Chromium binary, account, hosted browser
+service, OCR service, or model weights are bundled/downloaded by this adapter.
+Microsoft Edge is independently installed and licensed by the user.
+
+Upstream sources: https://github.com/microsoft/playwright-python,
+https://github.com/microsoft/playwright, https://github.com/jfhbrook/pyee,
+https://github.com/python-greenlet/greenlet.

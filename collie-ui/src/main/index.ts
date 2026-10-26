@@ -1,3 +1,4 @@
+import { browserFileAction } from './browser-files'
 import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell, nativeImage, session } from 'electron'
 import { randomUUID } from 'crypto'
 import { basename, extname, isAbsolute, join } from 'path'
@@ -517,6 +518,10 @@ function registerIpc(): void {
   handle('collaboration:set-routine-delivery', (routineId: unknown, sessionId: unknown, audienceRevision: unknown) => setRoutineDelivery(textArg(routineId, 'routine'), sessionId === null ? null : textArg(sessionId, 'session'), typeof audienceRevision === 'number' ? audienceRevision : undefined))
   handle('collaboration:slack-settings', (organizationId: unknown) => collaborationBackend('slack_settings', { org_id: textArg(organizationId, 'organization') }))
   handle('collaboration:link-slack-channel', (organizationId: unknown, installationId: unknown, channelId: unknown) => collaborationBackend('select_slack_channel', { org_id: textArg(organizationId, 'organization'), installation_id: textArg(installationId, 'Slack installation'), channel_id: textArg(channelId, 'Slack channel') }))
+  handle('collie:browser-file', (conversationId: string, command: import('../shared/browser').BrowserCommand, direction: 'upload' | 'download') => {
+    if (direction !== 'upload' && direction !== 'download') throw new Error('Choose upload or download.')
+    return browserFileAction(mainWindow, conversationId, command, direction)
+  })
   handle('collie:pick-attachments', async (): Promise<SelectedAttachment[]> => {
     const options = {
       title: 'Attach files to your message',
