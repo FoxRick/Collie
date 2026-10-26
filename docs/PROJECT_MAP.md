@@ -108,6 +108,9 @@ text-only scope and provider-retention caveat.
 - `src/main/` owns Electron lifecycle, Python-core supervision, protected
   secret storage, tray and window behavior, and privileged IPC handlers.
 - `src/preload/` exposes the narrow renderer bridge.
+- The composer portrait is a fixed painted head with local facial-expression
+  atlases and one Canvas 2D renderer. It has no pointer tracking or exposed
+  desktop-pointer IPC. See [composer portrait](product/features/composer-portrait.md).
 - `src/renderer/` contains the React application and product UI.
 - `scripts/` contains staging, packaging, smoke, and release verification.
 - `electron-builder.yml` defines Windows artifact composition.

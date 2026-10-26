@@ -39,6 +39,8 @@ function render(props: Partial<React.ComponentProps<typeof InteractiveColliePort
 }
 
 beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
   vi.useFakeTimers()
   window.matchMedia = vi.fn().mockReturnValue({
     matches: false,
@@ -55,9 +57,73 @@ afterEach(() => {
   host?.remove()
   host = null
   vi.useRealTimers()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('InteractiveColliePortrait settled-row expiry', () => {
+  it('stays awake after the pointer leaves and the idle timer has elapsed', () => {
+    render()
+    act(() => {
+      window.dispatchEvent(new Event('blur'))
+      document.dispatchEvent(new Event('pointerleave'))
+      vi.advanceTimersByTime(120_000)
+    })
+    expect(host!.querySelector('.is-idle')).not.toBeNull()
+    expect(host!.querySelector('.is-sleepy')).toBeNull()
+  })
+  it('promotes a first-click wave to an open-mouth happy reaction on double click', () => {
+    render()
+    const ring = host!.querySelector('.collie-portrait-ring')!
+    act(() => ring.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })))
+    expect(host!.querySelector('.is-click_reaction')).not.toBeNull()
+    act(() => ring.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 })))
+    expect(host!.querySelector('.is-happy_reaction')).not.toBeNull()
+    act(() => vi.advanceTimersByTime(1_000))
+    expect(host!.querySelector('.is-happy_reaction')).not.toBeNull()
+    act(() => vi.advanceTimersByTime(1_401))
+    expect(host!.querySelector('.is-happy_reaction')).toBeNull()
+  })
+  it.each(['awaiting_approval', 'error'])('keeps %s above pointer attention and pet reactions', (engine) => {
+    render({ thinking: { state: engine, phrase: '', pet_animation: '' } })
+    const ring = host!.querySelector('.collie-portrait-ring')!
+    vi.spyOn(ring, 'getBoundingClientRect').mockReturnValue({ left: 100, top: 100, width: 100, height: 100 } as DOMRect)
+    act(() => {
+      window.dispatchEvent(new MouseEvent('pointermove', { clientX: 600, clientY: 150 }))
+      ring.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      ring.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 }))
+    })
+    expect(host!.querySelector(engine === 'error' ? '.is-error' : '.is-waiting')).not.toBeNull()
+    expect(host!.querySelector('.is-click_reaction')).toBeNull()
+  })
+  it('ignores pointer movement and sleeps only after three minutes of idle time', () => {
+    render()
+    const ring = host!.querySelector('.collie-portrait-ring')!
+    vi.spyOn(ring, 'getBoundingClientRect').mockReturnValue({ left: 100, top: 100, width: 100, height: 100 } as DOMRect)
+    act(() => window.dispatchEvent(new MouseEvent('pointermove', { clientX: 600, clientY: 150 })))
+    expect(host!.querySelector('.is-idle')).not.toBeNull()
+    act(() => ring.dispatchEvent(new MouseEvent('pointerout', { bubbles: true })))
+    expect(host!.querySelector('.is-idle')).not.toBeNull()
+    act(() => window.dispatchEvent(new Event('blur')))
+    expect(host!.querySelector('.is-pointer_look')).toBeNull()
+    act(() => vi.advanceTimersByTime(180_001))
+    expect(host!.querySelector('.is-sleepy')).not.toBeNull()
+  })
+  it('stays awake while a sub-agent works and uses a single handoff gesture', () => {
+    render({ activeAgents: [settled({ phase: 'running', ended_at_ms: undefined, outcome: undefined })] })
+    expect(host!.querySelector('.is-delegating')).not.toBeNull()
+    act(() => vi.advanceTimersByTime(1_701))
+    expect(host!.querySelector('.is-listening')).not.toBeNull()
+    act(() => vi.advanceTimersByTime(180_001))
+    expect(host!.querySelector('.is-sleepy')).toBeNull()
+  })
+  it('wakes immediately when typing begins', () => {
+    render()
+    act(() => vi.advanceTimersByTime(180_001))
+    expect(host!.querySelector('.is-sleepy')).not.toBeNull()
+    act(() => root!.render(<InteractiveColliePortrait thinking={null} phrase="" isTyping activeAgents={[]} />))
+    expect(host!.querySelector('.is-attentive')).not.toBeNull()
+  })
   it('unmounts the empty agent list and stops the ticker once rows expire', () => {
     const ended = Date.now() - 60_000
     render({

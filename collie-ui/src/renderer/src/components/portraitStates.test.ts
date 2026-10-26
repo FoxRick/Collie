@@ -1,22 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import {
-  FACE_ONLY_ASSET_MANIFEST,
-  gazeEnabledForState,
-  portraitStateForEngine,
-  supportsFaceOnlyDeepWork
-} from './portraitStates'
+import { portraitStateForEngine } from './portraitStates'
 
 describe('portrait state mapping', () => {
   it.each([
     ['startup', 'working'],
-    ['planning', 'working'],
+    ['planning', 'thinking'],
     ['processing', 'working'],
     ['searching', 'review'],
     ['fetching', 'review'],
     ['mapping', 'review'],
-    ['generating', 'working'],
-    ['summarizing', 'working'],
-    ['buddy', 'review'],
+    ['generating', 'writing'],
+    ['summarizing', 'writing'],
+    ['buddy', 'delegating'],
     ['awaiting_approval', 'waiting']
   ])('maps %s to %s', (engine, portrait) => {
     expect(portraitStateForEngine(engine)).toBe(portrait)
@@ -28,23 +23,4 @@ describe('portrait state mapping', () => {
     expect(portraitStateForEngine('idle')).toBeNull()
   })
 
-  it('disables gaze for expressions that own their eye direction', () => {
-    expect(gazeEnabledForState('review')).toBe(true)
-    expect(gazeEnabledForState('sleepy')).toBe(false)
-    expect(gazeEnabledForState('error')).toBe(false)
-    expect(gazeEnabledForState('idle')).toBe(true)
-  })
-
-  it('enables deep work only through the dedicated face-only glasses strip', () => {
-    expect(supportsFaceOnlyDeepWork()).toBe(true)
-    expect(FACE_ONLY_ASSET_MANIFEST.deepWorkGlasses.frameCount).toBe(6)
-  })
-
-  it('keeps the 16-way face-only pointer sheet in clockwise order', () => {
-    expect(FACE_ONLY_ASSET_MANIFEST.pointerLook).toMatchObject({
-      columns: 4,
-      rows: 4,
-      frameCount: 16
-    })
-  })
 })

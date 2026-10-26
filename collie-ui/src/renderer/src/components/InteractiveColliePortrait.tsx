@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Ban, Check, CircleX } from 'lucide-react'
 import type { ActiveAgent, ThinkingState } from '../lib/ipc'
 import {
@@ -10,10 +10,10 @@ import {
   isAgentSettled,
   settledRowsWithinWindow
 } from '../lib/agentActivity'
-import { quantizePortraitPointer } from './colliePortraitMotion'
 import {
   PORTRAIT_STATIC_FALLBACK,
-  STATUS_COPY
+  STATUS_COPY,
+  type PortraitState
 } from './portraitStates'
 import { useColliePortraitState } from './useColliePortraitState'
 import AgentAvatar from './AgentAvatar'
@@ -85,24 +85,22 @@ export default function InteractiveColliePortrait({
   activeAgents,
   recentAgents = []
 }: Props): React.JSX.Element {
-  const [pointerTarget, setPointerTarget] = useState<number | null>(null)
+  const ringRef = useRef<HTMLDivElement>(null)
   const [copyIndex, setCopyIndex] = useState(0)
   const [now, setNow] = useState(Date.now)
-  const { state, paused, reducedMotion, triggerReaction } = useColliePortraitState(
+  const [preview, setPreview] = useState<PortraitState | ''>('')
+  const previewEnabled = sessionStorage.getItem('collie.ui-ux-preview') === '1' &&
+    sessionStorage.getItem('collie.expression-preview') === '1'
+  const { state: liveState, paused, reducedMotion, triggerReaction, triggerHappyReaction } = useColliePortraitState(
     thinking,
     isTyping,
-    activeAgents,
-    pointerTarget
+    activeAgents
   )
+  const state = previewEnabled && preview ? preview : liveState
   const settledAfterTerminal =
     ['idle', 'sleepy'].includes(state) &&
     ['done', 'error'].includes(thinking?.state || '')
-  const effectivePhrase =
-    state === 'pointer_look'
-      ? 'I’m listening…'
-      : settledAfterTerminal
-        ? 'Ready when you are.'
-        : phrase
+  const effectivePhrase = settledAfterTerminal ? 'Ready when you are.' : phrase
   const copyPool = useMemo(() => {
     const pool = STATUS_COPY[state] || []
     return effectivePhrase
@@ -141,17 +139,11 @@ export default function InteractiveColliePortrait({
     return () => window.clearInterval(timer)
   }, [showWorking, showSettled])
 
-  function handlePointerMove(event: React.PointerEvent<HTMLDivElement>): void {
-    const bounds = event.currentTarget.getBoundingClientRect()
-    const x = (event.clientX - bounds.left - bounds.width / 2) / (bounds.width / 2)
-    const y = (event.clientY - bounds.top - bounds.height / 2) / (bounds.height / 2)
-    setPointerTarget(quantizePortraitPointer(x, y))
-  }
-
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>): void {
     if (event.key !== 'Enter' && event.key !== ' ') return
     event.preventDefault()
-    triggerReaction()
+    if (event.shiftKey) triggerHappyReaction()
+    else triggerReaction()
   }
 
   const status = copyPool[copyIndex] || 'Ready when you are.'
@@ -162,14 +154,14 @@ export default function InteractiveColliePortrait({
       aria-label={`Collie is ${state.replaceAll('_', ' ')}`}
     >
       <div
+        ref={ringRef}
         className="collie-portrait-ring"
         role="button"
         tabIndex={0}
         aria-label="Pet Collie"
-        data-gaze-direction={pointerTarget ?? 'idle'}
-        onPointerMove={handlePointerMove}
-        onPointerLeave={() => setPointerTarget(null)}
+        aria-keyshortcuts="Enter Space Shift+Enter"
         onClick={triggerReaction}
+        onDoubleClick={triggerHappyReaction}
         onKeyDown={handleKeyDown}
       >
         <span className="collie-ring-background" aria-hidden="true" />
@@ -187,6 +179,14 @@ export default function InteractiveColliePortrait({
         <span key={status}>{status}</span>
         {elapsedLabel ? <small>{elapsedLabel}</small> : null}
       </div>
+      {previewEnabled && <label className="portrait-expression-preview" style={{ fontSize: 11 }}>
+        Expression preview
+        <select aria-label="Preview expression" value={preview} onChange={event => setPreview(event.target.value as PortraitState | '')}>
+          <option value="">Live app state</option>
+          {(['idle', 'attentive', 'thinking', 'working', 'review', 'delegating', 'listening', 'writing', 'waiting', 'completion', 'error', 'sleepy'] as PortraitState[]).map(item =>
+            <option key={item} value={item}>{item}</option>)}
+        </select>
+      </label>}
       {(showWorking || showSettled) && (
         <div
           className="portrait-agent-list"

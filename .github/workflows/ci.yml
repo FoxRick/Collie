@@ -15,6 +15,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  portrait-macos:
+    name: Portrait contracts (macOS, Node 22)
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: collie-ui
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: collie-ui/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      # Contract/build coverage only; Retina and native motion acceptance
+      # remain manual gates in docs/product/features/composer-portrait.md.
+      - run: npx vitest run src/renderer/src/components/ColliePortraitFrame.test.tsx src/renderer/src/components/collieExpressions.test.ts src/renderer/src/components/InteractiveColliePortrait.expiry.test.tsx src/renderer/src/components/portraitStates.test.ts
+      - run: npm run build
+
   collaboration-backend:
     name: Collaboration SQL and Edge functions
     runs-on: ubuntu-latest
