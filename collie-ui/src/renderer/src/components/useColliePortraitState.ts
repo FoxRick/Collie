@@ -1,12 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ActiveAgent, ThinkingState } from '../lib/ipc'
-import {
-  portraitStateForEngine,
-  supportsFaceOnlyDeepWork,
-  type PortraitState
-} from './portraitStates'
+import { portraitStateForEngine, type PortraitState } from './portraitStates'
 
-const DEEP_WORK_DELAY_MS = 11_000
+const SLEEP_DELAY_MS = 180_000
 const COMPLETION_DURATION_MS = 2_400
 const CLICK_REACTION_DURATION_MS = 2_100
 const CLICK_COOLDOWN_MS = 1_000
@@ -22,20 +18,22 @@ interface PortraitModel {
 export function useColliePortraitState(
   thinking: ThinkingState | null,
   isTyping: boolean,
-  activeAgents: ActiveAgent[],
-  pointerTarget: number | null
+  activeAgents: ActiveAgent[]
 ): PortraitModel {
   const [transient, setTransient] = useState<PortraitState | null>(null)
   const [paused, setPaused] = useState(document.hidden)
   const [reducedMotion, setReducedMotion] = useState(() =>
     window.matchMedia('(prefers-reduced-motion: reduce)').matches
   )
-  const [deepWorkReady, setDeepWorkReady] = useState(false)
+  const [asleep, setAsleep] = useState(false)
+  const [handoff, setHandoff] = useState(false)
+  const previousAgents = useRef(new Set<string>())
+  const handoffTimer = useRef<number | null>(null)
   const clickCooldownUntil = useRef(0)
   const transientTimer = useRef<number | null>(null)
 
   const engineState = portraitStateForEngine(thinking?.state)
-  const isAssistantWorking = engineState === 'working'
+  const busy = !!engineState || activeAgents.length > 0 || isTyping
 
   const setTimedTransient = useCallback((next: PortraitState, duration: number): void => {
     if (transientTimer.current !== null) window.clearTimeout(transientTimer.current)
@@ -60,11 +58,21 @@ export function useColliePortraitState(
   }, [])
 
   useEffect(() => {
-    setDeepWorkReady(false)
-    if (!isAssistantWorking || !supportsFaceOnlyDeepWork()) return
-    const timer = window.setTimeout(() => setDeepWorkReady(true), DEEP_WORK_DELAY_MS)
+    setAsleep(false)
+    if (busy || transient || thinking?.state === 'error') return
+    const timer = window.setTimeout(() => setAsleep(true), SLEEP_DELAY_MS)
     return () => window.clearTimeout(timer)
-  }, [isAssistantWorking])
+  }, [busy, transient, thinking?.state])
+
+  useEffect(() => {
+    const ids = new Set(activeAgents.map(agent => agent.id))
+    const added = [...ids].some(id => !previousAgents.current.has(id))
+    previousAgents.current = ids
+    if (!added) return
+    setHandoff(true)
+    if (handoffTimer.current !== null) window.clearTimeout(handoffTimer.current)
+    handoffTimer.current = window.setTimeout(() => setHandoff(false), 1700)
+  }, [activeAgents])
 
   useEffect(() => {
     if (engineState !== 'waiting') return
@@ -83,24 +91,23 @@ export function useColliePortraitState(
   useEffect(
     () => () => {
       if (transientTimer.current !== null) window.clearTimeout(transientTimer.current)
+      if (handoffTimer.current !== null) window.clearTimeout(handoffTimer.current)
     },
     []
   )
 
   const state = useMemo<PortraitState>(() => {
-    // Priority matches the approved interaction model: hard states, then
-    // short reactions, then work, pointer attention, and finally idle.
+    // Blocking states stay readable; pointer location has no role.
     if (thinking?.state === 'error') return 'error'
     if (engineState === 'waiting') return 'waiting'
     if (transient) return transient
-    // Gate on the current base state as well as the timer so glasses disappear
-    // in the same render that work ends, before the reset effect runs.
-    if (deepWorkReady && isAssistantWorking) return 'deep_work_glasses'
+    if (handoff && activeAgents.length > 0) return 'delegating'
     if (engineState) return engineState
-    if (isTyping || activeAgents.length > 0) return 'working'
-    if (!reducedMotion && pointerTarget !== null) return 'pointer_look'
+    if (activeAgents.length > 0) return 'listening'
+    if (isTyping) return 'attentive'
+    if (asleep) return 'sleepy'
     return 'idle'
-  }, [deepWorkReady, engineState, isAssistantWorking, pointerTarget, reducedMotion, thinking?.state, transient])
+  }, [activeAgents.length, asleep, engineState, handoff, isTyping, thinking?.state, transient])
 
   const triggerReaction = useCallback(() => {
     if (state === 'error' || state === 'waiting' || state === 'completion') return

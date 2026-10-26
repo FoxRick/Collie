@@ -10,10 +10,10 @@ import {
   isAgentSettled,
   settledRowsWithinWindow
 } from '../lib/agentActivity'
-import { quantizePortraitPointer } from './colliePortraitMotion'
 import {
   PORTRAIT_STATIC_FALLBACK,
-  STATUS_COPY
+  STATUS_COPY,
+  type PortraitState
 } from './portraitStates'
 import { useColliePortraitState } from './useColliePortraitState'
 import AgentAvatar from './AgentAvatar'
@@ -85,25 +85,22 @@ export default function InteractiveColliePortrait({
   activeAgents,
   recentAgents = []
 }: Props): React.JSX.Element {
-  const [pointerTarget, setPointerTarget] = useState<number | null>(null)
   const ringRef = useRef<HTMLDivElement>(null)
   const [copyIndex, setCopyIndex] = useState(0)
   const [now, setNow] = useState(Date.now)
-  const { state, paused, reducedMotion, triggerReaction, triggerHappyReaction } = useColliePortraitState(
+  const [preview, setPreview] = useState<PortraitState | ''>('')
+  const previewEnabled = sessionStorage.getItem('collie.ui-ux-preview') === '1' &&
+    sessionStorage.getItem('collie.expression-preview') === '1'
+  const { state: liveState, paused, reducedMotion, triggerReaction, triggerHappyReaction } = useColliePortraitState(
     thinking,
     isTyping,
-    activeAgents,
-    pointerTarget
+    activeAgents
   )
+  const state = previewEnabled && preview ? preview : liveState
   const settledAfterTerminal =
     ['idle', 'sleepy'].includes(state) &&
     ['done', 'error'].includes(thinking?.state || '')
-  const effectivePhrase =
-    state === 'pointer_look'
-      ? 'I’m listening…'
-      : settledAfterTerminal
-        ? 'Ready when you are.'
-        : phrase
+  const effectivePhrase = settledAfterTerminal ? 'Ready when you are.' : phrase
   const copyPool = useMemo(() => {
     const pool = STATUS_COPY[state] || []
     return effectivePhrase
@@ -142,25 +139,6 @@ export default function InteractiveColliePortrait({
     return () => window.clearInterval(timer)
   }, [showWorking, showSettled])
 
-  useEffect(() => {
-    const move = (event: PointerEvent): void => {
-      const bounds = ringRef.current?.getBoundingClientRect()
-      if (!bounds) return
-      const x = (event.clientX - bounds.left - bounds.width / 2) / (bounds.width / 2)
-      const y = (event.clientY - bounds.top - bounds.height / 2) / (bounds.height / 2)
-      setPointerTarget(quantizePortraitPointer(x, y, 0.16))
-    }
-    const leave = (): void => setPointerTarget(null)
-    window.addEventListener('pointermove', move, { passive: true })
-    window.addEventListener('blur', leave)
-    document.addEventListener('pointerleave', leave)
-    return () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('blur', leave)
-      document.removeEventListener('pointerleave', leave)
-    }
-  }, [])
-
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>): void {
     if (event.key !== 'Enter' && event.key !== ' ') return
     event.preventDefault()
@@ -182,7 +160,6 @@ export default function InteractiveColliePortrait({
         tabIndex={0}
         aria-label="Pet Collie"
         aria-keyshortcuts="Enter Space Shift+Enter"
-        data-gaze-direction={pointerTarget ?? 'idle'}
         onClick={triggerReaction}
         onDoubleClick={triggerHappyReaction}
         onKeyDown={handleKeyDown}
@@ -202,6 +179,14 @@ export default function InteractiveColliePortrait({
         <span key={status}>{status}</span>
         {elapsedLabel ? <small>{elapsedLabel}</small> : null}
       </div>
+      {previewEnabled && <label className="portrait-expression-preview" style={{ fontSize: 11 }}>
+        Expression preview
+        <select aria-label="Preview expression" value={preview} onChange={event => setPreview(event.target.value as PortraitState | '')}>
+          <option value="">Live app state</option>
+          {(['idle', 'attentive', 'thinking', 'working', 'review', 'delegating', 'listening', 'writing', 'waiting', 'completion', 'error', 'sleepy'] as PortraitState[]).map(item =>
+            <option key={item} value={item}>{item}</option>)}
+        </select>
+      </label>}
       {(showWorking || showSettled) && (
         <div
           className="portrait-agent-list"

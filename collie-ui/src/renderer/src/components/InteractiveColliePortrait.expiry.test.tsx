@@ -96,16 +96,33 @@ describe('InteractiveColliePortrait settled-row expiry', () => {
     expect(host!.querySelector(engine === 'error' ? '.is-error' : '.is-waiting')).not.toBeNull()
     expect(host!.querySelector('.is-click_reaction')).toBeNull()
   })
-  it('tracks outside the ring, keeps attention on ring exit, and returns on window blur', () => {
+  it('ignores pointer movement and sleeps only after three minutes of idle time', () => {
     render()
     const ring = host!.querySelector('.collie-portrait-ring')!
     vi.spyOn(ring, 'getBoundingClientRect').mockReturnValue({ left: 100, top: 100, width: 100, height: 100 } as DOMRect)
     act(() => window.dispatchEvent(new MouseEvent('pointermove', { clientX: 600, clientY: 150 })))
-    expect(host!.querySelector('.is-pointer_look')).not.toBeNull()
+    expect(host!.querySelector('.is-idle')).not.toBeNull()
     act(() => ring.dispatchEvent(new MouseEvent('pointerout', { bubbles: true })))
-    expect(host!.querySelector('.is-pointer_look')).not.toBeNull()
+    expect(host!.querySelector('.is-idle')).not.toBeNull()
     act(() => window.dispatchEvent(new Event('blur')))
     expect(host!.querySelector('.is-pointer_look')).toBeNull()
+    act(() => vi.advanceTimersByTime(180_001))
+    expect(host!.querySelector('.is-sleepy')).not.toBeNull()
+  })
+  it('stays awake while a sub-agent works and uses a single handoff gesture', () => {
+    render({ activeAgents: [settled({ phase: 'running', ended_at_ms: undefined, outcome: undefined })] })
+    expect(host!.querySelector('.is-delegating')).not.toBeNull()
+    act(() => vi.advanceTimersByTime(1_701))
+    expect(host!.querySelector('.is-listening')).not.toBeNull()
+    act(() => vi.advanceTimersByTime(180_001))
+    expect(host!.querySelector('.is-sleepy')).toBeNull()
+  })
+  it('wakes immediately when typing begins', () => {
+    render()
+    act(() => vi.advanceTimersByTime(180_001))
+    expect(host!.querySelector('.is-sleepy')).not.toBeNull()
+    act(() => root!.render(<InteractiveColliePortrait thinking={null} phrase="" isTyping activeAgents={[]} />))
+    expect(host!.querySelector('.is-attentive')).not.toBeNull()
   })
   it('unmounts the empty agent list and stops the ticker once rows expire', () => {
     const ended = Date.now() - 60_000

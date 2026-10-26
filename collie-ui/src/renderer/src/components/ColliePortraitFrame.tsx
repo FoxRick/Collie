@@ -1,198 +1,97 @@
 import { useEffect, useRef } from 'react'
-import { smoothFactor } from './colliePortraitMotion'
-import { prepareFaceArtwork, type FaceArtwork } from './colliePortraitFace'
-import { FACE_ONLY_ASSET_MANIFEST, type PortraitState } from './portraitStates'
-import { attentionTarget, drawRig, rigPoint } from './colliePortraitRig'
+import { drawExpression, EXPRESSION_ASSETS, expressionTarget, stepExpression, type ExpressionPose } from './collieExpressions'
+import type { PortraitState } from './portraitStates'
+
 interface Props {
   state: PortraitState
   reducedMotion: boolean
   fallbackSrc: string
   className?: string
 }
-const ease = (v: number): number => { const t = Math.max(0, Math.min(1, v)); return t * t * (3 - 2 * t); }
-const logoSrc = new URL('../../../../build/icon.png', import.meta.url).href
+
 export default function ColliePortraitFrame({ state, reducedMotion, fallbackSrc, className }: Props): React.JSX.Element {
-  const canvasRef = useRef<HTMLCanvasElement>(null), fallbackRef = useRef<HTMLImageElement>(null), stateRef = useRef(state)
-  const poseRef = useRef({ x: 0, y: 0, time: 0, mouth: 0, wave: 0, glasses: 0 })
-  useEffect(() => { stateRef.current = state; }, [state])
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const fallbackRef = useRef<HTMLImageElement>(null)
+  const stateRef = useRef(state)
+  const redrawRef = useRef<(() => void) | null>(null)
+  const poseRef = useRef<ExpressionPose>({ mouth: .65, lids: 0, ears: .12, paw: 0, time: 0 })
+  useEffect(() => { stateRef.current = state; redrawRef.current?.() }, [state])
+
   useEffect(() => {
     const canvas = canvasRef.current, fallback = fallbackRef.current
-    if (!canvas || !fallback)
-      return
+    if (!canvas || !fallback) return
     const ctx = canvas.getContext('2d')
-    if (!ctx)
-      return
-    let disposed = false, lost = false, art: FaceArtwork | null = null, raf: number | null = null, last = 0, nextDraw = 0, reaction = 0, wasReacting = false
-    let target = { x: 0, y: 0 }
-    let outside = true, desktopPending = false, lastDesktopPoll = -1000
+    if (!ctx) return
+    let disposed = false, lost = false, ready = false, raf: number | null = null
+    let previousTime = 0, nextDraw = 0, entered = 0, current = stateRef.current
     const pose = poseRef.current
+    const images = Object.values(EXPRESSION_ASSETS).map(() => new Image())
     const stop = (): void => {
       if (raf !== null) cancelAnimationFrame(raf)
       raf = null
-      last = 0
+      previousTime = 0
       nextDraw = 0
     }
+    const showFallback = (): void => { stop(); fallback.hidden = false; canvas.hidden = true }
     const draw = (): void => {
-      if (!art)
-        return
       const side = Math.max(1, Math.round(Math.min(2, window.devicePixelRatio || 1) * (canvas.getBoundingClientRect().width || 136)))
-      if (canvas.width !== side || canvas.height !== side) {
-        canvas.width = side
-        canvas.height = side
-      }
+      if (canvas.width !== side || canvas.height !== side) { canvas.width = side; canvas.height = side }
       ctx.setTransform(side / 384, 0, 0, side / 384, 0, 0)
-      ctx.clearRect(0, 0, 384, 384)
-      drawRig(ctx, art.neutral.texture, pose)
-      if (pose.mouth > .001)
-        drawRig(ctx, art.mouth.texture, pose, ease(pose.mouth))
-      const blink = reducedMotion ? 0 : Math.max(0, 1 - Math.abs(pose.time % 5.1 - 4.7) / .13)
-      if (blink > 0)
-        drawRig(ctx, art.blink.texture, pose, blink)
-      const landmarks = art.neutral.features.map(p => rigPoint(p.x, p.y, pose))
-      canvas.dataset.blink = blink.toFixed(3)
-      if (pose.glasses > .001) {
-        const left = landmarks[3], right = landmarks[4]
-        ctx.save()
-        ctx.globalAlpha = pose.glasses
-        ctx.lineWidth = 5
-        ctx.strokeStyle = '#211e21'
-        ctx.fillStyle = 'rgba(116,161,181,.12)'
-        for (const eye of [left, right]) {
-          ctx.beginPath()
-          ctx.ellipse(eye.x, eye.y, 24, 20, .05, 0, Math.PI * 2)
-          ctx.fill()
-          ctx.stroke()
-        }
-        ctx.beginPath()
-        ctx.moveTo(left.x + 24, left.y)
-        ctx.lineTo(right.x - 24, right.y)
-        ctx.stroke()
-        ctx.restore()
-      }
-      if (pose.wave > .001) {
-        // Original raised FORELEG pivots from the chest; no floating fist.
-        ctx.save()
-        ctx.translate(80, 384)
-        ctx.rotate((1 - pose.wave) * -.65 + Math.sin(reaction * 15) * .035 * pose.wave)
-        ctx.translate(-80, -384 + (1 - pose.wave) * 150)
-        ctx.drawImage(art.arm, 0, 0)
-        ctx.restore()
-      }
-      canvas.dataset.noseX = landmarks[5].x.toFixed(2)
-      canvas.dataset.noseY = landmarks[5].y.toFixed(2)
-      canvas.dataset.eyeX = landmarks[3].x.toFixed(2)
-      canvas.dataset.eyeY = landmarks[3].y.toFixed(2)
+      drawExpression(ctx, images, pose, reducedMotion)
+      canvas.dataset.expression = current
       canvas.dataset.mouth = pose.mouth.toFixed(3)
-      canvas.dataset.wave = pose.wave.toFixed(3)
+      canvas.dataset.lids = pose.lids.toFixed(3)
+      canvas.dataset.wave = pose.paw.toFixed(3)
+      canvas.dataset.clock = pose.time.toFixed(3)
       fallback.hidden = true
       canvas.hidden = false
     }
     const frame = (now: number): void => {
       raf = null
-      if (disposed || document.hidden || lost || !art)
-        return
-      // Read-only desktop coordinates only while the pointer is outside the
-      // visible app. Window pointer events remain the immediate inside path.
-      if (outside && !desktopPending && now - lastDesktopPoll >= 66 && window.collie?.portraitPointer) {
-        lastDesktopPoll = now
-        desktopPending = true
-        void window.collie.portraitPointer().then(point => {
-          if (!point || disposed || document.hidden || !outside) return
-          const rect = canvas.getBoundingClientRect(), radius = Math.max(1, rect.width / 2)
-          target = attentionTarget((point.x - rect.left - radius) / radius, (point.y - rect.top - rect.height / 2) / radius)
-          canvas.dataset.pointerSource = 'desktop'
-        }).catch(() => { /* Retain the last look if the platform cannot read it. */ }).finally(() => { desktopPending = false })
-      }
-      if (now < nextDraw - .5) {
-        raf = requestAnimationFrame(frame)
-        return
-      }
+      if (disposed || document.hidden || lost || !ready) return
+      if (now < nextDraw - .5) { raf = requestAnimationFrame(frame); return }
       nextDraw = nextDraw ? nextDraw + 1000 / 60 : now + 1000 / 60
-      if (now - nextDraw > 50)
-        nextDraw = now + 1000 / 60
-      const dt = last ? Math.min(.05, (now - last) / 1000) : 1 / 60
-      last = now
+      if (now - nextDraw > 50) nextDraw = now + 1000 / 60
+      const dt = previousTime ? Math.min(.05, (now - previousTime) / 1000) : 1 / 60
+      previousTime = now
       pose.time += dt
-      const current = stateRef.current, reacting = ['click_reaction', 'happy_reaction', 'completion'].includes(current)
-      if (reacting && !wasReacting)
-        reaction = 0
-      wasReacting = reacting
-      if (reacting)
-        reaction += dt
-      const busy = ['working', 'review', 'deep_work_glasses'].includes(current), attention = busy ? .4 : 1, f = smoothFactor(8, dt)
-      pose.x += (target.x * attention - pose.x) * f
-      pose.y += (target.y * attention - pose.y) * f
-      const wave = reacting ? ease((reaction - .12) / .24) * (1 - ease((reaction - .85) / .4)) : 0
-      pose.wave += (wave - pose.wave) * smoothFactor(18, dt)
-      const smile = reacting && reaction < 1.7 ? 1 : 0
-      pose.mouth += (smile - pose.mouth) * smoothFactor(11, dt)
-      pose.glasses += ((current === 'deep_work_glasses' ? 1 : 0) - pose.glasses) * f
-      try {
-        draw()
-      }
-      catch {
-        fallback.hidden = false
-        canvas.hidden = true
-        return
-      }
-      if (!reducedMotion)
-        raf = requestAnimationFrame(frame)
+      if (current !== stateRef.current) { current = stateRef.current; entered = 0 }
+      entered += dt
+      stepExpression(pose, current, dt, entered)
+      try { draw() } catch { showFallback(); return }
+      raf = requestAnimationFrame(frame)
     }
-    const start = (): void => { stop(); if (!disposed && art && !document.hidden && !lost) {
+    const start = (): void => {
+      stop()
+      if (disposed || !ready || document.hidden || lost) return
       if (reducedMotion) {
-        pose.x = 0
-        pose.y = 0
-        pose.mouth = 0
-        pose.wave = 0
-        draw()
-      }
-      else
-        raf = requestAnimationFrame(frame)
-    } }
-    const move = (event: PointerEvent): void => { outside = false; canvas.dataset.pointerSource = 'window'; const r = canvas.getBoundingClientRect(), radius = Math.max(1, r.width / 2); target = attentionTarget((event.clientX - r.left - radius) / radius, (event.clientY - r.top - r.height / 2) / radius); }
-    const leave = (): void => { outside = true }
-    const contextLost = (event: Event): void => { event.preventDefault(); lost = true; stop(); fallback.hidden = false; canvas.hidden = true; }
-    const restored = (): void => {
-      lost = false
-      try {
-        // Source canvases can lose their backing stores along with the main
-        // context. Rebuild layers from the retained original image elements.
-        art = prepareFaceArtwork(images[0], images[1], images[2], images[3])
-        start()
-      } catch {
-        fallback.hidden = false
-        canvas.hidden = true
-      }
+        current = stateRef.current
+        Object.assign(pose, expressionTarget(current, 0, 2), { paw: 0 })
+        try { draw() } catch { showFallback() }
+      } else raf = requestAnimationFrame(frame)
     }
-    const images = [new Image(), new Image(), new Image(), new Image()]
-    let pending = 4, failed = false
-    const loaded = (): void => { if (--pending || disposed || failed)
-      return; try {
-      art = prepareFaceArtwork(images[0], images[1], images[2], images[3])
-      start()
+    redrawRef.current = () => { if (reducedMotion) start() }
+    const contextLost = (event: Event): void => { event.preventDefault(); lost = true; showFallback() }
+    const restored = (): void => { lost = false; start() }
+    let pending = images.length, failed = false
+    for (const [index, image] of images.entries()) {
+      image.onload = () => { if (!--pending && !disposed && !failed) { ready = true; start() } }
+      image.onerror = () => { failed = true; showFallback() }
+      image.src = Object.values(EXPRESSION_ASSETS)[index]
     }
-    catch {
-      fallback.hidden = false
-      canvas.hidden = true
-    } }
-    for (const image of images) {
-      image.onload = loaded
-      image.onerror = () => { failed = true; stop(); fallback.hidden = false; canvas.hidden = true; }
-    }
-    images[0].src = FACE_ONLY_ASSET_MANIFEST.pointerLook.src
-    images[1].src = FACE_ONLY_ASSET_MANIFEST.clickReaction.src
-    images[2].src = FACE_ONLY_ASSET_MANIFEST.idle.src
-    images[3].src = logoSrc
-    window.addEventListener('pointermove', move, { passive: true })
-    window.addEventListener('blur', leave)
-    document.addEventListener('pointerleave', leave)
     document.addEventListener('visibilitychange', start)
     canvas.addEventListener('contextlost', contextLost)
     canvas.addEventListener('contextrestored', restored)
-    return () => { disposed = true; stop(); window.removeEventListener('pointermove', move); window.removeEventListener('blur', leave); document.removeEventListener('pointerleave', leave); document.removeEventListener('visibilitychange', start); canvas.removeEventListener('contextlost', contextLost); canvas.removeEventListener('contextrestored', restored); for (const image of images) {
-      image.onload = null
-      image.onerror = null
-    } }
+    return () => {
+      disposed = true
+      stop()
+      redrawRef.current = null
+      document.removeEventListener('visibilitychange', start)
+      canvas.removeEventListener('contextlost', contextLost)
+      canvas.removeEventListener('contextrestored', restored)
+      for (const image of images) { image.onload = null; image.onerror = null; image.src = '' }
+      canvas.width = canvas.height = 1
+    }
   }, [fallbackSrc, reducedMotion])
-  return <><img ref={fallbackRef} className={className} src={fallbackSrc} alt="" draggable={false} aria-hidden="true"/><canvas ref={canvasRef} className={className} hidden aria-hidden="true"/></>
+  return <><img ref={fallbackRef} className={className} src={fallbackSrc} alt="" draggable={false} aria-hidden="true" /><canvas ref={canvasRef} className={className} hidden aria-hidden="true" /></>
 }

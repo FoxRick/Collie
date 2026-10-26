@@ -1,102 +1,66 @@
 # Composer portrait
 
-**Status:** implemented, awaiting native platform acceptance
+**Status:** implemented locally; awaiting release acceptance
 
-The composer keeps the illustrated Collie portrait, orange circle, layout,
-and local bundled artwork. A shallow depth surface projects the head with
-continuous yaw and pitch. The muzzle projects farther than the forehead, so
-the snout turns relative to the eyes instead of shifting the whole portrait.
-The mesh is 12 by 16 quads with a fixed chest root. It uses one frontal painting
-from the original direction atlas, avoiding competing head silhouettes. The
-turn range is deliberately bounded (about 29 degrees yaw and 15 degrees pitch);
-this does not add unseen back-of-head artwork or full profile geometry.
-Rotation feathers out above the chest instead of twisting the lower neck.
-Independent, restrained ear sway and a small happy perk keep the ears alive.
-The chest overshoots the circular clip so fur meets the lower ring edge.
+Collei stays in one fixed painted pose beside the composer. The artwork comes
+from the same `portrait/happy.webp` used in the website features tile. The
+head does not follow the pointer or rotate. Facial animation uses the mouth,
+eyelids, ears and original raised foreleg, with one visible Canvas 2D surface.
 
-Pointer attention covers the app window with a soft central dead zone. Leaving
-the portrait ring does not change tracking. On Windows/macOS and Linux X11,
-the visible app can continue tracking beyond its borders through a guarded,
-read-only Electron bridge. Only content-relative pointer coordinates cross it;
-there are no hooks, clicks/keys, screen capture, logs, or stored pointer history.
-Polling is limited to about 15 Hz while outside the visible window and stops
-when hidden. Electron cannot supply global pointer positions on Wayland;
-there the portrait retains its last look until window pointer events resume.
-See [Electron screen documentation](https://www.electronjs.org/docs/latest/api/screen/).
-Windows native outside-window tracking has been exercised; macOS/X11 remain
-native acceptance gates for this shared API path.
-Engine waiting and error states retain priority;
-work reduces attention and deep work adds aligned glasses.
+## Expressions and idle activity
 
-A click raises the original illustrated foreleg, pivoted from the chest with
-anticipation, a hold, and a gradual return. A double click promotes that reaction
-to the happy reaction even during the first click's cooldown. Both clicks and
-double clicks show the full tongue-out smile taken from the actual app logo.
-Enter/Space activate the wave; Shift+Enter activates the smile. A small jaw
-settle accompanies the painted mouth at its full proportions.
-Original painted eyelids continue natural blinks. There is no automatic sleepy
-or persistent closed-eye state on leave, blur, or inactivity.
-Mouth and eyelid registration happens once at load; whole heads do not
-crossfade. Current head position and the animation clock survive state changes.
+The portrait responds to typing, thinking/planning, work, research/checking,
+helper handoffs, waiting for helpers, writing, input/approval requests,
+completion and errors. Blocking input/error states take priority over short
+reactions. Click or Enter/Space gives a happy paw wave; double-click or
+Shift+Enter promotes the happy reaction. Three minutes genuinely idle enters
+sleep; typing, work and active helpers keep Collei awake.
 
-The static portrait is visible until Canvas successfully draws, then hidden.
-Texture failure or context loss restores it; context restoration restarts one
-loop. Motion uses elapsed time with a 60 Hz draw ceiling, textures sized to the
-visible portrait with DPR capped at two, and no React update per animation
-frame. Hidden documents stop requesting animation frames. Reduced motion draws
-one neutral frame. No inference, WebGL, WebGPU, or native platform renderer is
-required. The same Canvas path supports Chromium's software rendering.
+The painted head is approximately 12% smaller than the earlier expression
+preview, with a fixed optical shift right and additional ear headroom. Only
+the lower chest stretches to meet the circle. Expression changes retain the
+current channel values and animation clock; position and scale stay fixed.
 
-## Local review
+While awake, blinks occur roughly every 3–4 seconds with small timing variation
+and an occasional double blink. Ear perks/relaxations occur between quiet
+holds, approximately every three seconds. These movements do not require
+clicks or pointer activity. Reduced motion disables automatic movement and
+shows a still for the current expression.
 
-From `collie-ui`, run:
+## Assets and lifecycle
 
-```powershell
-npm run build
-node scripts/preview-portrait.cjs
-```
+The offline generator derives 49 mouth, 33 eyelid and 33 ear frames from the
+existing paintings. It also extracts the foreleg and makes a matching static
+fallback. Source hashes and decoded sizes are recorded in
+`portrait/expressions-v2.json`. There are no uploads, generation services,
+runtime inference, WebGL or WebGPU. Atlas decoding is about 16.8 MiB before
+browser caching and graphics-driver overhead.
 
-This opens a separate preview with its own core/profile, without provider
-credentials or real conversations. Its profile defaults to the OS temporary directory; set
-`COLLIE_PORTRAIT_REVIEW_HOME` to choose another location. Do not use it to send
-messages. Move the pointer across the empty chat and through the ring, click or
-keyboard-activate the portrait, and leave/re-enter the window.
+The renderer draws one completed mouth frame, one registered eye patch, an
+ear strip and the foreleg when needed. It never crossfades entire heads.
+Adjacent drawing regions overlap within identical fur to avoid thin seams at
+fractional DPI. The fallback is hidden only after a successful canvas draw;
+image/context failures restore it. No new canvases or textures are allocated
+on state changes. One elapsed-time loop is capped at 60 Hz with DPR capped at
+two. Hidden documents stop rendering; unmount releases the backing store and
+listeners. The desktop-pointer IPC path is no longer exposed.
 
-For real rendered regression checks, leave the preview open and run:
+## Local verification
 
-```powershell
-$env:COLLIE_PORTRAIT_QA_OUTPUT = 'C:\path\outside-the-repository\portrait-evidence'
-node scripts/verify-portrait-rig.cjs
-```
+From `collie-ui/`, run the focused portrait tests, typecheck and build.
+`scripts/generate-expression-assets.cjs` regenerates local artwork using
+Electron. `scripts/preview-expressions.cjs` renders the standalone lab using
+the production painter. `scripts/preview-portrait.cjs` opens the built app in
+an isolated core/profile. `scripts/verify-expressions.cjs` checks the app's
+expressions, context recovery, reduced motion, fractional DPR and a 90-second
+state-switch soak. Do not use this verifier against real user profiles.
 
-The script uses the local debug port 9345 (`COLLIE_DEBUG_PORT` overrides it),
-checks sixteen rendered directions and snout motion relative to the eyes,
-window exit, single-silhouette rendering, open-mouth double click, painted
-blink pixels, and reaction return. It records Canvas draw cost during unsent
-typing.
-It emulates focus for repeatability and restores that setting afterward.
-It does not measure GPU presentation latency or establish native visual
-acceptance. Evidence and runtime state must stay outside source control.
+Expression controls require both `collie.ui-ux-preview` and
+`collie.expression-preview` sessionStorage flags and affect only the local
+portrait. Evidence stays outside the source repository. The soak uses focus
+emulation for consistent visibility; it is restored afterward.
 
-## Acceptance before release
-
-Windows native inspection and Chromium pixel/time checks are useful evidence,
-not proof for other platforms. Review the following on actual hardware:
-
-- Windows at 100%, 125%, 150%, and 200% scaling; move between displays and test
-  60/120/144 Hz. Inspect fur edges for mesh seams and the muzzle for stretching.
-- macOS arm64 Retina and mixed-DPI external displays, focus/blur, and reduced
-  motion. Intel Mac packaging remains outside this change.
-- Linux X11 and Wayland with fractional scaling, accelerated and software
-  rendering; inspect pointer leave and window focus behavior.
-- Sleep/resume, minimize/restore, repeated mount/unmount, image load failure,
-  Canvas unavailable, context loss/restoration, and reduced motion changed
-  while the app is running. Hidden animation must stop and resume as one loop.
-- Waiting, error, work, deep work, completion, pointer attention, rapid clicks,
-  and keyboard activation. Check priorities and gradual return without a
-  duplicate silhouette. Confirm that typing/scrolling remains responsive.
-
-Unit/component tests cover muzzle rotation, triangle orientation, double-click promotion, geometry bounds, pointer scope, fallback ownership,
-visibility lifecycle, reduced motion, load failure, and context recovery. Native
-macOS/Linux acceptance and physical sleep/resume remain required before making
-cross-platform smoothness claims.
+A short Windows soak does not prove long-term leak freedom. Native process
+working sets are not dedicated VRAM; GPU counters may be unavailable. Native
+mixed-DPI displays, sleep/resume, graphics-driver recovery and macOS/Linux
+acceptance remain release gates.

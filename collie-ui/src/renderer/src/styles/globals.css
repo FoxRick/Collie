@@ -3202,6 +3202,9 @@ button {
   user-select: none;
 }
 
+/* Keep the fallback exclusive even if surrounding display rules change. */
+.collie-portrait-base[hidden] { display: none !important; }
+
 .collie-ring-foreground {
   z-index: 3;
   inset: 0;

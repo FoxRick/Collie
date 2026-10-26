@@ -73,8 +73,6 @@ export interface InstallResult {
 }
 
 const api = {
-  portraitPointer: (): Promise<{ x: number; y: number } | null> =>
-    ipcRenderer.invoke('collie:portrait-pointer'),
   coreState: (): Promise<{ state: string; port: number; token: string; error: string }> =>
     ipcRenderer.invoke('collie:core-state'),
   // #122: renderer -> main -> core command relay. The renderer builds a

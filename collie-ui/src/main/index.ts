@@ -1,5 +1,4 @@
 import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell, nativeImage, session, screen } from 'electron'
-import { portraitPointer } from './portrait-pointer'
 import { randomUUID } from 'crypto'
 import { basename, extname, isAbsolute, join } from 'path'
 import { homedir } from 'os'
@@ -400,12 +399,6 @@ function registerIpc(): void {
   }
 
   handle('collie:core-state', () => coreState())
-  handle('collie:portrait-pointer', () => portraitPointer(mainWindow, screen, {
-    platform: process.platform,
-    sessionType: process.env.XDG_SESSION_TYPE,
-    waylandDisplay: process.env.WAYLAND_DISPLAY,
-    ozone: app.commandLine.getSwitchValue('ozone-platform')
-  }))
   // #122: the renderer no longer holds the per-boot token or opens its own
   // socket to the core. Every command is relayed here, over main's single
   // authenticated connection (core-client.ts CoreBroker), guarded by the

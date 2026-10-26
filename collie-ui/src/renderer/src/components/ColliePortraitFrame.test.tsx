@@ -46,7 +46,7 @@ it('replaces the fallback after a successful canvas draw, leaving one dog', () =
   expect(draw).toHaveBeenCalled()
   expect(host.querySelector('img')?.hidden ?? true).toBe(true)
 })
-it('uses the desktop bridge after leave/blur without stopping blinking or polling while hidden', async () => {
+it('never polls desktop pointer coordinates or turns toward mouse movement', async () => {
   const pointer = vi.fn().mockResolvedValue({ x: 600, y: 150 })
   vi.stubGlobal('collie', { portraitPointer: pointer })
   render()
@@ -56,17 +56,39 @@ it('uses the desktop bridge after leave/blur without stopping blinking or pollin
     await act(async () => { const batch = [...frames.values()]; frames.clear(); batch.forEach(cb => cb(now)); await Promise.resolve() })
   }
   for (let t = 20; t <= 200; t += 20) await tick(t)
-  expect(canvas.dataset.pointerSource).toBe('desktop')
-  const right = Number(canvas.dataset.noseX)
+  expect(canvas.dataset.pointerSource).toBeUndefined()
+  const mouth = canvas.dataset.mouth
   pointer.mockResolvedValue({ x: -300, y: 150 })
   act(() => window.dispatchEvent(new Event('blur')))
   for (let t = 220; t <= 600; t += 20) await tick(t)
-  expect(Number(canvas.dataset.noseX)).toBeLessThan(right - 30)
+  expect(canvas.dataset.mouth).toBe(mouth)
+  expect(pointer).not.toHaveBeenCalled()
   Object.defineProperty(document, 'hidden', { configurable: true, value: true })
   act(() => document.dispatchEvent(new Event('visibilitychange')))
   const count = pointer.mock.calls.length
   await tick(1000)
   expect(pointer).toHaveBeenCalledTimes(count)
+  expect(frames.size).toBe(0)
+})
+
+it('retains the existing textures and starts a new expression from the current pose', () => {
+  render()
+  const count = images.length
+  act(() => root.render(<ColliePortraitFrame state="completion" reducedMotion={false} fallbackSrc="idle.webp" />))
+  act(() => { const batch = [...frames.values()]; frames.clear(); batch.forEach(cb => cb(16)) })
+  const canvas = host.querySelector('canvas')!
+  expect(Number(canvas.dataset.mouth)).toBeGreaterThan(.65)
+  expect(Number(canvas.dataset.mouth)).toBeLessThan(.8)
+  act(() => root.render(<ColliePortraitFrame state="error" reducedMotion={false} fallbackSrc="idle.webp" />))
+  expect(images).toHaveLength(count)
+  expect(frames.size).toBe(1)
+  expect(host.querySelector('img')!.hidden).toBe(true)
+})
+
+it('updates reduced-motion expressions without leaving a stale neutral face', () => {
+  render(true)
+  act(() => root.render(<ColliePortraitFrame state="sleepy" reducedMotion fallbackSrc="idle.webp" />))
+  expect(host.querySelector('canvas')!.dataset.lids).toBe('1.000')
   expect(frames.size).toBe(0)
 })
 it('stops JavaScript animation while the document is hidden and resumes one loop', () => {
