@@ -35,22 +35,29 @@ app.disableHardwareAcceleration()
 app.setPath('userData', mkdtempSync(join(tmpdir(), 'collie-tray-smoke-')))
 app.on('window-all-closed', () => {})
 let tray
-const watchdog = setTimeout(() => { console.error('Native tray smoke timed out'); app.exit(1) }, 35000)
+let stage = 'app ready'
+function progress(next) { stage = next; console.log(`[tray-smoke] ${next}`) }
+const watchdog = setTimeout(() => { console.error(`Native tray smoke timed out at ${stage}`); app.exit(1) }, 35000)
 
 async function showAndCheck(menu, window, expected) {
   await new Promise((resolve, reject) => {
-    menu.once('menu-will-show', () => setTimeout(() => {
+    menu.once('menu-will-show', () => {
+      progress('native menu shown')
+      setTimeout(() => {
       try {
-        assert.deepEqual(menu.items.map(item => item.checked), expected)
+        assert.deepEqual(menu.items[2].submenu.items.map(item => item.checked), expected)
         resolve()
       } catch (error) { reject(error) }
       finally { menu.closePopup(window) }
-    }, 100))
+    }, 100)
+    })
+    progress('opening native menu')
     menu.popup({ window })
   })
 }
 
 app.whenReady().then(async () => {
+  progress('load platform tray image')
   const icon = createTrayImage(join(__dirname, '..', 'build', 'icon.png'))
   assert.equal(icon.isEmpty(), false, 'tray image must load on this OS')
   if (process.platform === 'darwin') {
@@ -59,10 +66,13 @@ app.whenReady().then(async () => {
     const size = icon.getSize()
     assert.ok(size.width > 0 && size.width <= 32 && size.height > 0 && size.height <= 32)
   }
+  progress('construct native tray')
   tray = new Tray(icon)
   const window = new BrowserWindow({ width: 320, height: 200, show: true,
     title: 'Collie native tray smoke', webPreferences: { sandbox: true } })
+  progress('load fixture window')
   await window.loadURL('about:blank')
+  progress('fixture loaded')
   for (const activeId of [null, 'older-chat', 'a']) {
     let selected
     const menu = Menu.buildFromTemplate(desktopMenu({ activeId,
@@ -70,7 +80,7 @@ app.whenReady().then(async () => {
     }, () => {}, action => { selected = action }, () => {}))
     tray.setContextMenu(menu)
     const recent = menu.items[2].submenu
-    await showAndCheck(recent, window, [activeId === 'a', false])
+    await showAndCheck(menu, window, [activeId === 'a', false])
     // MenuItem.click runs Electron's native checkbox toggle before our handler.
     recent.items[0].click()
     assert.equal(recent.items[0].checked, activeId === 'a')
@@ -84,6 +94,7 @@ app.whenReady().then(async () => {
   window.on('close', event => {
     if (shouldHideOnClose(process.platform, true)) { event.preventDefault(); window.hide() }
   })
+  progress('close fixture window')
   window.close()
   assert.equal(window.isDestroyed(), !shouldHideOnClose(process.platform, true))
   if (!window.isDestroyed()) {

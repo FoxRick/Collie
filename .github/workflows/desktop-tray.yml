@@ -37,6 +37,12 @@ jobs:
       - name: Native Electron tray smoke
         if: runner.os != 'Linux'
         run: node scripts/smoke-desktop-tray.cjs
+      - name: Configure Linux Electron sandbox helper
+        if: runner.os == 'Linux'
+        run: |
+          node -e "require('electron')"
+          sudo chown root:root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
       - name: Native Electron tray smoke under X11
         if: runner.os == 'Linux'
         run: xvfb-run -a node scripts/smoke-desktop-tray.cjs
