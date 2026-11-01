@@ -58,3 +58,39 @@ arrive, and the sidebar should prioritize starting and returning to chats.
   the current app session, and is described as local-file access only. It must
   not imply network, connector, payment, send, publish, destructive, account,
   or routine authority.
+
+## Desktop tray
+
+Collie keeps one tray icon per application profile. Opening the app again
+restores and focuses the existing window, including when it was minimized or
+hidden. A launch that does not acquire the single-instance lock does not start
+another window, tray icon, or core runtime. Deliberately isolated test profiles
+remain separate. The Windows app identity matches the installer shortcut for
+taskbar grouping.
+
+Right-click the tray icon for Open Collie, New chat, Recent chats (up to ten,
+with the selected chat checked), Settings, and Exit Collie (Quit Collie on macOS and Linux). Recent chats follow
+the sidebar's conversation order and refresh with its conversation list. New
+chat and recent-chat selection use the same navigation as the sidebar; switching
+chats does not stop background work. Actions selected during startup wait for
+the chat shell. Closing the window hides it; Exit Collie shuts down the app and
+its supervised processes and removes the tray icon.
+
+Recent chats refresh through existing conversation/message events, including
+first-message creation, renames, completion, and deletion. There is no tray
+polling timer and streamed text tokens do not rebuild the menu. Main skips
+native-menu rebuilds when the ten visible IDs, titles, and active selection are
+unchanged. A blank new-chat view enters recents after its first saved message.
+
+Menus use native Electron controls. Windows shows the menu in its notification
+area; macOS uses the top menu bar and clicking the icon opens the menu without
+raising the window; Linux uses the desktop's status-notifier/GTK tray, with
+activation depending on the desktop environment. The current chat uses a radio
+checkmark so selecting it again cannot toggle the checkmark off. macOS keeps
+literal ampersands in titles; Windows/Linux escape menu mnemonics. Every changed
+menu is reapplied with `setContextMenu`, as required by Linux. If tray construction fails on Windows/Linux, closing the window exits instead
+of hiding an app that cannot be reopened. Linux shells may still need a tray
+extension even when construction succeeds. Native macOS/Linux appearance and
+tray availability still need target-OS QA.
+
+Platform behavior reference: [Electron Tray](https://www.electronjs.org/docs/latest/api/tray).

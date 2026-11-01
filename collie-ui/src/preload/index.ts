@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { DesktopAction, DesktopMenuState } from '../shared/desktop-menu'
 import type { FeedbackResult, FeedbackSubmission } from '../shared/feedback'
 import type { CollaborationBridge } from '../shared/collaboration'
 import type {
@@ -73,6 +74,17 @@ export interface InstallResult {
 }
 
 const api = {
+  setDesktopMenu: (state: DesktopMenuState): Promise<void> =>
+    ipcRenderer.invoke('collie:desktop-menu', state),
+  onDesktopAction: (listener: (action: DesktopAction) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, action: DesktopAction): void => listener(action)
+    ipcRenderer.on('collie:desktop-action', handler)
+    void ipcRenderer.invoke('collie:desktop-ready', true).catch(() => undefined)
+    return () => {
+      ipcRenderer.removeListener('collie:desktop-action', handler)
+      void ipcRenderer.invoke('collie:desktop-ready', false).catch(() => undefined)
+    }
+  },
   coreState: (): Promise<{ state: string; port: number; token: string; error: string }> =>
     ipcRenderer.invoke('collie:core-state'),
   // #122: renderer -> main -> core command relay. The renderer builds a

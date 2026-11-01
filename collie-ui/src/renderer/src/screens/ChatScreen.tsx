@@ -911,6 +911,23 @@ export default function ChatScreen({
     void openConversation(null)
   }, [onNavigate, openConversation])
 
+  useEffect(() => {
+    void window.collie?.setDesktopMenu?.({
+      conversations: conversations.slice(0, 10).map(({ id, title }) => ({ id, title })),
+      activeId
+    }).catch(() => undefined)
+  }, [conversations, activeId])
+
+  useEffect(() => window.collie?.onDesktopAction?.((action) => {
+    setTemporaryOpen(false)
+    if (action.type === 'settings') onNavigate('settings')
+    else if (action.type === 'new-chat') newChat()
+    else if (action.type === 'open-chat') {
+      onNavigate('chat')
+      void openConversation(action.conversationId)
+    }
+  }), [newChat, onNavigate, openConversation])
+
   /** Open (or create, once) the getting-started conversation with its greeting. */
   const getStarted = useCallback(async () => {
     onNavigate('chat')

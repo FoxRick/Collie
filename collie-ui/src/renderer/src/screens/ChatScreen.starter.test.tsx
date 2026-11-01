@@ -2,6 +2,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { DesktopAction } from '../../../shared/desktop-menu'
 import type { CollieEvent, Conversation } from '../lib/ipc'
 
 const hooks = vi.hoisted(() => {
@@ -76,11 +77,15 @@ const starterConversation: Conversation = {
 describe('ChatScreen starter-conversation opening', () => {
   let container: HTMLDivElement
   let root: Root
+  let desktopAction: ((action: DesktopAction) => void) | undefined
+  let desktopOff: ReturnType<typeof vi.fn>
 
   beforeEach(async () => {
     ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
       .IS_REACT_ACT_ENVIRONMENT = true
     localStorage.clear()
+    desktopAction = undefined
+    desktopOff = vi.fn()
     hooks.client.on.mockClear()
     hooks.client.chat.mockReset().mockResolvedValue({ conversation_id: 'c-1' })
     hooks.client.listConversations.mockReset().mockResolvedValue({ conversations: [] })
@@ -95,6 +100,11 @@ describe('ChatScreen starter-conversation opening', () => {
     Object.defineProperty(window, 'collie', {
       configurable: true,
       value: {
+        onDesktopAction: vi.fn((listener: (action: DesktopAction) => void) => {
+          desktopAction = listener
+          return desktopOff
+        }),
+        setDesktopMenu: vi.fn().mockResolvedValue(undefined),
         updateActiveWork: vi.fn(),
         petCommand: vi.fn(),
         pickProjectFolder: vi.fn()
@@ -142,4 +152,63 @@ describe('ChatScreen starter-conversation opening', () => {
     })
     expect(hooks.client.getStarterConversation).toHaveBeenCalledTimes(1)
   })
+  it('routes tray actions through the normal conversation controls', async () => {
+    const navigate = vi.fn()
+    await act(async () => {
+      root.render(<ChatScreen activeView="chat" onNavigate={navigate} onRedoOnboarding={vi.fn()} />)
+    })
+    await act(async () => desktopAction?.({ type: 'open-chat', conversationId: 'recent-1' }))
+    expect(navigate).toHaveBeenLastCalledWith('chat')
+    expect(hooks.client.getMessages).toHaveBeenCalledWith('recent-1')
+    expect(window.collie.setDesktopMenu).toHaveBeenLastCalledWith({ conversations: [], activeId: 'recent-1' })
+    await act(async () => desktopAction?.({ type: 'settings' }))
+    expect(navigate).toHaveBeenLastCalledWith('settings')
+    await act(async () => desktopAction?.({ type: 'new-chat' }))
+    expect(navigate).toHaveBeenLastCalledWith('chat')
+    expect(window.collie.setDesktopMenu).toHaveBeenLastCalledWith({ conversations: [], activeId: null })
+  })
+
+  it('refreshes recent chats on a new message and rename, without updating for streamed tokens', async () => {
+    const navigate = vi.fn()
+    await act(async () => {
+      root.render(<ChatScreen activeView="chat" onNavigate={navigate} onRedoOnboarding={vi.fn()} />)
+    })
+    const conversation = { ...starterConversation, id: 'fresh-chat', title: 'New chat' }
+    hooks.client.listConversations.mockResolvedValue({ conversations: [conversation] })
+    await act(async () => hooks.listener()({
+      type: 'message', conversation_id: conversation.id,
+      message: { id: 'user-1', conversation_id: conversation.id, role: 'user', content: 'Hello',
+        created_at: conversation.created_at }
+    }))
+    expect(window.collie.setDesktopMenu).toHaveBeenLastCalledWith({
+      conversations: [{ id: 'fresh-chat', title: 'New chat' }], activeId: 'fresh-chat'
+    })
+    const updated = { ...conversation, title: 'Travel plans' }
+    hooks.client.listConversations.mockResolvedValue({ conversations: [updated] })
+    await act(async () => hooks.listener()({ type: 'conversation_updated', conversation: updated }))
+    expect(window.collie.setDesktopMenu).toHaveBeenLastCalledWith({
+      conversations: [{ id: 'fresh-chat', title: 'Travel plans' }], activeId: 'fresh-chat'
+    })
+    vi.mocked(window.collie.setDesktopMenu).mockClear()
+    hooks.client.listConversations.mockClear()
+    await act(async () => {
+      for (let i = 0; i < 20; i++) hooks.listener()({ type: 'delta', conversation_id: conversation.id, text: 'word ' })
+    })
+    expect(window.collie.setDesktopMenu).not.toHaveBeenCalled()
+    expect(hooks.client.listConversations).not.toHaveBeenCalled()
+  })
+
+  it('limits the tray list to the ten most recent sidebar conversations', async () => {
+    const conversations = Array.from({ length: 12 }, (_, index) => ({
+      ...starterConversation, id: `chat-${index}`, title: `Chat ${index}`
+    }))
+    hooks.client.listConversations.mockResolvedValue({ conversations })
+    await act(async () => {
+      root.render(<ChatScreen activeView="chat" onNavigate={vi.fn()} onRedoOnboarding={vi.fn()} />)
+    })
+    expect(window.collie.setDesktopMenu).toHaveBeenLastCalledWith({
+      conversations: conversations.slice(0, 10).map(({ id, title }) => ({ id, title })), activeId: null
+    })
+  })
+
 })
