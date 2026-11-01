@@ -100,8 +100,12 @@ The upstream MIT license and derivative-project notices ship beside the
 controller. No Cua Spaces, Driver Bench, ffmpeg, perception extension, AGPL
 detector or weights are included. Upstream derivative notices cover MIT
 components including trope-cua, Interface-Agent, QuickJS-ng and rquickjs.
-A complete compiled Rust dependency/SBOM license audit remains a release gate;
-the file inventory is not a claim that every compiled dependency was audited.
+The Windows normal/build dependency closure for all three pinned binaries is
+recorded in `computer/runtime-sbom.json`; `computer/DEPENDENCY-NOTICES.md`
+retains dependency licenses and source links, including MPL-2.0 UniFFI. The
+release record in `docs/operations/release/alpha76-release-status.md` documents
+the source-level audit and exact upstream artifact comparison. This inventory
+is conservative and does not claim reproducible upstream compiler output.
 
 ## Verification
 

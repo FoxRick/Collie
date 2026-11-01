@@ -214,3 +214,11 @@ Microsoft Edge is independently installed and licensed by the user.
 Upstream sources: https://github.com/microsoft/playwright-python,
 https://github.com/microsoft/playwright, https://github.com/jfhbrook/pyee,
 https://github.com/python-greenlet/greenlet.
+
+## CUA Windows dependency inventory
+
+The exact pinned native payload is covered by `collie_core/computer/runtime-sbom.json`
+and `collie_core/computer/DEPENDENCY-NOTICES.md`. Preserve both in distributions.
+The notices include MPL-2.0 UniFFI source availability and the exact-version
+source URLs for the conservative Windows normal/build dependency closure.
+The CUA top-level MIT license does not replace dependency licenses.
