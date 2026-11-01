@@ -1,6 +1,9 @@
 import { browserFileAction } from './browser-files'
 import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell, nativeImage, session } from 'electron'
 import { randomUUID } from 'crypto'
+import { desktopMenu, DesktopActionQueue } from './desktop-menu'
+import { createTrayImage, shouldHideOnClose, shouldQuitWithoutWindows } from './tray-platform'
+import type { DesktopMenuState } from '../shared/desktop-menu'
 import { basename, extname, isAbsolute, join } from 'path'
 import { homedir } from 'os'
 import { pathToFileURL } from 'url'
@@ -159,6 +162,35 @@ const bootRecordPath = join(app.getPath('userData'), 'update-boot-record.json')
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let quitting = false
+let desktopMenuState: DesktopMenuState = { conversations: [], activeId: null }
+const desktopActions = new DesktopActionQueue((action) => {
+  mainWindow?.webContents.send('collie:desktop-action', action)
+})
+
+function showMainWindow(): void {
+  if (quitting) return
+  if (!mainWindow || mainWindow.isDestroyed()) createWindow()
+  const window = mainWindow
+  if (!window || window.isDestroyed()) return
+  if (window.isMinimized()) window.restore()
+  window.show()
+  window.focus()
+}
+
+function refreshTrayMenu(): void {
+  tray?.setContextMenu(Menu.buildFromTemplate(desktopMenu(
+    desktopMenuState,
+    showMainWindow,
+    (action) => {
+      showMainWindow()
+      desktopActions.dispatch(action)
+      // Linux status-notifier hosts need the menu reapplied even when a click
+      // restored the same checked state and the renderer's selection is unchanged.
+      if (process.platform === 'linux') refreshTrayMenu()
+    },
+    () => app.quit()
+  )))
+}
 const rendererRecoverySupervisor = new RendererRecoverySupervisor({
   reloadWindow: () => {
     // Re-check app state before acting: the timer may have outlived a quit
@@ -244,13 +276,7 @@ const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.show()
-      mainWindow.focus()
-    }
-  })
+  app.on('second-instance', showMainWindow)
 }
 
 function appIconPath(): string {
@@ -285,6 +311,12 @@ function createWindow(): void {
     }
   })
 
+  mainWindow.webContents.on('did-start-loading', () => desktopActions.setReady(false))
+  mainWindow.on('closed', () => {
+    desktopActions.setReady(false)
+    mainWindow = null
+  })
+
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (!isTrustedRendererUrl(url, trustedRendererUrl)) {
       event.preventDefault()
@@ -309,6 +341,7 @@ function createWindow(): void {
   mainWindow.on('show', () => console.log('[window] show event'))
   mainWindow.on('hide', () => console.log('[window] hide event'))
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    desktopActions.setReady(false)
     console.error('[window] render-process-gone reason:', details.reason, 'exitCode:', details.exitCode)
     if (quitting) return
     rendererRecoverySupervisor.renderProcessGone(details.reason)
@@ -322,7 +355,7 @@ function createWindow(): void {
 
   mainWindow.on('close', (e) => {
     // Minimize to tray instead of quitting (F009)
-    if (!quitting && process.platform !== 'darwin') {
+    if (!quitting && shouldHideOnClose(process.platform, tray !== null)) {
       e.preventDefault()
       mainWindow?.hide()
     }
@@ -347,36 +380,15 @@ function createWindow(): void {
 
 function createTray(): void {
   const path = appIconPath()
-  const icon = existsSync(path) ? nativeImage.createFromPath(path).resize({ width: 24, height: 24 }) : nativeImage.createEmpty()
+  const icon = createTrayImage(path)
   try {
     tray = new Tray(icon)
   } catch {
     return // tray is best-effort; some environments have none
   }
   tray.setToolTip('Collie — your personal AI, with a dog')
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      {
-        label: 'Open Collie',
-        click: () => {
-          mainWindow?.show()
-          mainWindow?.focus()
-        }
-      },
-      { type: 'separator' },
-      {
-        label: 'Quit Collie',
-        click: () => {
-          quitting = true
-          app.quit()
-        }
-      }
-    ])
-  )
-  tray.on('click', () => {
-    mainWindow?.show()
-    mainWindow?.focus()
-  })
+  refreshTrayMenu()
+  if (process.platform !== 'darwin') tray.on('click', showMainWindow)
 }
 
 function registerIpc(): void {
@@ -399,6 +411,21 @@ function registerIpc(): void {
     return value.trim()
   }
 
+  handle('collie:desktop-ready', (ready: boolean) => {
+    desktopActions.setReady(ready === true)
+  })
+  handle('collie:desktop-menu', (state: DesktopMenuState) => {
+    if (!state || !Array.isArray(state.conversations)) return
+    const next: DesktopMenuState = {
+      activeId: typeof state.activeId === 'string' ? state.activeId : null,
+      conversations: state.conversations.slice(0, 10).filter((item) =>
+        item && typeof item.id === 'string' && typeof item.title === 'string'
+      ).map(({ id, title }) => ({ id: id.slice(0, 500), title: title.slice(0, 200) }))
+    }
+    if (JSON.stringify(next) === JSON.stringify(desktopMenuState)) return
+    desktopMenuState = next
+    refreshTrayMenu()
+  })
   handle('collie:core-state', () => coreState())
   // #122: the renderer no longer holds the per-boot token or opens its own
   // socket to the core. Every command is relayed here, over main's single
@@ -611,12 +638,7 @@ function registerIpc(): void {
   handle('collie:open-external', (url: string) => {
     if (isSafeExternalUrl(url)) shell.openExternal(url)
   })
-  handle('collie:show-window', () => {
-    if (!mainWindow) return
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.show()
-    mainWindow.focus()
-  })
+  handle('collie:show-window', showMainWindow)
   handle('collie:pet-command', (command: string): boolean => {
     // The pet process polls ~/.collie/pet_command.json (F078)
     if (!isAllowedPetCommand(command)) return false
@@ -719,15 +741,19 @@ async function readProductMetrics(): Promise<unknown> {
 }
 
 app.whenReady().then(async () => {
+  // A rejected launch must never create a window, tray, or supervised core.
+  if (!gotLock) return
   // Count launched installs even if onboarding or core startup fails.
   startHeartbeat(readProductMetrics)
   // Windows toasts (OS notifications) require an App User Model ID before
   // any notification is created, or they are silently dropped.
   if (process.platform === 'win32') {
-    app.setAppUserModelId('com.collie.desktop')
+    // Match the installer shortcut identity for Windows taskbar grouping.
+    app.setAppUserModelId('com.collie.app')
   }
   registerIpc()
   createWindow()
+  app.on('activate', showMainWindow)
   // #122: forward every core-pushed event (ready/delta/message/card/
   // approval_*, connection_opened, ...) to the app's own renderer. The
   // renderer no longer opens a socket to the core, so this is the only
@@ -775,14 +801,12 @@ app.whenReady().then(async () => {
     }
   }, 15_000)
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-    else mainWindow?.show()
-  })
 })
 
 app.on('before-quit', () => {
   quitting = true
+  tray?.destroy()
+  tray = null
   // A pending reload must not fire after the app has started quitting.
   rendererRecoverySupervisor.cancelPendingReload()
   if (updateCheckTimer) {
@@ -797,7 +821,7 @@ app.on('will-quit', (event) => {
   // Quit is held open while the core and the pet are torn down. Both escalate
   // from a polite signal to a forced tree kill, which cannot be done
   // synchronously, so the quit is re-issued once cleanup settles.
-  if (childrenStopped) return
+  if (!gotLock || childrenStopped) return
   event.preventDefault()
   stopCollaborationReconciliation()
   stopHeartbeat()
@@ -811,7 +835,5 @@ app.on('will-quit', (event) => {
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    // stay in tray
-  }
+  if (shouldQuitWithoutWindows(process.platform, tray !== null)) app.quit()
 })

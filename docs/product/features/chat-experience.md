@@ -58,3 +58,55 @@ arrive, and the sidebar should prioritize starting and returning to chats.
   the current app session, and is described as local-file access only. It must
   not imply network, connector, payment, send, publish, destructive, account,
   or routine authority.
+
+## Desktop tray
+
+Collie keeps one tray icon per application profile. Opening the app again
+restores and focuses the existing window, including when it was minimized or
+hidden. A launch that does not acquire the single-instance lock does not start
+another window, tray icon, or core runtime. Deliberately isolated test profiles
+remain separate. The Windows app identity matches the installer shortcut for
+taskbar grouping.
+
+The native tray menu contains Open Collie, New chat, Recent chats (up to ten,
+with the selected chat checked), Settings, and Exit Collie (Quit Collie on macOS
+and Linux). Recent chats follow the sidebar's conversation order. Chat selection
+shares the sidebar handler, including restoration of the saved project folder
+and clearing it for General Chat. Switching chats does not stop background work.
+Actions selected during startup wait for the chat shell.
+
+Recent chats refresh through existing conversation/message events, including
+first-message creation, renames, completion, and deletion. There is no tray
+polling timer and streamed text tokens do not rebuild the menu. Main skips
+native-menu rebuilds when the ten visible IDs, titles, and active selection are
+unchanged. A blank new-chat view enters recents after its first saved message.
+A checked menu item follows the authoritative chat selection; no recent entry
+is checked when a blank or older chat is active. Selecting the current chat
+again does not uncheck it.
+
+Platform behavior:
+
+- Windows: notification-area menu; clicking the icon restores the window.
+  Closing hides the window while the tray exists. If tray construction fails,
+  closing exits instead of hiding an app that cannot be reopened.
+- macOS: menu-bar menu with a system paw template icon at 16 points, adapting
+  to light/dark menu bars and Retina displays. Clicking opens the menu without
+  raising the window. Closing hides the window when the tray exists, preserving
+  the renderer and its event-driven recent-chat updates. The Dock can restore
+  the window even while the core starts. Without a tray, the normal macOS
+  close-window/keep-app-running behavior applies.
+- Linux: native status-notifier/GTK menu; activation depends on the desktop.
+  Every changed menu is reapplied with `setContextMenu`. Closing exits the app;
+  minimizing keeps its taskbar entry available. This avoids hiding an app when
+  a desktop constructs a tray object but has no visible tray host. A shell may
+  still need a tray extension to expose the menu.
+
+Exit/Quit shuts down supervised processes and removes the tray icon. macOS
+keeps literal ampersands in titles; Windows/Linux escape menu mnemonics.
+`desktop-tray.yml` runs focused navigation tests plus a real Electron smoke on
+Windows, macOS, and Linux/X11, covering native menu presentation/selection,
+image loading, tray lifecycle, and window close/restore. Linux desktop-specific
+tray placement and native appearance still depend on the user's shell/theme;
+this smoke is not a visual acceptance pass for every desktop environment.
+
+Platform behavior reference: [Electron Tray](https://www.electronjs.org/docs/latest/api/tray).
