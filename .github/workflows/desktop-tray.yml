@@ -45,4 +45,4 @@ jobs:
           sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
       - name: Native Electron tray smoke under X11
         if: runner.os == 'Linux'
-        run: xvfb-run -a node scripts/smoke-desktop-tray.cjs
+        run: xvfb-run -a dbus-run-session -- node scripts/smoke-desktop-tray.cjs

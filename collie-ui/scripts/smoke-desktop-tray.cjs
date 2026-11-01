@@ -41,18 +41,25 @@ const watchdog = setTimeout(() => { console.error(`Native tray smoke timed out a
 
 async function showAndCheck(menu, window, expected) {
   await new Promise((resolve, reject) => {
+    let inspected = false
+    let failure
     menu.once('menu-will-show', () => {
       progress('native menu shown')
-      setTimeout(() => {
       try {
+        // This event runs after Electron's native menu preparation. Check here:
+        // hosted desktops may dismiss a popup immediately when focus changes.
         assert.deepEqual(menu.items[2].submenu.items.map(item => item.checked), expected)
-        resolve()
-      } catch (error) { reject(error) }
-      finally { menu.closePopup(window) }
-    }, 100)
+        inspected = true
+      } catch (error) { failure = error }
+      setTimeout(() => menu.closePopup(window), 100)
     })
     progress('opening native menu')
-    menu.popup({ window })
+    menu.popup({ window, callback: () => {
+      // macOS closes native menus asynchronously; don't open the next one yet.
+      if (failure) reject(failure)
+      else if (!inspected) reject(new Error('Native menu closed before inspection'))
+      else resolve()
+    } })
   })
 }
 
@@ -80,7 +87,10 @@ app.whenReady().then(async () => {
     }, () => {}, action => { selected = action }, () => {}))
     tray.setContextMenu(menu)
     const recent = menu.items[2].submenu
-    await showAndCheck(menu, window, [activeId === 'a', false])
+    assert.deepEqual(recent.items.map(item => item.checked), [activeId === 'a', false])
+    // Present one real native menu; test the remaining states on native MenuItems
+    // without racing successive OS popup/focus transitions on hosted runners.
+    if (activeId === null) await showAndCheck(menu, window, [false, false])
     // MenuItem.click runs Electron's native checkbox toggle before our handler.
     recent.items[0].click()
     assert.equal(recent.items[0].checked, activeId === 'a')
@@ -95,7 +105,10 @@ app.whenReady().then(async () => {
     if (shouldHideOnClose(process.platform, true)) { event.preventDefault(); window.hide() }
   })
   progress('close fixture window')
+  const closed = shouldHideOnClose(process.platform, true) ? null
+    : new Promise(resolve => window.once('closed', resolve))
   window.close()
+  if (closed) await closed
   assert.equal(window.isDestroyed(), !shouldHideOnClose(process.platform, true))
   if (!window.isDestroyed()) {
     assert.equal(window.isVisible(), false)
