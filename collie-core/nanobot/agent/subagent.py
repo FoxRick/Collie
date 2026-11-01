@@ -108,7 +108,7 @@ class _SubagentHook(AgentHook):
 
     async def before_execute_tools(self, context: AgentHookContext) -> None:
         for tool_call in context.tool_calls:
-            args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
+            args_str = "[computer input not recorded]" if tool_call.name == "computer" else json.dumps(tool_call.arguments, ensure_ascii=False)
             logger.debug(
                 "Subagent [{}] executing: {} with arguments: {}",
                 self._task_id, tool_call.name, args_str,

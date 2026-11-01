@@ -1,5 +1,16 @@
 # Third-Party Notices
 
+## Cua Driver 0.37.0 (MIT, Windows only)
+
+Collie's local computer controller redistributes the pinned Cua Driver Windows
+wheel. The complete upstream license and derivative-project notices are retained
+in `collie_core/computer/LICENSE-CUA.md` and
+`collie_core/computer/CUA-THIRD-PARTY-NOTICES.md`, which ship with the runtime.
+`collie_core/computer/runtime-artifacts.json` inventories and pins all three
+native artifacts, including the unused SDK DLL and UIA helper. Collie launches
+only the main executable as a private stdio process. Cua Spaces, Driver Bench,
+ffmpeg, `cua-perception`, model weights and the AGPL detector are not included.
+
 The following third-party components are redistributed as part of the packaged
 nanobot Python distribution (`pip install nanobot-ai`).
 

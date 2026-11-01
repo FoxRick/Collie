@@ -120,7 +120,7 @@ class AgentProgressHook(AgentHook):
                 tool_events=tool_events,
             )
         for tc in context.tool_calls:
-            args_str = json.dumps(tc.arguments, ensure_ascii=False)
+            args_str = "[computer input not recorded]" if tc.name == "computer" else json.dumps(tc.arguments, ensure_ascii=False)
             logger.info("Tool call: {}({})", tc.name, args_str[:200])
     async def emit_reasoning(self, reasoning_content: str | None) -> None:
         """Publish a reasoning chunk; channel plugins decide whether to render."""

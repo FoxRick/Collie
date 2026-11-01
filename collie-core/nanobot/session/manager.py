@@ -653,6 +653,9 @@ class SessionManager:
         """
         path = self._get_session_path(session.key)
         tmp_path = path.with_suffix(".jsonl.tmp")
+        from collie_core.computer.privacy import redact_computer_history
+
+        private_safe = redact_computer_history({"metadata": session.metadata, "messages": session.messages})
 
         try:
             with open(tmp_path, "w", encoding="utf-8") as f:
@@ -661,11 +664,11 @@ class SessionManager:
                     "key": session.key,
                     "created_at": session.created_at.isoformat(),
                     "updated_at": session.updated_at.isoformat(),
-                    "metadata": session.metadata,
+                    "metadata": private_safe["metadata"],
                     "last_consolidated": session.last_consolidated
                 }
                 f.write(json.dumps(metadata_line, ensure_ascii=False) + "\n")
-                for msg in session.messages:
+                for msg in private_safe["messages"]:
                     f.write(json.dumps(msg, ensure_ascii=False) + "\n")
                 if fsync:
                     f.flush()

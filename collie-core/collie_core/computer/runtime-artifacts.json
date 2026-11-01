@@ -1,0 +1,10 @@
+{
+  "version": "0.37.0",
+  "source": "https://github.com/trycua/cua/tree/cua-driver-rs-v0.37.0/libs/cua-driver",
+  "license": "MIT",
+  "files": {
+    "bin/cua-driver.exe": {"bytes": 38610256, "sha256": "30b14e435defbd440f53ffbd1761b0c888182a519db0c15c4678977bd7c9481e"},
+    "bin/cua-driver-uia.exe": {"bytes": 25412432, "sha256": "e9dd9f16d55acc3b029d84aec3ae699d8244a1fc72414b206512d52f7ed77f5b"},
+    "cua_driver_sdk.dll": {"bytes": 30499152, "sha256": "8f3ca450310b1e86694f314052ef5dc68f3c325fac65b235d689d1c51e642d04"}
+  }
+}

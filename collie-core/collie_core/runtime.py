@@ -228,6 +228,12 @@ class CollieRuntime:
         self.browser = BrowserService(self.approvals)
         bind_browser_service(self.browser)
         self.ipc.browser_service = self.browser
+        from collie_core.computer.service import ComputerService
+        from collie_core.tools.computer import bind_computer_service
+
+        self.computer = ComputerService(self.approvals)
+        bind_computer_service(self.computer)
+        self.ipc.computer_service = self.computer
         self.messengers.broadcaster = self.ipc.broadcast
         self._scheduler = AutomationScheduler(
             self.db, broadcaster=self.ipc.broadcast, runner=self._run_automation
@@ -564,6 +570,7 @@ class CollieRuntime:
     async def cancel_conversation_work(self, conversation_id: str) -> int:
         """Cancel active turns and specialists for every mapped session."""
         await self.browser.close_conversation(conversation_id)
+        await self.computer.close_conversation(conversation_id)
         if self.loop is None:
             return 0
         cancelled = 0
@@ -1403,6 +1410,7 @@ class CollieRuntime:
 
     async def _shutdown_loop(self) -> None:
         await self.browser.close()
+        await self.computer.close()
         await self.messengers.stop()
         loop = self.loop
         loop_task = self._loop_task

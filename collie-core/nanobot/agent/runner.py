@@ -1332,7 +1332,7 @@ class AgentRunner:
 
         await hook.after_execute_tool(context, tool_call, tool, params, result)
 
-        detail = "" if result is None else str(result)
+        detail = "Computer action completed; inspect fresh state." if tool_call.name == "computer" else ("" if result is None else str(result))
         detail = detail.replace("\n", " ").strip()
         if not detail:
             detail = "(empty)"

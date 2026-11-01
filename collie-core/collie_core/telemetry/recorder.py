@@ -324,7 +324,9 @@ class RunRecorder:
                     tool_id=tool_id,
                     turn_id=turn_id,
                     tool_name=tool_name,
-                    input_summary=summarize(params, TURN_INPUT_LIMIT),
+                    input_summary="[computer input not recorded]"
+                    if tool_name == "computer"
+                    else summarize(params, TURN_INPUT_LIMIT),
                     action=action,
                     resource=sanitize_text(resource) if resource else None,
                     status="running",
@@ -357,7 +359,9 @@ class RunRecorder:
                     tool_name=tool_name,
                     status=status,
                     output_summary=(
-                        summarize(result, TOOL_OUTPUT_LIMIT) if status == "ok" else None
+                        "[computer output not recorded]"
+                        if tool_name == "computer"
+                        else (summarize(result, TOOL_OUTPUT_LIMIT) if status == "ok" else None)
                     ),
                     error_message=(sanitize_text(error_message) if error_message else None),
                     latency_ms=latency_ms,
@@ -396,7 +400,9 @@ class RunRecorder:
                     tool_name=tool_name,
                     status=status,
                     error_message=(sanitize_text(reason) if reason else None),
-                    input_summary=summarize(params, TURN_INPUT_LIMIT),
+                    input_summary="[computer input not recorded]"
+                    if tool_name == "computer"
+                    else summarize(params, TURN_INPUT_LIMIT),
                     action=action,
                     resource=sanitize_text(resource) if resource else None,
                     started_at=now,
