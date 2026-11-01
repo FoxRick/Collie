@@ -55,7 +55,9 @@ app.whenReady().then(async () => {
   assert.equal(icon.isEmpty(), false, 'tray image must load on this OS')
   if (process.platform === 'darwin') {
     assert.equal(icon.isTemplateImage(), true)
-    assert.equal(icon.getSize().width, 16)
+    // SF Symbol point size sets font metrics, not an exact raster width.
+    const size = icon.getSize()
+    assert.ok(size.width > 0 && size.width <= 32 && size.height > 0 && size.height <= 32)
   }
   tray = new Tray(icon)
   const window = new BrowserWindow({ width: 320, height: 200, show: true,

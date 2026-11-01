@@ -183,6 +183,9 @@ function refreshTrayMenu(): void {
     (action) => {
       showMainWindow()
       desktopActions.dispatch(action)
+      // Linux status-notifier hosts need the menu reapplied even when a click
+      // restored the same checked state and the renderer's selection is unchanged.
+      if (process.platform === 'linux') refreshTrayMenu()
     },
     () => app.quit()
   )))
