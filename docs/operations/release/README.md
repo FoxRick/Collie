@@ -1,7 +1,7 @@
 # Release information
 
-The current public release is **`v0.1.0-alpha.7.4`** — a published GitHub
-Release (2026-09-09) with Windows NSIS x64, macOS arm64 dmg/zip, and Linux
+The current public release is **`v0.1.0-alpha.7.6`** — a published GitHub
+Release (2026-11-01) with Windows NSIS x64, macOS arm64 dmg/zip, and Linux
 AppImage installers, built and attached by the tag-triggered CI pipeline
 (see Release pipeline below), plus `SHA256SUMS.txt` and provenance records.
 The website (`heycollie.com/download`, account dashboard) serves these
@@ -10,6 +10,9 @@ consistently for the executable, system tray, window, and in-app brand mark.
 
 Building from source does not create an official distribution, and mutable
 local `dist/` output must never be represented as one.
+
+See [alpha.7.6 verification](alpha76-release-status.md) for the tagged source,
+three-platform workflow and downloaded-artifact checks.
 
 ## Release pipeline
 
