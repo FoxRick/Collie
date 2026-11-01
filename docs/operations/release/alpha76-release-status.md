@@ -1,8 +1,16 @@
 # Collie 0.1.0-alpha.7.6
 
 **Channel:** alpha prerelease, patch increment from `0.1.0-alpha.7.5`.
-**Status:** candidate prepared; publication requires successful tagged builds
-and downloaded-artifact validation.
+**Status:** published on 2026-11-01 after tagged builds and downloaded-artifact validation.
+
+- Tagged source: `ba02b5b6ea41d2a0f0a910128b15ebcfaae4be53`.
+- [GitHub release](https://github.com/FoxRick/Collie/releases/tag/v0.1.0-alpha.7.6).
+- [Successful release workflow](https://github.com/FoxRick/Collie/actions/runs/41281783715).
+- All 13 attached assets verified: 12 combined SHA-256 entries, all three
+  updater feeds and their sizes/SHA-512, clean tagged-source provenance,
+  macOS arm64/Linux x64 headers, and packaged native notices/source inventory.
+- Windows installer: 366,010,246 bytes; macOS DMG: 440,343,682 bytes;
+  Linux AppImage: 476,280,125 bytes.
 
 ## Scope
 
@@ -23,9 +31,10 @@ is excluded.
 - Updater feeds: `alpha.yml`, `alpha-mac.yml`, `alpha-linux.yml`.
 - Integrity: combined `SHA256SUMS.txt` and Windows source/artifact provenance.
 
-Use the tag-triggered Release workflow and validate the attached artifacts
-before publishing the draft. Website fallback URLs and sizes must come from
-the verified release assets. A local build directory is not a release.
+The tag-triggered Release workflow qualified, built and smoke-tested all three
+platforms. Downloaded artifacts passed checksum, updater and provenance validation
+before draft publication. Website fallback URLs and sizes use those verified
+release assets. A local build directory is not a release.
 
 ## Native dependency and artwork records
 
@@ -53,8 +62,8 @@ in the artwork provenance register and hash manifest.
 Before the version bump, the integrated source passed 3,937 backend tests,
 594 UI tests, typecheck/build, lint/format, real Windows control acceptance,
 two real Edge journeys, and all three acceptance tests from staged resources.
-Portability and authenticated packaged-core IPC smoke passed. Tagged CI must
-repeat qualification and package/smoke all three platform artifacts.
+Portability and authenticated packaged-core IPC smoke passed. Tagged CI repeated
+qualification and successfully packaged/smoke-tested all three platform artifacts.
 
 Windows computer control remains a local preview and is Windows-only. Browser
 agent control is text-based; screenshots are for human inspection. These
