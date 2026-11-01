@@ -26,6 +26,7 @@ the website, social media, and paid marketing.
 | Full-body desktop-pet v2 sprites | `collie-core/collie_core/pet/assets/collie-{v2-full-body-atlas,deep-work-glasses-full-body,bone-completion-full-body}.webp` | Preserved production outputs generated for Collie on 2026-08-02; SHA-256 values enforced by `collie_core.pet.v2`. **Cleared.** |
 | Desktop portrait sheet | `collie-ui/src/renderer/src/assets/agents/dog-portrait-sheet-20.png` | Created for Collie (owner-directed, AI-assisted). **Cleared.** |
 | Desktop portrait and paw graphics | `collie-ui/src/renderer/src/assets/portrait/{concerned,happy,idle,paw-front-brand,sleepy,thinking}.webp` | Created for Collie (owner-directed, AI-assisted); `happy.webp` is the designated official portrait. **Cleared.** |
+| Composer expression artwork | `collie-ui/src/renderer/src/assets/portrait/expression-{ears,eyes,mouth,paw,ready}-v2.webp`, `expressions-v2.json`, `idle-sheet.webp`, `click-reaction-sheet.webp` | Derived offline from the existing owner-created website paintings by `generate-expression-assets.cjs`; source hashes and method are recorded in `expressions-v2.json`. Same owner assignment and installer-use permission as the registered portraits. **Cleared.** |
 
 ## Third-party marks
 
