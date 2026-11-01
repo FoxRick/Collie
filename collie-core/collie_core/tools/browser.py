@@ -24,10 +24,26 @@ def bind_browser_service(service: BrowserService) -> None:
     {
         "type": "object",
         "properties": {
-            "operation": {"type": "string", "enum": sorted(OPERATIONS)},
+            "operation": {"type": "string", "enum": sorted(OPERATIONS - {"upload", "download"})},
             "session_id": {"type": "string", "maxLength": 64},
             "url": {"type": "string", "maxLength": 2048},
-            "selector": {"type": "string", "maxLength": 512},
+            "ref": {"type": "string", "maxLength": 64},
+            "observation_id": {"type": "string", "maxLength": 64},
+            "tab_id": {"type": "string", "maxLength": 64},
+            "checked": {"type": "boolean"},
+            "direction": {"type": "string", "enum": ["up", "down"]},
+            "key": {
+                "type": "string",
+                "enum": [
+                    "Tab",
+                    "Shift+Tab",
+                    "ArrowDown",
+                    "ArrowUp",
+                    "ArrowLeft",
+                    "ArrowRight",
+                    "Escape",
+                ],
+            },
             "text": {"type": "string", "maxLength": 4000},
         },
         "required": ["operation"],
@@ -42,12 +58,18 @@ class BrowserTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "Use Collie's separate visible browser: open URL, observe untrusted page text, "
-            "navigate within the approved origin, fill non-secret fields, click a visible CSS selector, "
-            "capture screenshot, list or close. Every page action asks for explicit approval. "
-            "Use handoff for sign-in and final submissions; automation then stops until closed. "
-            "Never enter passwords, payment details or secrets. No Enter/JS/uploads/downloads. "
-            "Browser sessions belong to this task; no personal profile or shared-session access."
+            "Use Collie's local visible Edge browser. Open, observe bounded untrusted text and "
+            "exposed controls, then act using ref AND observation_id from the latest result. "
+            "No CSS/JS. References expire after 60 seconds and after each observation/action. "
+            "Fill ordinary fields, select option by text label, check with checked boolean, "
+            "key for navigation only, scroll up/down, new_tab, tab by tab_id, close_tab. "
+            "Approve_destination by URL before navigating to a new origin. Every action "
+            "requires central explicit approval; submit separately authorizes a final action. "
+            "Use handoff for user sign-in, then resume with the visible destination URL and "
+            "explicit reauthorization; never type secrets. Upload/download need user file picker "
+            "in the Browser panel. Screenshot is for human inspection only; images are not sent "
+            "to your model. No personal profiles, arbitrary code, or shared-session access. "
+            "Inspect fresh results to verify outcomes; never replay an uncertain write."
         )
 
     def permission_request(self, params: dict[str, Any]) -> PermissionRequest:
@@ -76,7 +98,7 @@ class BrowserTool(Tool):
             if "screenshot" in result:
                 result = {
                     "session_id": result["session_id"],
-                    "message": "Capture verified. View it in this chat's Browser panel.",
+                    "message": "Capture is for the user in the Browser panel. Your model has not inspected this image.",
                 }
             return ToolResult(json.dumps(result))
         except ValueError as exc:

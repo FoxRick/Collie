@@ -155,6 +155,10 @@ async def test_cancel_conversation_closes_pending(broker: ApprovalBroker) -> Non
     with pytest.raises(asyncio.CancelledError):
         await task
     assert broker.db.list_pending_approvals() == []
+    resolved = [event for event in broker._events if event["type"] == "approval_resolved"]
+    assert len(resolved) == 1
+    assert resolved[0]["approval"]["resolution"] == "cancelled"
+    assert not broker._pending
 
 
 @pytest.mark.asyncio

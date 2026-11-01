@@ -38,7 +38,11 @@ are not part of this public source tree.
   `browser_action` IPC command call the same service and central authorizer.
   `collie-ui/src/shared/browser.ts` owns the typed data contract and the chat's
   `BrowserPanel` supplies inspection, capture, takeover and recovery controls.
-  Contexts never attach to personal browser profiles; shared execution is denied.
+  `browser/transfers.py` owns bounded native-picker file transfers; `browser/inventory.py`
+  inventories the actual staged driver and notices. Contexts never attach to personal
+  profiles. Opaque references bind observations to live controls; destination grants,
+  explicit final-action approval and reauthorized resume remain task scoped.
+  Shared execution is denied.
   See [visible browser interaction](product/features/browser-interaction.md) for
   runtime setup, explicit approvals, network limits and the packaged-app gate.
 - **Storage** (architecture: `docs/engineering/architecture/storage-domains.md`):
