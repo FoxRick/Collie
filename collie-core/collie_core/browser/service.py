@@ -115,6 +115,7 @@ class BrowserSession:
     handed_off: bool = False
     destinations: set[str] = field(default_factory=set)
     pending_approval: asyncio.Task | None = None
+    opening_task: asyncio.Task | None = None
 
 
 class _Permission:
@@ -128,8 +129,8 @@ class _Permission:
 class BrowserService:
     """Single implementation for IPC and agent tools. Every effect is approved here.
 
-    A session is owned by one conversation and task; IPC may control only sessions
-    with no agent task, except that it may always close/handoff its own browser.
+    A session is owned by one conversation and task; the owning conversation's
+    UI may inspect or act through the same per-action approvals, or stop it.
     Shared execution is refused until separate browser audience authority exists.
     """
 
@@ -159,6 +160,15 @@ class BrowserService:
             raise ValueError("Unknown browser operation.")
         if not context.conversation_id or context.shared_session_id:
             raise ValueError("Browser work needs a private local conversation.")
+        if (
+            operation == "close"
+            and not command.get("session_id")
+            and context.origin == "browser_ui"
+        ):
+            for opening in list(self.sessions.values()):
+                if opening.conversation_id == context.conversation_id and opening.opening_task:
+                    await self._close(opening)
+            return {"closed": True}
         if operation == "list":
             return {
                 "sessions": [
@@ -168,6 +178,8 @@ class BrowserService:
                 ]
             }
         if operation == "open":
+            if self._opening.locked():
+                raise ValueError("A browser is already opening. Wait or stop it in its chat first.")
             async with self._opening:
                 if len(self.sessions) >= 3:
                     raise ValueError("Close a browser first (up to three sessions).")
@@ -178,15 +190,20 @@ class BrowserService:
                 site = origin(str(command.get("url") or ""))
                 session = BrowserSession(uuid4().hex, context.conversation_id, context.run_id, site)
                 session.destinations.add(site)
-                await self._authorize(context, session, command)
+                session.opening_task = asyncio.current_task()
                 self.sessions[session.id] = session
                 try:
+                    await self._authorize(context, session, command)
+                    if self.sessions.get(session.id) is not session:
+                        raise ValueError("That browser was stopped while opening.")
                     return await self._send(
                         session, {**command, "origin": site, "channel": self.channel}
                     )
                 except BaseException:
                     await self._close(session)
                     raise
+                finally:
+                    session.opening_task = None
         session = self.sessions.get(str(command.get("session_id") or ""))
         if session is None or session.conversation_id != context.conversation_id:
             raise ValueError("That browser is not owned by this conversation.")
@@ -382,6 +399,8 @@ class BrowserService:
 
     async def _close(self, session: BrowserSession) -> None:
         self.sessions.pop(session.id, None)
+        if session.opening_task and session.opening_task is not asyncio.current_task():
+            session.opening_task.cancel()
         if session.pending_approval:
             session.pending_approval.cancel()
         process = session.process

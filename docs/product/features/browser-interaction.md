@@ -98,7 +98,9 @@ resume without exposing the fixture password/cookie. It uses a test harness,
 not a model credential tool. Site-specific login providers and real-account
 journeys are not acceptance-tested.
 
-Close / stop stays available during approval and action execution. It cancels
+Close / stop stays available during approval and action execution, including the
+initial Open approval and launch. While opening, Stop cancels only pending opens
+in the owning conversation; established browser sessions remain available. It cancels
 pending browser approval and closes the worker tree. Take over cancels a pending
 approval before obtaining its own approval; an already executing action may need
 to finish before takeover (use Stop for immediate shutdown). Queued operations
@@ -156,8 +158,8 @@ isolation, and Stop during approval or a wedged executing action. Policy tests c
 and Stop/ownership races; UI checks cover reference-based controls, chat changes,
 file-picker cancellation and available Stop/Take over during approval.
 On Windows Edge 156.0.4314.42, the staged fixture completed in 17.19 seconds.
-Ordinary observations were 2,175–2,361 serialized bytes; most interactions spent
-218–250 ms in the worker. The truncated large-page observation was 6,299 bytes;
+Ordinary observations were 2,175â€“2,361 serialized bytes; most interactions spent
+218â€“250 ms in the worker. The truncated large-page observation was 6,299 bytes;
 one optional masked capture was 21,745 bytes. These are controlled-fixture
 measurements, not site/model performance guarantees. Content-free results report
 elapsed milliseconds, serialized observation bytes

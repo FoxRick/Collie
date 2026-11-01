@@ -12,15 +12,17 @@ export default function BrowserPanel({ conversationId }: { conversationId: strin
   const [result, setResult] = useState<BrowserResult>({})
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [opening, setOpening] = useState(false)
   const generation = useRef(0)
   useEffect(() => {
     generation.current += 1
-    setSessions([]); setSelected(''); setResult({}); setError(''); setBusy(false)
+    setSessions([]); setSelected(''); setResult({}); setError(''); setBusy(false); setOpening(false)
     setText(''); setRef(''); setUrl(''); setExpanded(false)
   }, [conversationId])
   if (!conversationId) return null
   const action = async (command: BrowserCommand, file?: 'upload' | 'download'): Promise<void> => {
     const current = ++generation.current
+    if (command.operation === 'open') setOpening(true)
     setBusy(true); setError('')
     try {
       const response = file
@@ -43,7 +45,7 @@ export default function BrowserPanel({ conversationId }: { conversationId: strin
         setError(message.replace(/^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/, ''))
       }
     } finally {
-      if (generation.current === current) setBusy(false)
+      if (generation.current === current) { setBusy(false); setOpening(false) }
     }
   }
   const invoke = (operation: BrowserCommand['operation'], extra: Partial<BrowserCommand> = {}): void => {
@@ -66,7 +68,7 @@ export default function BrowserPanel({ conversationId }: { conversationId: strin
         {sessions.map(s => <option key={s.session_id} value={s.session_id}>{s.origin}{s.handed_off ? ' · yours' : ''}</option>)}
       </select>
       <button disabled={busy} onClick={() => invoke('list')}>Refresh browsers</button>
-      <button disabled={!selected} onClick={() => invoke('close')}>Close / stop browser</button>
+      <button disabled={!selected && !opening} onClick={() => invoke('close', { session_id: opening ? undefined : selected })}>Close / stop browser</button>
       <button disabled={!selected || handedOff} onClick={() => invoke('handoff')}>Take over</button>
       <button disabled={busy || !selected} onClick={() => invoke('resume')}>Resume with approval</button>
       <fieldset disabled={busy || !selected || handedOff}>

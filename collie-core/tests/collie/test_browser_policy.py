@@ -169,3 +169,45 @@ async def test_destination_grants_are_bounded():
             },
         )
     assert session.process is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["approval", "launch"])
+async def test_panel_stop_cancels_initial_open(stage):
+    started = asyncio.Event()
+
+    async def authorize(*_args):
+        if stage == "approval":
+            started.set()
+            await asyncio.Future()
+
+    service = BrowserService(SimpleNamespace(authorize=authorize))
+    established = BrowserSession("kept", "chat", None, "http://localhost")
+    foreign = BrowserSession("foreign", "other", None, "http://localhost")
+    service.sessions = {established.id: established, foreign.id: foreign}
+
+    async def send(_session, _command):
+        started.set()
+        await asyncio.Future()
+
+    service._send = send
+    context = ExecutionContext(conversation_id="chat", origin="browser_ui")
+    pending = asyncio.create_task(
+        service.execute(context, {"operation": "open", "url": "http://localhost"})
+    )
+    try:
+        await asyncio.wait_for(started.wait(), 2)
+        other = ExecutionContext(conversation_id="other", origin="browser_ui")
+        with pytest.raises(ValueError, match="already opening"):
+            await service.execute(other, {"operation": "open", "url": "http://localhost"})
+        await service.execute(other, {"operation": "close"})
+        assert not pending.done()
+        result = await service.execute(context, {"operation": "close"})
+        assert result["closed"]
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(pending, 2)
+        assert service.sessions == {established.id: established, foreign.id: foreign}
+    finally:
+        pending.cancel()
+        await asyncio.gather(pending, return_exceptions=True)
+        await service.close()

@@ -134,3 +134,15 @@ describe('connector credential isolation', () => {
     expect(FakeWebSocket.instances).toHaveLength(0)
   })
 })
+
+describe('browser picker isolation', () => {
+  it.each([
+    { operation: 'upload' },
+    { operation: 'download' },
+    { operation: 'observe', file_path: 'C:/private.txt' }
+  ])('rejects renderer-authored transfers and paths: %j', async (command) => {
+    await expect(coreSend({ type: 'browser_action', id: 'unsafe-browser', command }))
+      .rejects.toThrow(/picker/)
+    expect(FakeWebSocket.instances).toHaveLength(0)
+  })
+})

@@ -45,3 +45,17 @@ it('keeps stop and takeover available while approval is pending', async () => {
   await click('Close / stop browser')
   expect(mocks.command).toHaveBeenCalledWith('browser_action', expect.objectContaining({ command: expect.objectContaining({ operation: 'close', session_id: 's' }) }), 360_000)
 })
+
+it('can stop the initial open before a session ID has returned', async () => {
+  await act(async () => root.render(<BrowserPanel conversationId="a" />))
+  await click('Browser · preview')
+  mocks.command.mockImplementation((_kind, frame) => frame.command.operation === 'open'
+    ? new Promise(() => {}) : Promise.resolve({ sessions: [], closed: true }))
+  await click('Open browser')
+  const stop = [...host.querySelectorAll('button')].find(b => b.textContent === 'Close / stop browser')
+  expect(stop?.disabled).toBe(false)
+  await click('Close / stop browser')
+  expect(mocks.command).toHaveBeenCalledWith('browser_action', expect.objectContaining({
+    conversation_id: 'a', command: expect.objectContaining({ operation: 'close', session_id: undefined })
+  }), 360_000)
+})

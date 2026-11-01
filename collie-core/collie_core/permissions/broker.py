@@ -118,9 +118,12 @@ class ApprovalBroker:
                 await self.broadcaster({"type": "approval_requested", "approval": row})
             resolution = await asyncio.wait_for(future, self.timeout_seconds)
         except asyncio.CancelledError:
-            resolved = self.db.resolve_approval_request(request_id, "cancelled")
-            if self.broadcaster:
-                await self.broadcaster({"type": "approval_resolved", "approval": resolved})
+            # Conversation cancellation may already have resolved this request.
+            # Never resolve twice or replace task cancellation with a database error.
+            if any(row["id"] == request_id for row in self.db.list_pending_approvals()):
+                resolved = self.db.resolve_approval_request(request_id, "cancelled")
+                if self.broadcaster:
+                    await self.broadcaster({"type": "approval_resolved", "approval": resolved})
             raise
         except TimeoutError as exc:
             self.db.resolve_approval_request(request_id, "timeout")

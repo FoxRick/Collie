@@ -355,6 +355,13 @@ export function coreSend(frame: CoreCommandFrame): Promise<unknown> {
   if (type.startsWith('collaboration_')) {
     return Promise.reject(new Error('Use the protected collaboration bridge.'))
   }
+  if (type === 'browser_action' && payload.command && typeof payload.command === 'object') {
+    const command = payload.command as Record<string, unknown>
+    if (command.operation === 'upload' || command.operation === 'download' ||
+      Object.prototype.hasOwnProperty.call(command, 'file_path')) {
+      return Promise.reject(new Error('Browser transfers require the native file picker.'))
+    }
+  }
   if (
     type === 'preview_connector_import' ||
     ((type === 'save_connector_definition' || type === 'begin_definition_auth' || type === 'reconnect_connector') &&
