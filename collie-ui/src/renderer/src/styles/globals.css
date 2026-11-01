@@ -422,7 +422,20 @@ button {
   width: 64px;
 }
 
-/* Collapse hides labels and non-essential blocks only — every icon keeps
+/* Chat actions stack inside the narrow rail, keeping both actions reachable. */
+.sidebar.is-collapsed .sidebar-chat-actions {
+  flex-direction: column;
+  margin-inline: 12px;
+}
+
+.sidebar.is-collapsed .sidebar-chat-actions .new-chat-button {
+  flex: none;
+  width: 100%;
+  min-width: 0;
+  padding-inline: 0;
+}
+
+/* Collapse hides labels and non-essential blocks only — navigation icons keep
    the exact x-position it has when expanded, so collapsing feels like the
    labels simply disappeared rather than the rail re-centering. */
 .sidebar.is-collapsed .brand-name,
@@ -2711,7 +2724,7 @@ button {
 }
 
 @media (max-width: 900px) {
-  .sidebar { width: 224px !important; }
+  .sidebar:not(.is-collapsed) { width: 224px; }
   .collie-activity { grid-template-columns: 175px 1fr; }
   .collie-activity-copy { padding: 18px; }
   .prompt-grid { grid-template-columns: 1fr; max-width: 360px; }
@@ -3208,7 +3221,8 @@ button {
 
 .collie-portrait-clip {
   z-index: 1;
-  inset: 5px;
+  /* Let fur run beneath the foreground stroke instead of leaving an orange gap. */
+  inset: 2px;
   overflow: hidden;
   background: linear-gradient(160deg, #f5b638 0%, #c97811 100%);
 }
@@ -3221,6 +3235,9 @@ button {
   object-fit: contain;
   user-select: none;
 }
+
+/* Keep the fallback exclusive even if surrounding display rules change. */
+.collie-portrait-base[hidden] { display: none !important; }
 
 .collie-ring-foreground {
   z-index: 3;
@@ -3425,7 +3442,7 @@ button {
     padding-top: 6px;
   }
   .collie-portrait-stage { width: 52px; flex-basis: 52px; margin-top: 30px; }
-  .collie-portrait-clip { inset: 3px; }
+  .collie-portrait-clip { inset: 1px; }
   .collie-ring-foreground { border-width: 2px; }
   .collie-portrait-status,
   .portrait-agent-list { display: none; }

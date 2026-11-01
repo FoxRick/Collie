@@ -1,0 +1,42 @@
+{
+  "method": "Offline Canvas registration and geometric in-betweens of existing website artwork. No AI generation or uploads.",
+  "sources": [
+    {
+      "name": "happy.webp",
+      "sha256": "8b70dc8904eb3cc58a9a35a33117540cbf215e85185777127795acef91b8b8c8"
+    },
+    {
+      "name": "idle.webp",
+      "sha256": "f217552915645b813ee6675fb608c5ae814f440ec8691048d1fa0da50999b85a"
+    },
+    {
+      "name": "idle-sheet.webp",
+      "sha256": "76b7e295c90dd9c4d9832af847d713f097a46dd3fc1c145f6d5638e6b32abe16"
+    },
+    {
+      "name": "click-reaction-sheet.webp",
+      "sha256": "55acd0149f79efeb2fb9129a6e69bb194490fe2e8444a910c84a62ca04cb0075"
+    }
+  ],
+  "mouth": {
+    "frames": 49,
+    "columns": 7,
+    "cell": 256
+  },
+  "eyelids": {
+    "frames": 33,
+    "columns": 11,
+    "cellWidth": 156,
+    "cellHeight": 74,
+    "x": 77,
+    "y": 126
+  },
+  "ears": {
+    "frames": 33,
+    "columns": 11,
+    "cellWidth": 256,
+    "cellHeight": 80
+  },
+  "decodedBytes": 17662048,
+  "invariant": "One fixed painted head; mouth pixels replace the mouth region; eyelids replace eye regions; no whole-head crossfade."
+}
