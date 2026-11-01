@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell, nativeImage, session } from 'electron'
 import { randomUUID } from 'crypto'
 import { desktopMenu, DesktopActionQueue } from './desktop-menu'
+import { createTrayImage, shouldHideOnClose, shouldQuitWithoutWindows } from './tray-platform'
 import type { DesktopMenuState } from '../shared/desktop-menu'
 import { basename, extname, isAbsolute, join } from 'path'
 import { homedir } from 'os'
@@ -350,7 +351,7 @@ function createWindow(): void {
 
   mainWindow.on('close', (e) => {
     // Minimize to tray instead of quitting (F009)
-    if (!quitting && process.platform !== 'darwin' && tray) {
+    if (!quitting && shouldHideOnClose(process.platform, tray !== null)) {
       e.preventDefault()
       mainWindow?.hide()
     }
@@ -375,7 +376,7 @@ function createWindow(): void {
 
 function createTray(): void {
   const path = appIconPath()
-  const icon = existsSync(path) ? nativeImage.createFromPath(path).resize({ width: 24, height: 24 }) : nativeImage.createEmpty()
+  const icon = createTrayImage(path)
   try {
     tray = new Tray(icon)
   } catch {
@@ -744,6 +745,7 @@ app.whenReady().then(async () => {
   }
   registerIpc()
   createWindow()
+  app.on('activate', showMainWindow)
   // #122: forward every core-pushed event (ready/delta/message/card/
   // approval_*, connection_opened, ...) to the app's own renderer. The
   // renderer no longer opens a socket to the core, so this is the only
@@ -791,10 +793,6 @@ app.whenReady().then(async () => {
     }
   }, 15_000)
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-    else mainWindow?.show()
-  })
 })
 
 app.on('before-quit', () => {
@@ -829,5 +827,5 @@ app.on('will-quit', (event) => {
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin' && !tray) app.quit()
+  if (shouldQuitWithoutWindows(process.platform, tray !== null)) app.quit()
 })

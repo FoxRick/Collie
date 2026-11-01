@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { DesktopActionQueue, desktopMenu } from './desktop-menu'
-import type { MenuItemConstructorOptions } from 'electron'
+import type { MenuItem, MenuItemConstructorOptions } from 'electron'
 
 describe('desktop tray menu', () => {
   it('opens the selected chat and marks the current chat', () => {
@@ -12,7 +12,7 @@ describe('desktop tray menu', () => {
     const recent = menu[2].submenu as MenuItemConstructorOptions[]
     expect(recent[0]).toMatchObject({ label: 'Research && travel', checked: true })
     expect(recent[1]).toMatchObject({ label: 'New chat', checked: false })
-    ;(recent[1].click as () => void)()
+    ;(recent[1].click as (item: MenuItem) => void)({ checked: true } as MenuItem)
     expect(dispatch).toHaveBeenCalledWith({ type: 'open-chat', conversationId: 'b' })
   })
 
@@ -31,10 +31,32 @@ describe('desktop tray menu', () => {
       vi.fn(), vi.fn(), vi.fn(), platform)
     const chat = (menu[2].submenu as MenuItemConstructorOptions[])[0]
     expect(chat).toMatchObject({
-      type: 'radio', checked: true,
+      type: 'checkbox', checked: true,
       label: platform === 'darwin' ? 'Work & travel' : 'Work && travel'
     })
     expect(menu[6].label).toBe(platform === 'win32' ? 'Exit Collie' : 'Quit Collie')
+  })
+
+  it.each([null, 'older-chat'])('does not select a recent chat when activeId is %s', (activeId) => {
+    const dispatch = vi.fn()
+    const menu = desktopMenu({ activeId, conversations: [{ id: 'a', title: 'Chat A' }] },
+      vi.fn(), dispatch, vi.fn())
+    const item = (menu[2].submenu as MenuItemConstructorOptions[])[0]
+    expect(item.type).toBe('checkbox')
+    expect(item.checked).toBe(false)
+    const native = { checked: true } as MenuItem
+    ;(item.click as (item: MenuItem) => void)(native)
+    expect(native.checked).toBe(false)
+    expect(dispatch).toHaveBeenCalledWith({ type: 'open-chat', conversationId: 'a' })
+  })
+
+  it('does not uncheck the active chat when selected again', () => {
+    const menu = desktopMenu({ activeId: 'a', conversations: [{ id: 'a', title: 'Chat A' }] },
+      vi.fn(), vi.fn(), vi.fn())
+    const item = (menu[2].submenu as MenuItemConstructorOptions[])[0]
+    const native = { checked: false } as MenuItem
+    ;(item.click as (item: MenuItem) => void)(native)
+    expect(native.checked).toBe(true)
   })
 
   it('delivers the latest startup action once and queues again after a reload', () => {

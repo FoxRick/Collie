@@ -911,6 +911,13 @@ export default function ChatScreen({
     void openConversation(null)
   }, [onNavigate, openConversation])
 
+  const selectConversation = useCallback((id: string) => {
+    setTemporaryOpen(false)
+    onNavigate('chat')
+    const conversation = conversations.find((item) => item.id === id)
+    void openConversation(id, conversation?.project_path ?? null)
+  }, [conversations, onNavigate, openConversation])
+
   useEffect(() => {
     void window.collie?.setDesktopMenu?.({
       conversations: conversations.slice(0, 10).map(({ id, title }) => ({ id, title })),
@@ -922,11 +929,8 @@ export default function ChatScreen({
     setTemporaryOpen(false)
     if (action.type === 'settings') onNavigate('settings')
     else if (action.type === 'new-chat') newChat()
-    else if (action.type === 'open-chat') {
-      onNavigate('chat')
-      void openConversation(action.conversationId)
-    }
-  }), [newChat, onNavigate, openConversation])
+    else if (action.type === 'open-chat') selectConversation(action.conversationId)
+  }), [newChat, onNavigate, selectConversation])
 
   /** Open (or create, once) the getting-started conversation with its greeting. */
   const getStarted = useCallback(async () => {
@@ -1070,15 +1074,7 @@ export default function ChatScreen({
         busyIds={new Set(Object.keys(thinkingMap))}
         activeView={activeView}
         onNavigate={(view) => { setTemporaryOpen(false); onNavigate(view) }}
-        onSelect={(id) => {
-          setTemporaryOpen(false)
-          onNavigate('chat')
-          const conversation = conversations.find((item) => item.id === id)
-          void openConversation(
-            id,
-            conversation?.project_path ?? null
-          )
-        }}
+        onSelect={selectConversation}
         onNewChat={() => { setTemporaryOpen(false); newChat() }}
         onTemporaryChat={() => { onNavigate('chat'); setTemporaryOpen(true) }}
         onDelete={(id) => void deleteConversation(id)}

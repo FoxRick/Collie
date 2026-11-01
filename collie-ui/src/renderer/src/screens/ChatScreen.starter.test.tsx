@@ -3,9 +3,15 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DesktopAction } from '../../../shared/desktop-menu'
-import type { CollieEvent, Conversation } from '../lib/ipc'
+import type { AttachmentDraft, CollieEvent, Conversation } from '../lib/ipc'
+
+interface InputProps {
+  workspace: string
+  onSend: (text: string, attachments: AttachmentDraft[]) => Promise<boolean>
+}
 
 const hooks = vi.hoisted(() => {
+  let input: InputProps | undefined
   let listener: ((event: CollieEvent) => void) | undefined
   const client = {
     on: vi.fn((next: (event: CollieEvent) => void) => {
@@ -32,6 +38,11 @@ const hooks = vi.hoisted(() => {
   }
   return {
     client,
+    captureInput: (props: InputProps) => { input = props },
+    input: () => {
+      if (!input) throw new Error('Chat input was not rendered')
+      return input
+    },
     listener: (): ((event: CollieEvent) => void) => {
       if (!listener) throw new Error('ChatScreen did not register its event listener.')
       return listener
@@ -42,7 +53,7 @@ const hooks = vi.hoisted(() => {
 vi.mock('../lib/ipc', () => ({ collieClient: hooks.client }))
 vi.mock('../components/Sidebar', () => ({ default: () => <aside /> }))
 vi.mock('../components/ChatInput', () => ({
-  default: () => <form />
+  default: (props: InputProps) => { hooks.captureInput(props); return <form /> }
 }))
 vi.mock('../components/CollieFace', () => ({ default: () => <span /> }))
 vi.mock('../components/InteractiveColliePortrait', () => ({ default: () => <aside /> }))
@@ -209,6 +220,32 @@ describe('ChatScreen starter-conversation opening', () => {
     expect(window.collie.setDesktopMenu).toHaveBeenLastCalledWith({
       conversations: conversations.slice(0, 10).map(({ id, title }) => ({ id, title })), activeId: null
     })
+  })
+
+  it('switches project folders with tray selection and clears them for General Chat', async () => {
+    const conversations = [
+      { ...starterConversation, id: 'a', project_path: 'C:/project-a' },
+      { ...starterConversation, id: 'b', project_path: 'C:/project-b' },
+      { ...starterConversation, id: 'general', project_path: null }
+    ]
+    hooks.client.listConversations.mockResolvedValue({ conversations })
+    await act(async () => {
+      root.render(<ChatScreen activeView="chat" onNavigate={vi.fn()} onRedoOnboarding={vi.fn()} />)
+    })
+    await act(async () => desktopAction?.({ type: 'open-chat', conversationId: 'a' }))
+    expect(hooks.input().workspace).toBe('C:/project-a')
+    await act(async () => desktopAction?.({ type: 'open-chat', conversationId: 'b' }))
+    expect(hooks.input().workspace).toBe('C:/project-b')
+    hooks.client.chat.mockResolvedValue({ conversation_id: 'b' })
+    await act(async () => { await hooks.input().onSend('Use B', []) })
+    expect(hooks.client.chat).toHaveBeenLastCalledWith('b', 'Use B', [], 'execute',
+      'C:/project-b', { mode: 'selected_folder' })
+    await act(async () => desktopAction?.({ type: 'open-chat', conversationId: 'general' }))
+    expect(hooks.input().workspace).toBe('')
+    hooks.client.chat.mockResolvedValue({ conversation_id: 'general' })
+    await act(async () => { await hooks.input().onSend('General', []) })
+    expect(hooks.client.chat).toHaveBeenLastCalledWith('general', 'General', [], 'execute',
+      undefined, { mode: 'selected_folder' })
   })
 
 })

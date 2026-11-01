@@ -19,9 +19,13 @@ export function desktopMenu(
             label: platform === 'darwin'
               ? (title.trim() || 'New chat').slice(0, 80)
               : (title.trim() || 'New chat').slice(0, 80).replace(/&/g, '&&'),
-            type: 'radio' as const,
+            type: 'checkbox' as const,
             checked: id === state.activeId,
-            click: () => dispatch({ type: 'open-chat', conversationId: id })
+            click: (item) => {
+              // Native checkboxes toggle before click. Selection belongs to the chat shell.
+              item.checked = id === state.activeId
+              dispatch({ type: 'open-chat', conversationId: id })
+            }
           }))
         : [{ label: 'No recent chats', enabled: false }]
     },
