@@ -115,6 +115,8 @@ const api = {
     ipcRenderer.invoke('collie:preview-connector-import-file'),
   discardConnectorImportSecrets: (handles: string[]): Promise<void> =>
     ipcRenderer.invoke('collie:discard-connector-import-secrets', handles),
+  browserFile: (conversationId: string, command: import('../shared/browser').BrowserCommand, direction: 'upload' | 'download'): Promise<import('../shared/browser').BrowserResult | null> =>
+    ipcRenderer.invoke('collie:browser-file', conversationId, command, direction),
   pickAttachments: (): Promise<Array<{ name: string; mime: string; size: number; data_url: string }>> =>
     ipcRenderer.invoke('collie:pick-attachments'),
   pickProjectFolder: (): Promise<string | null> =>

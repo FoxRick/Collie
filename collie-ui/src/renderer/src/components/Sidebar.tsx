@@ -293,7 +293,7 @@ export default function Sidebar({
         </button>
       </div>
 
-      <div className="mx-4 mb-3 flex gap-2">
+      <div className="sidebar-chat-actions mx-4 mb-3 flex gap-2">
       <button
         type="button"
         onClick={onNewChat}

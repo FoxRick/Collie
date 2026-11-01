@@ -22,7 +22,7 @@ function MiniBars({ numbers }: { numbers: number[] }): React.JSX.Element {
 
 function PointRow({ point }: { point: TakeawayPoint }): React.JSX.Element {
   return (
-    <li className="flex items-start gap-2 text-sm leading-snug text-stone-700">
+    <li className="flex items-start gap-2 text-sm leading-snug text-[var(--ink-soft)]">
       <span className="mt-[7px] size-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
       <span className="min-w-0">
         {point.text}
@@ -34,9 +34,9 @@ function PointRow({ point }: { point: TakeawayPoint }): React.JSX.Element {
 
 function ChipPill({ chip }: { chip: TakeawayChip }): React.JSX.Element {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-stone-100 px-2.5 py-1 text-xs text-stone-600">
-      <span className="font-medium text-stone-900">{chip.key}</span>
-      <span className="text-stone-300" aria-hidden="true">·</span>
+    <span className="takeaway-chip inline-flex items-center gap-1.5 rounded-full bg-[var(--bone)] px-2.5 py-1 text-xs text-[var(--ink-soft)]">
+      <span className="font-medium text-[var(--ink)]">{chip.key}</span>
+      <span className="text-[var(--muted)]" aria-hidden="true">·</span>
       <span>{chip.value}</span>
     </span>
   )
@@ -51,10 +51,10 @@ export default function TakeawayCard({ digest }: { digest: TakeawayDigest }): Re
   return (
     <section
       aria-label="Quick recap"
-      className="my-2 w-full max-w-2xl rounded-xl border border-stone-200 bg-white text-stone-900 shadow-sm"
+      className="my-2 w-full max-w-2xl rounded-xl border border-[var(--line)] bg-[var(--card)] text-[var(--ink)] shadow-sm"
     >
       <div className="flex items-center gap-3 px-4 pt-3">
-        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-amber-50 text-amber-700">
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-[var(--bone)] text-[var(--grass-dark)]">
           <PawPrint size={16} />
         </span>
         <h2 className="text-sm font-semibold">Quick recap</h2>
@@ -63,7 +63,7 @@ export default function TakeawayCard({ digest }: { digest: TakeawayDigest }): Re
         {digest.points.map((point, index) => <PointRow point={point} key={index} />)}
       </ul>
       {digest.chips.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 border-t border-stone-100 px-4 py-2.5">
+        <div className="flex flex-wrap gap-1.5 border-t border-[var(--line)] px-4 py-2.5">
           {digest.chips.map((chip, index) => <ChipPill chip={chip} key={`${chip.key}-${index}`} />)}
         </div>
       )}
