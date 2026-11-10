@@ -249,11 +249,11 @@ describe('getAccountState', () => {
   })
 })
 
-/** Extract the per-attempt OAuth `state` nonce from the opened authorize URL. */
-function openedAuthorizeState(): string {
+/** Extract the per-attempt OAuth `state` nonce from the browser URL. */
+function openedBrowserState(): string {
   const url = new URL(testState.openedUrl)
-  const state = url.searchParams.get('state')
-  if (!state) throw new Error('expected a state param on the authorize URL')
+  const state = new URLSearchParams(url.hash.slice(1)).get('state')
+  if (!state) throw new Error('expected a state param in the browser URL fragment')
   return state
 }
 
@@ -262,21 +262,17 @@ describe('startAccountSignIn', () => {
     const signInPromise = startAccountSignIn()
 
     await vi.waitFor(() => {
-      expect(testState.openedUrl).toContain('/auth/v1/authorize')
+      expect(testState.openedUrl).toContain('https://heycollie.com/account/desktop#')
     })
-    const authorizeUrl = new URL(testState.openedUrl)
-    expect(authorizeUrl.searchParams.get('aud')).toBe('authenticated')
-    expect(authorizeUrl.searchParams.get('response_type')).toBe('code')
-    expect(authorizeUrl.searchParams.get('redirect_to')).toBe(
-      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback`
-    )
-    expect(authorizeUrl.searchParams.get('code_challenge_method')).toBe('S256')
-    expect(authorizeUrl.searchParams.get('code_challenge')).toMatch(/^[A-Za-z0-9_-]{43}$/)
-    expect(authorizeUrl.searchParams.get('client_id')).toBe('test-anon-key')
-    // A fresh, per-attempt state nonce is carried on the authorize URL.
-    const stateNonce = authorizeUrl.searchParams.get('state')
+    const browserUrl = new URL(testState.openedUrl)
+    const handoff = new URLSearchParams(browserUrl.hash.slice(1))
+    const stateNonce = openedBrowserState()
+    const challenge = handoff.get('code_challenge')
+    expect(browserUrl.search).toBe('')
+    expect([...handoff.keys()].sort()).toEqual(['code_challenge', 'state'])
     expect(stateNonce).toMatch(/^[A-Za-z0-9_-]{43}$/)
-    expect(stateNonce).not.toBe(authorizeUrl.searchParams.get('code_challenge'))
+    expect(challenge).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    expect(stateNonce).not.toBe(challenge)
 
     // Simulate the browser redirect after the user signs in, echoing the state.
     const callbackResponse = await realFetch(
@@ -297,6 +293,8 @@ describe('startAccountSignIn', () => {
       auth_code: 'exchange-me',
       code_verifier: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/)
     })
+    expect(createHash('sha256').update(String(testState.exchange?.body.code_verifier)).digest('base64url'))
+      .toBe(challenge)
     expect(testState.exchange?.headers.apikey).toBe('test-anon-key')
     expect(testState.exchange?.headers['Content-Type']).toBe('application/json')
 
@@ -313,7 +311,7 @@ describe('startAccountSignIn', () => {
   it('surfaces a browser-side cancellation as a friendly error', async () => {
     const signInPromise = startAccountSignIn()
     await vi.waitFor(() => {
-      expect(testState.openedUrl).toContain('/auth/v1/authorize')
+      expect(testState.openedUrl).toContain('https://heycollie.com/account/desktop#')
     })
 
     // Attach the rejection expectation BEFORE firing the callback request:
@@ -322,9 +320,13 @@ describe('startAccountSignIn', () => {
     // becomes an unhandled rejection that fails the vitest run (CI exit 1).
     const rejection = expect(signInPromise).rejects.toThrow('Sign-in was cancelled.')
 
-    // Supabase redirects with ?error=access_denied when the user cancels.
+    const unbound = await realFetch(
+      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?error=access_denied`
+    )
+    expect(unbound.status).toBe(400)
+
     const callbackResponse = await realFetch(
-      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?error=access_denied&error_description=User+cancelled`
+      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?error=access_denied&state=${openedBrowserState()}`
     )
     expect(callbackResponse.status).toBe(200)
 
@@ -336,7 +338,7 @@ describe('startAccountSignIn', () => {
     resetSecureStorageCache() // secureStorageAvailable caches its probe result
     const signInPromise = startAccountSignIn()
     await vi.waitFor(() => {
-      expect(testState.openedUrl).toContain('/auth/v1/authorize')
+      expect(testState.openedUrl).toContain('https://heycollie.com/account/desktop#')
     })
 
     // Same pattern as the cancellation test — handle the rejection before
@@ -346,9 +348,10 @@ describe('startAccountSignIn', () => {
     )
 
     const callbackResponse = await realFetch(
-      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=exchange-me&state=${openedAuthorizeState()}`
+      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=exchange-me&state=${openedBrowserState()}`
     )
-    expect(callbackResponse.status).toBe(200)
+    expect(callbackResponse.status).toBe(500)
+    expect(await callbackResponse.text()).toContain('Sign-in could not be completed')
 
     await rejection
     expect(getStoredSession()).toBeNull()
@@ -403,7 +406,7 @@ describe('sign-in callback CSRF defenses (issue #106)', () => {
   it('rejects a callback addressed to a foreign Host (DNS-rebinding defense)', async () => {
     const signInPromise = startAccountSignIn()
     await vi.waitFor(() => {
-      expect(testState.openedUrl).toContain('/auth/v1/authorize')
+      expect(testState.openedUrl).toContain('https://heycollie.com/account/desktop#')
     })
 
     // An attacker page that rebinds its name to 127.0.0.1 delivers its own
@@ -413,7 +416,7 @@ describe('sign-in callback CSRF defenses (issue #106)', () => {
 
     // The flow is untouched: the legitimate redirect still completes it.
     const ok = await realFetch(
-      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=exchange-me&state=${openedAuthorizeState()}`
+      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=exchange-me&state=${openedBrowserState()}`
     )
     expect(ok.status).toBe(200)
     const state = await signInPromise
@@ -424,7 +427,7 @@ describe('sign-in callback CSRF defenses (issue #106)', () => {
   it('rejects a callback carrying an Origin header (cross-site fetch defense)', async () => {
     const signInPromise = startAccountSignIn()
     await vi.waitFor(() => {
-      expect(testState.openedUrl).toContain('/auth/v1/authorize')
+      expect(testState.openedUrl).toContain('https://heycollie.com/account/desktop#')
     })
 
     // A top-level browser redirect sends no Origin; cross-site fetch/XHR does.
@@ -432,7 +435,7 @@ describe('sign-in callback CSRF defenses (issue #106)', () => {
     expect(status).toBe(400)
 
     const ok = await realFetch(
-      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=exchange-me&state=${openedAuthorizeState()}`
+      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=exchange-me&state=${openedBrowserState()}`
     )
     expect(ok.status).toBe(200)
     const state = await signInPromise
@@ -443,9 +446,9 @@ describe('sign-in callback CSRF defenses (issue #106)', () => {
   it('rejects a callback carrying a mismatched or missing state and never exchanges it', async () => {
     const signInPromise = startAccountSignIn()
     await vi.waitFor(() => {
-      expect(testState.openedUrl).toContain('/auth/v1/authorize')
+      expect(testState.openedUrl).toContain('https://heycollie.com/account/desktop#')
     })
-    const state = openedAuthorizeState()
+    const state = openedBrowserState()
 
     // A code minted for a DIFFERENT flow echoes the wrong state — reject it.
     const wrong = await realFetch(
@@ -479,9 +482,9 @@ describe('sign-in callback CSRF defenses (issue #106)', () => {
   it('completes the callback when the correct issued state is echoed back', async () => {
     const signInPromise = startAccountSignIn()
     await vi.waitFor(() => {
-      expect(testState.openedUrl).toContain('/auth/v1/authorize')
+      expect(testState.openedUrl).toContain('https://heycollie.com/account/desktop#')
     })
-    const state = openedAuthorizeState()
+    const state = openedBrowserState()
 
     const ok = await realFetch(
       `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=exchange-me&state=${state}`
