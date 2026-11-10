@@ -264,7 +264,7 @@ export default function WelcomeScreen({ onDone, onCancel, onSkip }: Props): Reac
   )
 
   const saveApiKey = useCallback(async (): Promise<void> => {
-    if (!apiKey.trim() && !isKeylessLocalProvider(provider, baseUrl)) return
+    if (!apiKey.trim() && !isKeylessLocalProvider(provider, baseUrl, protocolForProvider)) return
     const connectionName = displayName.trim() || provider
     if (custom && (!baseUrl.trim() || !model.trim())) {
       setError('A custom API needs a base URL and a model. Use "Detect models" to find one.')
@@ -713,7 +713,7 @@ export default function WelcomeScreen({ onDone, onCancel, onSkip }: Props): Reac
 
               <button
                 onClick={() => void saveApiKey()}
-                disabled={busyKey || busyOAuth !== null || (!apiKey.trim() && !isKeylessLocalProvider(provider, baseUrl)) || (custom && (!baseUrl.trim() || !model.trim()))}
+                disabled={busyKey || busyOAuth !== null || (!apiKey.trim() && !isKeylessLocalProvider(provider, baseUrl, protocolForProvider)) || (custom && (!baseUrl.trim() || !model.trim()))}
                 className="rounded-lg px-4 py-2 font-medium text-white transition disabled:opacity-50"
                 style={{ background: 'var(--collie-btn-primary-bg)' }}
               >

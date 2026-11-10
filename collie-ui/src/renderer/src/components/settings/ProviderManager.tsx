@@ -9,7 +9,8 @@ import {
 } from '../../lib/ipc'
 import {
   configureApiKeyProvider,
-  configureProvider
+  configureProvider,
+  isKeylessLocalProvider
 } from '../../lib/providerConfiguration'
 import BrandLogo from '../BrandLogo'
 import ManagedInferenceCard from '../ManagedInferenceCard'
@@ -70,6 +71,16 @@ export default function ProviderManager({
   const [catalogueUpdatedAt, setCatalogueUpdatedAt] = useState<string>('')
   const [catalogueBusy, setCatalogueBusy] = useState(false)
   const oauthAttemptRef = useRef(0)
+  const custom = provider === 'custom'
+  const keylessLocal = isKeylessLocalProvider(provider, baseUrl, protocol)
+  const incompleteCustom = custom && (!displayName.trim() || !baseUrl.trim() || !model.trim())
+  const canConnect = !incompleteCustom && (Boolean(apiKey.trim()) || keylessLocal)
+  const existingKey = secretProviders.some(
+    (name) => name.toLowerCase() === (displayName.trim() || provider).toLowerCase()
+  )
+  const apiKeyPlaceholder = keylessLocal
+    ? 'API key (optional for this local model)'
+    : existingKey ? 'Enter a replacement API key' : 'Paste API key'
 
   useEffect(() => {
     if (typeof window.collie?.listSecrets !== 'function') return
@@ -137,7 +148,10 @@ export default function ProviderManager({
     })
   }
   for (const secretProvider of secretProviders) {
-    if (providers.some((item) => item.name === secretProvider && item.auth_type === 'api-key')) {
+    if (providers.some((item) =>
+      item.auth_type === 'api-key' &&
+      (item.secret_name || item.name).toLowerCase() === secretProvider.toLowerCase()
+    )) {
       continue
     }
     providers.push({
@@ -171,12 +185,8 @@ export default function ProviderManager({
   }
 
   const saveApiKey = async (): Promise<void> => {
-    if (!apiKey.trim()) return
+    if (!canConnect) return
     const connectionName = displayName.trim() || provider
-    if (provider === 'custom' && (!displayName.trim() || !baseUrl.trim() || !model.trim())) {
-      onNotice('A custom API needs a name, base URL, and model ID.')
-      return
-    }
     setBusyAction('add-api')
     try {
       await configureSettingsApiKey({
@@ -316,6 +326,32 @@ export default function ProviderManager({
     catalogue.find((entry) => entry.id === provider)?.models
       ?.map((item) => item.id)
       .filter((value): value is string => Boolean(value)) ?? []
+  const connectionFields = (
+    <>
+      <input
+        type="text"
+        value={displayName}
+        aria-label="Connection name"
+        required={custom}
+        onChange={(event) => setDisplayName(event.target.value)}
+        placeholder={custom ? 'Connection name' : 'Connection name (optional)'}
+      />
+      <input
+        type="text"
+        value={model}
+        aria-label="Model ID"
+        required={custom}
+        onChange={(event) => setModel(event.target.value)}
+        placeholder={custom ? 'Model ID' : catalogueModelIds.length > 0 ? 'Pick a model' : 'Model ID (optional)'}
+        list={catalogueModelIds.length > 0 ? 'provider-model-suggestions' : undefined}
+      />
+      {catalogueModelIds.length > 0 && (
+        <datalist id="provider-model-suggestions">
+          {catalogueModelIds.map((item) => <option key={item} value={item} />)}
+        </datalist>
+      )}
+    </>
+  )
 
   return (
     <section className="settings-card provider-manager">
@@ -435,16 +471,16 @@ export default function ProviderManager({
             value={apiKey}
             aria-label="API key"
             onChange={(event) => setApiKey(event.target.value)}
-            placeholder={secretProviders.includes(displayName.trim() || provider) ? 'Enter a replacement API key' : 'Paste API key'}
+            placeholder={apiKeyPlaceholder}
           />
-          {/* Base URL / protocol / model ID are expert knobs — most people
-              only need provider + key. They stay available, tucked away. */}
-          {provider === 'custom' && (
+          {custom ? (
             <>
+              {connectionFields}
               <input
                 type="url"
                 value={baseUrl}
                 aria-label="API base URL"
+                required
                 onChange={(event) => setBaseUrl(event.target.value)}
                 placeholder="Base URL"
               />
@@ -457,45 +493,25 @@ export default function ProviderManager({
                 <option value="anthropic">Anthropic-compatible</option>
               </select>
             </>
+          ) : (
+            <details className="provider-advanced">
+              <summary>Advanced — connection name and model</summary>
+              {connectionFields}
+              {provider !== 'ollama' && (
+                <input
+                  type="url"
+                  value={baseUrl}
+                  aria-label="API base URL"
+                  onChange={(event) => setBaseUrl(event.target.value)}
+                  placeholder="Custom base URL (optional)"
+                />
+              )}
+            </details>
           )}
-          <details className="provider-advanced">
-            <summary>Advanced — connection name and model</summary>
-            <input
-              type="text"
-              value={displayName}
-              aria-label="Connection name"
-              onChange={(event) => setDisplayName(event.target.value)}
-              placeholder={provider === 'custom' ? 'Connection name' : 'Connection name (optional)'}
-            />
-            <input
-              type="text"
-              value={model}
-              aria-label="Model ID"
-              onChange={(event) => setModel(event.target.value)}
-              placeholder={catalogueModelIds.length > 0 ? 'Pick a model' : 'Model ID (optional)'}
-              list={catalogueModelIds.length > 0 ? 'provider-model-suggestions' : undefined}
-            />
-            {catalogueModelIds.length > 0 && (
-              <datalist id="provider-model-suggestions">
-                {catalogueModelIds.map((item) => (
-                  <option key={item} value={item} />
-                ))}
-              </datalist>
-            )}
-            {!['custom', 'ollama'].includes(provider) && (
-              <input
-                type="url"
-                value={baseUrl}
-                aria-label="API base URL"
-                onChange={(event) => setBaseUrl(event.target.value)}
-                placeholder="Custom base URL (optional)"
-              />
-            )}
-          </details>
           <button
             type="button"
             className="primary-button"
-            disabled={!apiKey.trim() || Boolean(busyAction) || busyOAuth !== null}
+            disabled={!canConnect || Boolean(busyAction) || busyOAuth !== null}
             onClick={() => void saveApiKey()}
           >
             {ui("Connect")}

@@ -31,8 +31,12 @@ export interface ApiKeyProviderInput {
 }
 
 /** Only loopback custom servers may omit a key in the connection form. */
-export function isKeylessLocalProvider(provider: string, baseUrl: string): boolean {
-  if (provider !== 'custom') return false
+export function isKeylessLocalProvider(
+  provider: string,
+  baseUrl: string,
+  protocol: 'openai' | 'anthropic'
+): boolean {
+  if (provider !== 'custom' || protocol !== 'openai') return false
   try {
     const url = new URL(baseUrl)
     return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password &&
