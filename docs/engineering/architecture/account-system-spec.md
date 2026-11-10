@@ -89,16 +89,14 @@ Sign-in page (on `/account` when logged out): two tabs — **Email + password** 
 
 ## 6. App ↔ web sign-in (Electron, localhost callback)
 
-Claude-Desktop pattern, zero typing for the user:
+1. **Sign in** generates an S256 PKCE pair and a state nonce, and starts a listener on `127.0.0.1:8123`.
+2. Electron opens `https://heycollie.com/account/desktop` in the system browser with the challenge and state in the fragment. The verifier stays in Electron.
+3. The website requests a Supabase email link for the address entered. This supports existing accounts and email signup. The redirect is the fixed loopback callback with the attempt's state.
+4. The user opens the email link on the same computer. Supabase verifies the link and appends a code to the callback. Electron checks the state and exchanges the code with its verifier.
+5. Electron saves the session with `safeStorage` before showing success. Settings shows the account email and sign-out action.
+6. If no callback arrives within five minutes, the app closes the listener and asks the user to try again.
 
-1. Settings → **Sign in** → app generates PKCE verifier, starts a local HTTP listener on `127.0.0.1:<random-port>`.
-2. App opens the system browser (`shell.openExternal`) to the Supabase authorize URL with `redirect_to=http://127.0.0.1:<port>/callback` (plus `collie://auth/callback` custom protocol as fallback on macOS/Windows).
-3. User signs in with password **or** magic link in the browser.
-4. Browser redirects to `127.0.0.1:<port>/callback?code=...` → app exchanges code + verifier → session tokens.
-5. App stores tokens with `safeStorage`, Settings now shows signed-in state (email, Sign out). No data leaves the machine — the session is just identity.
-6. Timeout after ~5 min → "Sign-in didn't finish, try again."
-
-**App-side changes (Windows machine, later phase):** settings UI (sign in/out), localhost listener + PKCE, secure token storage, session refresh. No app-stack change — **Tauri is not on the table**; the pattern is identical either way, so this spec is stack-neutral.
+The desktop flow requires an email template that preserves Supabase's PKCE confirmation link and a Supabase redirect configuration that accepts the fixed loopback URL with its state query. Release the website route before publishing a desktop build that opens it.
 
 ## 7. Bot-safe download (open, not gated)
 
