@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import {
   ArrowUp,
   Check,
@@ -238,6 +238,10 @@ export async function buildImagePreviews(
 }
 
 interface Props {
+  text: string
+  setText: Dispatch<SetStateAction<string>>
+  attachments: AttachmentDraft[]
+  setAttachments: Dispatch<SetStateAction<AttachmentDraft[]>>
   onSend: (text: string, attachments: AttachmentDraft[]) => Promise<boolean>
   onStop: () => void
   busy: boolean
@@ -268,6 +272,10 @@ interface Props {
 }
 
 export default function ChatInput({
+  text,
+  setText,
+  attachments,
+  setAttachments,
   onSend,
   onStop,
   busy,
@@ -295,8 +303,6 @@ export default function ChatInput({
   taskProgress,
   autofocus = false
 }: Props): React.JSX.Element {
-  const [text, setText] = useState('')
-  const [attachments, setAttachments] = useState<AttachmentDraft[]>([])
   const [attachmentError, setAttachmentError] = useState('')
   const [openMenu, setOpenMenu] = useState<'model' | 'files' | 'approvals' | null>(null)
   const [voiceState, setVoiceState] = useState<DictationState>('idle')
@@ -364,7 +370,7 @@ export default function ChatInput({
     setCommandIndex(0)
     onTypingChangeRef.current?.(true)
     requestAnimationFrame(() => textareaRef.current?.focus())
-  }, [])
+  }, [setText])
 
   useEffect(() => {
     if (!autofocus) return
@@ -459,8 +465,8 @@ export default function ChatInput({
       submittingRef.current = false
     }
     if (!accepted) return
+    setText((current) => (current === submittedText ? '' : current))
     if (textRef.current === submittedText) {
-      setText('')
       onTypingChange?.(false)
     }
     const submittedIdentities = new Set(submittedAttachments)
@@ -527,7 +533,7 @@ export default function ChatInput({
       })
       return true
     },
-    []
+    [setAttachments]
   )
 
   const readClipboardBlob = (blob: Blob): Promise<AttachmentDraft> =>
