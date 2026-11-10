@@ -12,10 +12,12 @@ const signedOut = { signedIn: false, email: null, expiresAt: null, access: 'unkn
 const signedIn = { ...signedOut, signedIn: true, email: 'test@example.com' }
 const getState = vi.fn()
 const startSignIn = vi.fn()
+const onGuest = vi.fn()
 
 beforeEach(() => {
   ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   localStorage.clear()
+  onGuest.mockClear()
   getState.mockReset().mockResolvedValue(signedOut)
   startSignIn.mockReset().mockResolvedValue(signedIn)
   Object.defineProperty(window, 'account', { configurable: true, value: { getState, startSignIn } })
@@ -31,7 +33,7 @@ afterEach(async () => {
 })
 
 async function render(): Promise<void> {
-  await act(async () => root.render(<AccountOnboarding><div>Choose your model</div></AccountOnboarding>))
+  await act(async () => root.render(<AccountOnboarding onGuest={onGuest}><div>Choose your model</div></AccountOnboarding>))
 }
 
 async function click(label: string): Promise<void> {
@@ -41,11 +43,11 @@ async function click(label: string): Promise<void> {
 }
 
 describe('optional account onboarding', () => {
-  it('puts the account choice before models and remembers guest use across mounts', async () => {
+  it('remembers the choice to connect a model without a Collie account across mounts', async () => {
     await render()
     expect(container.textContent).toContain('Sign in or create an account')
     expect(container.textContent).not.toContain('Choose your model')
-    await click('Continue as a guest')
+    await click('Connect a model without a Collie account')
     expect(container.textContent).toContain('Choose your model')
     expect(startSignIn).not.toHaveBeenCalled()
     await act(async () => root.unmount())
@@ -81,7 +83,8 @@ describe('optional account onboarding', () => {
     await click('Sign in or create an account')
     expect(container.querySelector('[role="alert"]')).not.toBeNull()
     await click('Continue as a guest')
-    expect(container.textContent).toContain('Choose your model')
+    expect(onGuest).toHaveBeenCalledOnce()
+    expect(container.textContent).not.toContain('Choose your model')
   })
 
   it('allows guest use while sign-in is pending and ignores its late result', async () => {
@@ -92,14 +95,16 @@ describe('optional account onboarding', () => {
     expect(container.querySelector('button')?.disabled).toBe(true)
     await click('Continue as a guest')
     await act(async () => finish(signedIn))
-    expect(container.textContent).toBe('Choose your model')
+    expect(onGuest).toHaveBeenCalledOnce()
+    expect(container.textContent).not.toContain('Choose your model')
   })
 
   it('does not block guests when account lookup never finishes', async () => {
     getState.mockReturnValue(new Promise(() => {}))
     await render()
     await click('Continue as a guest')
-    expect(container.textContent).toContain('Choose your model')
+    expect(onGuest).toHaveBeenCalledOnce()
+    expect(container.textContent).not.toContain('Choose your model')
   })
 
   it('continues when local preference storage is unavailable', async () => {
@@ -107,6 +112,7 @@ describe('optional account onboarding', () => {
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked') })
     await render()
     await click('Continue as a guest')
-    expect(container.textContent).toContain('Choose your model')
+    expect(onGuest).toHaveBeenCalledOnce()
+    expect(container.textContent).not.toContain('Choose your model')
   })
 })

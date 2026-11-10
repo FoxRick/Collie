@@ -383,7 +383,6 @@ export default function ChatScreen({
   useEffect(() => {
     void Promise.all([
       refreshConversations(),
-      refreshRuntimeStatus(),
       refreshCommandCatalog(),
       refreshApprovalPreset(),
       collieClient
@@ -391,11 +390,14 @@ export default function ChatScreen({
         .then((data) => setApprovals(data.approvals))
         .catch(() => undefined)
     ]).finally(() => setActivityReady(true))
-  }, [refreshApprovalPreset, refreshCommandCatalog, refreshConversations, refreshRuntimeStatus])
+  }, [refreshApprovalPreset, refreshCommandCatalog, refreshConversations])
 
   useEffect(() => {
-    if (activeView === 'chat') void refreshApprovalPreset()
-  }, [activeView, refreshApprovalPreset])
+    if (activeView === 'chat') {
+      void refreshApprovalPreset()
+      void refreshRuntimeStatus()
+    }
+  }, [activeView, refreshApprovalPreset, refreshRuntimeStatus])
 
   // Apply a conversation's saved mode once per switch — never re-stomp the
   // user's live selection on every conversation-list refresh.
@@ -1174,6 +1176,15 @@ export default function ChatScreen({
           ) : null}
           <BrowserPanel key={`browser-${activeId}`} conversationId={activeId} />
           <ComputerPanel key={`computer-${activeId}`} conversationId={activeId} />
+          {runtimeStatus.configured === false && (
+            <div className="mx-4 mb-2 flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-sm"
+              style={{ borderColor: 'var(--collie-border)' }}>
+              <span>Connect a model to get AI replies.</span>
+              <button type="button" className="rounded border px-3 py-1" onClick={() => onNavigate('settings')}>
+                Open model settings
+              </button>
+            </div>
+          )}
           <div className="portrait-composer-layout">
             <RememberPill conversationId={activeId} />
             <InteractiveColliePortrait

@@ -12,7 +12,12 @@ function hasChosen(): boolean {
 }
 
 /** Optional identity step. Local data and cloud-backup preferences are untouched. */
-export default function AccountOnboarding({ children }: { children: ReactNode }): React.JSX.Element {
+interface Props {
+  children: ReactNode
+  onGuest: () => void
+}
+
+export default function AccountOnboarding({ children, onGuest }: Props): React.JSX.Element {
   const [done, setDone] = useState(hasChosen)
   const [checking, setChecking] = useState(!done)
   const [busy, setBusy] = useState(false)
@@ -92,14 +97,21 @@ export default function AccountOnboarding({ children }: { children: ReactNode })
           type="button"
           className="rounded-xl border px-5 py-3 font-medium"
           style={{ borderColor: 'var(--collie-border)', background: 'var(--collie-surface)' }}
-          onClick={continueSetup}
+          onClick={() => {
+            continued.current = true
+            onGuest()
+          }}
         >
           Continue as a guest
+        </button>
+        <button type="button" className="self-center px-2 py-1 text-sm underline" onClick={continueSetup}>
+          Connect a model without a Collie account
         </button>
         {error && <p role="alert" className="text-center text-sm">{error}</p>}
         {busy && <p role="status" className="text-center text-sm">You can continue as a guest while you wait.</p>}
         <p className="text-center text-sm" style={{ color: 'var(--collie-text-muted)' }}>
-          An account is optional. Your chats and settings are saved on this computer.
+          As a guest, you can explore Collie and connect a model later for AI replies.
+          Your chats and settings are saved on this computer.
           You can sign in later in Settings → Account. Cloud backup is a separate, optional choice.
         </p>
       </main>
