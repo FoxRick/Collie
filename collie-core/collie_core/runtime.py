@@ -21,6 +21,7 @@ import time
 import urllib.parse
 import uuid
 from contextlib import suppress
+from ipaddress import ip_address
 from types import SimpleNamespace
 from typing import Any
 
@@ -56,23 +57,20 @@ from collie_core.tools.reminders import bind_reminders_db
 from collie_core.tools.suggest_profile import bind_suggest_workspace
 from collie_core.tools.task_checklists import bind_task_checklists_db
 
+
 # A "keyless" custom endpoint (no API key) is only trusted on this machine.
 # A remote host that needs no key would let anyone use it, and a keyless remote
 # that does need a key silently breaks — so enforce loopback here. This is the
 # server-side authority; the renderer has the same rule.
-_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
-
-
 def _is_loopback_host(host: str | None) -> bool:
     if not host:
         return False
-    host = host.strip().lower()
-    return (
-        host in _LOOPBACK_HOSTS
-        or host.startswith("127.")
-        or host == "[::1]"
-        or host.endswith("localhost")
-    )
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 __all__ = ["CollieRuntime", "main"]
@@ -805,7 +803,10 @@ class CollieRuntime:
             secret_name = str(normalized["secret_name"])
             previous_key = collie_settings.get_api_key(secret_name)
             supplied_key = normalized.pop("api_key")
-            if supplied_key is None and previous_key is None:
+            # The candidate validator permits a missing key with a custom
+            # endpoint only when its address is loopback.
+            keyless_local = normalized["runtime_name"] == "custom" and normalized["api_base"]
+            if supplied_key is None and previous_key is None and not keyless_local:
                 return {
                     "configured": False,
                     "error": "No API key is available for that provider.",
