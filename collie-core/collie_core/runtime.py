@@ -877,9 +877,8 @@ class CollieRuntime:
                     # escape hatch — only a definitive auth rejection (401/403)
                     # is treated as a failure there.
                     hard_fail = error_kind == "auth" or (
-                        catalogue_entry is not None and (
-                            runtime_name == "anthropic" or error_kind != "invalid"
-                        )
+                        catalogue_entry is not None
+                        and (runtime_name == "anthropic" or error_kind != "invalid")
                     )
                     if not hard_fail:
                         logger.info(

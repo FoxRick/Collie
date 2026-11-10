@@ -193,7 +193,9 @@ async def probe_api_key(
         return {"ok": False, "error": "auth", "detail": f"models endpoint {status}"}
     # Claude's list can succeed even when billing blocks inference. Use the
     # Messages endpoint to check the actual model for Claude Console keys.
-    verify_inference = provider_id == "anthropic" and api_base.rstrip("/") == "https://api.anthropic.com"
+    verify_inference = (
+        provider_id == "anthropic" and api_base.rstrip("/") == "https://api.anthropic.com"
+    )
     if status == 200 and not verify_inference:
         ids = _parse_model_ids(protocol, body)
         if model in ids:
@@ -236,9 +238,7 @@ async def probe_api_key(
 
     # Verify inference directly when required or when listing is unsupported.
     try:
-        status, body = await asyncio.to_thread(
-            _probe_one_token, api_base, protocol, api_key, model
-        )
+        status, body = await asyncio.to_thread(_probe_one_token, api_base, protocol, api_key, model)
     except (urllib.error.URLError, TimeoutError, OSError, ValueError) as error:
         return {"ok": False, "error": "network", "detail": str(error)}
     if _is_auth_failure(status):
@@ -252,7 +252,10 @@ async def probe_api_key(
             return {"ok": False, "error": "model"}
         if status == 400 and isinstance(body, dict):
             error = body.get("error")
-            if isinstance(error, dict) and "credit balance" in str(error.get("message", "")).lower():
+            if (
+                isinstance(error, dict)
+                and "credit balance" in str(error.get("message", "")).lower()
+            ):
                 return {"ok": False, "error": "billing"}
         if status == 200 and (not isinstance(body, dict) or body.get("type") != "message"):
             return {"ok": False, "error": "invalid"}

@@ -151,9 +151,13 @@ class OAuthLoginAttempt:
             return
         status = response.error_status_code
         if status in (401, 403):
-            raise OAuthFlowError("ChatGPT denied model access. Check your account or workspace permissions.")
+            raise OAuthFlowError(
+                "ChatGPT denied model access. Check your account or workspace permissions."
+            )
         if status == 429:
-            raise OAuthFlowError("ChatGPT is rate-limited or out of plan usage. Check your plan and try again.")
+            raise OAuthFlowError(
+                "ChatGPT is rate-limited or out of plan usage. Check your plan and try again."
+            )
         if status == 404:
             raise OAuthFlowError("Your ChatGPT account could not access Collie's default model.")
         raise OAuthFlowError("I couldn't verify ChatGPT model access. Try again in a moment.")
@@ -214,9 +218,13 @@ def _login_oauth_cancellable(config: Any, storage: Any, cancelled: Event) -> Any
             await check_cancelled()
             should_open = oauth_flow._should_open_browser()
             if server is None:
-                raise OAuthFlowError("Collie could not start its local sign-in listener. Close any other sign-in attempts and try again.")
+                raise OAuthFlowError(
+                    "Collie could not start its local sign-in listener. Close any other sign-in attempts and try again."
+                )
             if should_open and not webbrowser.open(url):
-                raise OAuthFlowError("Collie could not open your browser. Check your default browser and try again.")
+                raise OAuthFlowError(
+                    "Collie could not open your browser. Check your default browser and try again."
+                )
 
             deadline = time.monotonic() + 120
             code: str | None = None
@@ -227,7 +235,9 @@ def _login_oauth_cancellable(config: Any, storage: Any, cancelled: Event) -> Any
                 except TimeoutError:
                     continue
             if not code:
-                raise OAuthFlowError("ChatGPT sign-in timed out. Try again and finish in your browser.")
+                raise OAuthFlowError(
+                    "ChatGPT sign-in timed out. Try again and finish in your browser."
+                )
 
             await check_cancelled()
             exchange = asyncio.create_task(
@@ -290,9 +300,7 @@ def _login_with_storage(
             raise
         except Exception as e:
             logger.error("OAuth interactive flow failed: {}", type(e).__name__)
-            raise OAuthFlowError(
-                "ChatGPT sign-in could not finish. Try signing in again."
-            ) from e
+            raise OAuthFlowError("ChatGPT sign-in could not finish. Try signing in again.") from e
     check_cancelled()
     if not (token and token.access):
         raise OAuthFlowError("Sign-in didn't complete. Give it another go?")

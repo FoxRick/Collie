@@ -57,7 +57,7 @@ parts underneath:
   touching your data always goes through a central approval gate — no matter
   how friendly the chat gets.
 - **It uses *your* AI — not a subscription.** Sign in with your existing
-  ChatGPT or Claude account, paste an API key (DeepSeek, OpenRouter, Groq,
+  ChatGPT account, paste an API key (Claude, DeepSeek, OpenRouter, Groq,
   and any OpenAI-compatible provider), or use a local model. No mandatory
   Collie account, no forced monthly fee.
 - **It remembers — on your machine.** Collie keeps its notes, settings, and
@@ -105,8 +105,8 @@ are welcome too — but the normal path never requires them.
 
 **🔌 Bring your own AI**
 
-- Sign in with your existing **ChatGPT or Claude** account
-- Paste any **API key** — DeepSeek, OpenRouter, Groq, and any
+- Sign in with your existing **ChatGPT** account
+- Paste an **API key** — Claude, DeepSeek, OpenRouter, Groq, and any
   OpenAI-compatible provider
 - Use a **local model** via Ollama
 - **Optional Collie account** — sign in from Settings in your system browser
@@ -211,8 +211,8 @@ if you like to verify before installing. The full source is here too (see
 Collie needs a model provider to think with — bring your own, no Collie
 account required:
 
-- **Sign in** with your existing ChatGPT or Claude account, or
-- **Paste an API key** — DeepSeek, OpenRouter, Groq, and other
+- **Sign in** with your existing ChatGPT account, or
+- **Paste an API key** — Claude, DeepSeek, OpenRouter, Groq, and other
   OpenAI-compatible providers, or
 - **Use a local model** such as Ollama.
 

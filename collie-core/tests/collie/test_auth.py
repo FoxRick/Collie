@@ -202,6 +202,7 @@ def test_codex_authorize_url_params(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(callback_server_mod, "start_callback_server", fake_start)
     monkeypatch.setattr(oauth_flow, "_exchange_code_for_token_async", fake_exchange)
     monkeypatch.setattr(oauth_flow, "_should_open_browser", lambda: True)
+
     def open_browser(url: str) -> bool:
         opened.append(url)
         return True
