@@ -742,6 +742,9 @@ export default function ChatScreen({
         }
         return true
       }
+      if (runtimeStatus.configured === false) {
+        return false
+      }
       if (conversationId) {
         setTaskTimings((previous) => ({
           ...previous,
@@ -800,6 +803,7 @@ export default function ChatScreen({
       executionMode,
       fileAccessScope,
       isWorkActive,
+      runtimeStatus.configured,
       openConversation,
       refreshCommandCatalog,
       refreshConversations,

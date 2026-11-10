@@ -116,13 +116,11 @@ describe('desktop guest onboarding', () => {
   })
 
   it('explains unavailable AI replies and opens model settings only when requested', async () => {
-    bridge.client.chat.mockRejectedValueOnce(new Error('No model configured'))
     await launch()
     await click('Continue as a guest')
     await click('Send test message')
-    expect(bridge.client.chat).toHaveBeenCalledWith(null, 'Hello', [], expect.anything(), undefined, expect.anything())
+    expect(bridge.client.chat).not.toHaveBeenCalled()
     expect(container.textContent).toContain('Connect a model to get AI replies.')
-    expect(container.textContent).toContain('No model configured')
     expect(container.textContent).not.toContain('Welcome to Collie')
     expect(bridge.startSignIn).not.toHaveBeenCalled()
 
