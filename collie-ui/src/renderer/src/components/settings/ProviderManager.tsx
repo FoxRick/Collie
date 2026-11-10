@@ -9,7 +9,8 @@ import {
 } from '../../lib/ipc'
 import {
   configureApiKeyProvider,
-  configureProvider
+  configureProvider,
+  isKeylessLocalProvider
 } from '../../lib/providerConfiguration'
 import BrandLogo from '../BrandLogo'
 import ManagedInferenceCard from '../ManagedInferenceCard'
@@ -17,7 +18,7 @@ import ManagedInferenceCard from '../ManagedInferenceCard'
 interface Props {
   status: RuntimeStatus
   settings: Record<string, unknown>
-  oauth: { chatgpt: boolean; claude: boolean }
+  oauth: { chatgpt: boolean }
   onRefresh: () => Promise<void>
   onNotice: (message: string) => void
 }
@@ -39,7 +40,7 @@ export const configureSettingsApiKey = configureApiKeyProvider
 
 function providerLabel(provider: ProviderInfo): string {
   if (provider.auth_type === 'chatgpt-oauth') return 'ChatGPT subscription'
-  if (provider.auth_type === 'claude-oauth') return 'Claude subscription'
+  if (provider.auth_type === 'claude-oauth') return 'Claude API key required'
   return provider.name.charAt(0).toUpperCase() + provider.name.slice(1)
 }
 
@@ -70,6 +71,16 @@ export default function ProviderManager({
   const [catalogueUpdatedAt, setCatalogueUpdatedAt] = useState<string>('')
   const [catalogueBusy, setCatalogueBusy] = useState(false)
   const oauthAttemptRef = useRef(0)
+  const custom = provider === 'custom'
+  const keylessLocal = isKeylessLocalProvider(provider, baseUrl, protocol)
+  const incompleteCustom = custom && (!displayName.trim() || !baseUrl.trim() || !model.trim())
+  const canConnect = !incompleteCustom && (Boolean(apiKey.trim()) || keylessLocal)
+  const existingKey = secretProviders.some(
+    (name) => name.toLowerCase() === (displayName.trim() || provider).toLowerCase()
+  )
+  const apiKeyPlaceholder = keylessLocal
+    ? 'API key (optional for this local model)'
+    : existingKey ? 'Enter a replacement API key' : 'Paste API key'
 
   useEffect(() => {
     if (typeof window.collie?.listSecrets !== 'function') return
@@ -137,7 +148,10 @@ export default function ProviderManager({
     })
   }
   for (const secretProvider of secretProviders) {
-    if (providers.some((item) => item.name === secretProvider && item.auth_type === 'api-key')) {
+    if (providers.some((item) =>
+      item.auth_type === 'api-key' &&
+      (item.secret_name || item.name).toLowerCase() === secretProvider.toLowerCase()
+    )) {
       continue
     }
     providers.push({
@@ -160,7 +174,7 @@ export default function ProviderManager({
       model: currentAuth === 'chatgpt-oauth' ? String(settings['provider.model'] || '') || null : null
     })
   }
-  if (oauth.claude && !providers.some((item) => item.auth_type === 'claude-oauth')) {
+  if (currentAuth === 'claude-oauth' && !providers.some((item) => item.auth_type === 'claude-oauth')) {
     providers.push({
       id: 'legacy-claude-oauth-anthropic',
       name: 'anthropic',
@@ -171,12 +185,8 @@ export default function ProviderManager({
   }
 
   const saveApiKey = async (): Promise<void> => {
-    if (!apiKey.trim()) return
+    if (!canConnect) return
     const connectionName = displayName.trim() || provider
-    if (provider === 'custom' && (!displayName.trim() || !baseUrl.trim() || !model.trim())) {
-      onNotice('A custom API needs a name, base URL, and model ID.')
-      return
-    }
     setBusyAction('add-api')
     try {
       await configureSettingsApiKey({
@@ -207,23 +217,22 @@ export default function ProviderManager({
     }
   }
 
-  const cancelOAuth = useCallback((kind: 'chatgpt' | 'claude') => {
+  const cancelOAuth = useCallback((kind: 'chatgpt') => {
     oauthAttemptRef.current += 1
     setBusyOAuth(null)
     collieClient.cancelOAuthLogin(kind).catch(() => {})
   }, [])
 
-  const connectOAuth = useCallback(async (kind: 'chatgpt' | 'claude'): Promise<void> => {
+  const connectOAuth = useCallback(async (kind: 'chatgpt'): Promise<void> => {
     const attempt = oauthAttemptRef.current + 1
     oauthAttemptRef.current = attempt
     setBusyOAuth(kind)
     try {
       await collieClient.oauthLogin(kind)
       if (oauthAttemptRef.current !== attempt) return
-      const isChatGpt = kind === 'chatgpt'
       const result = await collieClient.configure()
       if (!result.configured) throw new Error(result.error || 'That subscription could not connect.')
-      onNotice(`${isChatGpt ? 'ChatGPT' : 'Claude'} connected and selected.`)
+      onNotice('ChatGPT connected and selected.')
       await onRefresh()
     } catch (error) {
       if (oauthAttemptRef.current !== attempt) return
@@ -232,6 +241,15 @@ export default function ProviderManager({
       if (oauthAttemptRef.current === attempt) setBusyOAuth(null)
     }
   }, [onRefresh, onNotice])
+
+  const replaceClaudeConnection = (): void => {
+    setProvider('anthropic')
+    setApiKey('')
+    setBaseUrl('')
+    setDisplayName('')
+    setModel('')
+    setShowForm(true)
+  }
 
   const activate = async (item: ProviderInfo): Promise<void> => {
     if (item.auth_type === 'api-key') {
@@ -273,6 +291,11 @@ export default function ProviderManager({
         await collieClient.oauthLogout('chatgpt')
       } else if (item.auth_type === 'claude-oauth') {
         await collieClient.oauthLogout('claude')
+        if (item.id.startsWith('legacy-')) {
+          onNotice('Previous Claude sign-in removed.')
+          await onRefresh()
+          return
+        }
       }
         let providerId = item.id
         if (item.id.startsWith('legacy-')) {
@@ -303,6 +326,32 @@ export default function ProviderManager({
     catalogue.find((entry) => entry.id === provider)?.models
       ?.map((item) => item.id)
       .filter((value): value is string => Boolean(value)) ?? []
+  const connectionFields = (
+    <>
+      <input
+        type="text"
+        value={displayName}
+        aria-label="Connection name"
+        required={custom}
+        onChange={(event) => setDisplayName(event.target.value)}
+        placeholder={custom ? 'Connection name' : 'Connection name (optional)'}
+      />
+      <input
+        type="text"
+        value={model}
+        aria-label="Model ID"
+        required={custom}
+        onChange={(event) => setModel(event.target.value)}
+        placeholder={custom ? 'Model ID' : catalogueModelIds.length > 0 ? 'Pick a model' : 'Model ID (optional)'}
+        list={catalogueModelIds.length > 0 ? 'provider-model-suggestions' : undefined}
+      />
+      {catalogueModelIds.length > 0 && (
+        <datalist id="provider-model-suggestions">
+          {catalogueModelIds.map((item) => <option key={item} value={item} />)}
+        </datalist>
+      )}
+    </>
+  )
 
   return (
     <section className="settings-card provider-manager">
@@ -323,9 +372,22 @@ export default function ProviderManager({
             <BrandLogo brand={item.name} name={providerLabel(item)} size={36} />
             <div className="provider-copy">
               <b>{providerLabel(item)}</b>
-              <span>{item.model || 'Default model'} · {item.auth_type === 'api-key' ? 'API key' : 'Sign-in'}</span>
+              {item.auth_type === 'claude-oauth' ? (
+                <span>Reconnect with a key from Claude Console</span>
+              ) : (
+                <span>{item.model || 'Default model'} · {item.auth_type === 'api-key' ? 'API key' : 'Sign-in'}</span>
+              )}
             </div>
-            {item.is_default === 1 ? (
+            {item.auth_type === 'claude-oauth' ? (
+              <button
+                type="button"
+                className="provider-use"
+                disabled={Boolean(busyAction) || busyOAuth !== null}
+                onClick={replaceClaudeConnection}
+              >
+                Add API key
+              </button>
+            ) : item.is_default === 1 ? (
               <span className="provider-active"><Check size={12} /> {ui("In use")}</span>
             ) : (
               <button
@@ -392,21 +454,33 @@ export default function ProviderManager({
           >
             {API_PROVIDERS.map((item) => <option key={item} value={item}>{PROVIDER_LABELS[item]}</option>)}
           </select>
+          {provider === 'anthropic' && (
+            <p className="catalogue-hint">
+              Claude API usage is billed separately.{' '}
+              <button
+                type="button"
+                className="catalogue-check"
+                onClick={() => void window.collie.openExternal('https://platform.claude.com/settings/keys')}
+              >
+                Get a Claude API key
+              </button>
+            </p>
+          )}
           <input
             type="password"
             value={apiKey}
             aria-label="API key"
             onChange={(event) => setApiKey(event.target.value)}
-            placeholder={secretProviders.includes(displayName.trim() || provider) ? 'Enter a replacement API key' : 'Paste API key'}
+            placeholder={apiKeyPlaceholder}
           />
-          {/* Base URL / protocol / model ID are expert knobs — most people
-              only need provider + key. They stay available, tucked away. */}
-          {provider === 'custom' && (
+          {custom ? (
             <>
+              {connectionFields}
               <input
                 type="url"
                 value={baseUrl}
                 aria-label="API base URL"
+                required
                 onChange={(event) => setBaseUrl(event.target.value)}
                 placeholder="Base URL"
               />
@@ -419,45 +493,25 @@ export default function ProviderManager({
                 <option value="anthropic">Anthropic-compatible</option>
               </select>
             </>
+          ) : (
+            <details className="provider-advanced">
+              <summary>Advanced — connection name and model</summary>
+              {connectionFields}
+              {provider !== 'ollama' && (
+                <input
+                  type="url"
+                  value={baseUrl}
+                  aria-label="API base URL"
+                  onChange={(event) => setBaseUrl(event.target.value)}
+                  placeholder="Custom base URL (optional)"
+                />
+              )}
+            </details>
           )}
-          <details className="provider-advanced">
-            <summary>Advanced — connection name and model</summary>
-            <input
-              type="text"
-              value={displayName}
-              aria-label="Connection name"
-              onChange={(event) => setDisplayName(event.target.value)}
-              placeholder={provider === 'custom' ? 'Connection name' : 'Connection name (optional)'}
-            />
-            <input
-              type="text"
-              value={model}
-              aria-label="Model ID"
-              onChange={(event) => setModel(event.target.value)}
-              placeholder={catalogueModelIds.length > 0 ? 'Pick a model' : 'Model ID (optional)'}
-              list={catalogueModelIds.length > 0 ? 'provider-model-suggestions' : undefined}
-            />
-            {catalogueModelIds.length > 0 && (
-              <datalist id="provider-model-suggestions">
-                {catalogueModelIds.map((item) => (
-                  <option key={item} value={item} />
-                ))}
-              </datalist>
-            )}
-            {!['custom', 'ollama'].includes(provider) && (
-              <input
-                type="url"
-                value={baseUrl}
-                aria-label="API base URL"
-                onChange={(event) => setBaseUrl(event.target.value)}
-                placeholder="Custom base URL (optional)"
-              />
-            )}
-          </details>
           <button
             type="button"
             className="primary-button"
-            disabled={!apiKey.trim() || busyAction === 'add-api'}
+            disabled={!canConnect || Boolean(busyAction) || busyOAuth !== null}
             onClick={() => void saveApiKey()}
           >
             {ui("Connect")}
@@ -478,24 +532,6 @@ export default function ProviderManager({
                 className="text-xs underline"
                 style={{ color: 'var(--collie-text-muted)' }}
                 onClick={() => cancelOAuth('chatgpt')}
-              >
-                {ui("Cancel")}
-              </button>
-            )}
-            <button
-              type="button"
-              className="secondary-button provider-signin"
-              disabled={busyOAuth === 'claude' || busyAction !== ''}
-              onClick={() => void connectOAuth('claude')}
-            >
-              {busyOAuth === 'claude' ? 'Opening browser...' : oauth.claude ? 'Reconnect Claude' : 'Sign in with Claude'}
-            </button>
-            {busyOAuth === 'claude' && (
-              <button
-                type="button"
-                className="text-xs underline"
-                style={{ color: 'var(--collie-text-muted)' }}
-                onClick={() => cancelOAuth('claude')}
               >
                 {ui("Cancel")}
               </button>

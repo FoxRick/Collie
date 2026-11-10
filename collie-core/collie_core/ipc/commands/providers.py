@@ -113,6 +113,8 @@ class ProviderCommands:
         auth_type = str(frame.get("auth_type") or "").strip()
         if not provider_id or not name or not auth_type:
             raise ValueError("provider_id, name, and auth_type are required")
+        if auth_type.lower() == "claude-oauth":
+            raise ValueError("Connect Claude with an API key from Claude Console.")
         is_default = bool(frame.get("is_default"))
         model = str(frame.get("model") or "").strip() or None
         protocol = str(frame.get("protocol") or "openai").strip().lower()
@@ -182,6 +184,8 @@ class ProviderCommands:
         provider = self.db.get_provider(provider_id)
         if provider is None:
             raise ValueError("That provider is no longer available.")
+        if provider.get("auth_type") == "claude-oauth":
+            raise ValueError("Connect Claude with an API key from Claude Console.")
         if (
             provider.get("auth_type") == "api-key"
             and self._on_configure_provider_candidate is not None
@@ -295,8 +299,8 @@ class ProviderCommands:
 
     async def _cmd_oauth_login(self, connection: ServerConnection, frame: dict) -> None:
         provider = str(frame.get("provider") or "").strip().lower()
-        if provider not in ("chatgpt", "claude"):
-            raise ValueError(f"unknown OAuth provider: {provider!r}")
+        if provider != "chatgpt":
+            raise ValueError("ChatGPT supports browser sign-in. Connect Claude with an API key.")
 
         req_id = frame.get("id")
 
@@ -307,7 +311,12 @@ class ProviderCommands:
         if existing is not None:
             existing.login.cancel()
 
-        from collie_core.providers.auth import OAuthLoginAttempt
+        from collie_core.providers.auth import (
+            CODEX_DEFAULT_MODEL,
+            OAuthFlowError,
+            OAuthLoginAttempt,
+            OAuthLoginCancelledError,
+        )
 
         generation = self._oauth_generations.get(provider, 0) + 1
         self._oauth_generations[provider] = generation
@@ -324,6 +333,26 @@ class ProviderCommands:
         async def _run_oauth() -> None:
             try:
                 result = await asyncio.to_thread(attempt.login.run)
+                if is_current() and result.get("signed_in"):
+                    await attempt.login.validate(CODEX_DEFAULT_MODEL)
+
+                # Keep the final ownership check, token commit, and provider-state
+                # writes await-free so another IPC cancel cannot interleave here.
+                if not is_current() or not attempt.login.commit():
+                    raise OAuthLoginCancelledError("Sign-in cancelled.")
+                if result.get("signed_in"):
+                    canonical = str(result.get("provider") or "")
+                    provider_record = self.db.configure_provider_candidate_record(
+                        f"oauth-{canonical}",
+                        name="openai_codex",
+                        auth_type="chatgpt-oauth",
+                        model=CODEX_DEFAULT_MODEL,
+                        runtime_name="openai_codex",
+                        protocol="openai",
+                        api_base=None,
+                        secret_name="openai_codex",
+                    )
+                    result["provider_record"] = provider_record
             except asyncio.CancelledError:
                 attempt.login.cancel()
                 await self._send(
@@ -337,7 +366,7 @@ class ProviderCommands:
                 return
             except Exception as e:
                 attempt.login.discard()
-                if attempt.login.cancelled or not is_current():
+                if isinstance(e, OAuthLoginCancelledError) or not is_current():
                     await self._send(
                         connection,
                         {
@@ -347,47 +376,19 @@ class ProviderCommands:
                         },
                     )
                     return
-                logger.error("OAuth sign-in failed for {}: {}", provider, e)
+                logger.error("OAuth sign-in failed for {}: {}", provider, type(e).__name__)
                 await self._send(
                     connection,
                     {
                         "type": "error",
                         "id": req_id,
                         "message": str(e)
-                        if isinstance(e, ValueError)
-                        else "Uh oh. That didn't go as planned. Try again?",
-                        "detail": str(e),
+                        if isinstance(e, OAuthFlowError)
+                        else "I could not save that ChatGPT sign-in. Try again.",
                     },
                 )
                 return
 
-            # Keep the final ownership check, token commit, and provider-state
-            # writes await-free so another IPC cancel cannot interleave here.
-            if not is_current() or not attempt.login.commit():
-                attempt.login.discard()
-                await self._send(
-                    connection,
-                    {
-                        "type": "error",
-                        "id": req_id,
-                        "message": "Sign-in cancelled.",
-                    },
-                )
-                return
-            if result.get("signed_in"):
-                canonical = str(result.get("provider") or "")
-                is_claude = canonical == "claude"
-                provider_record = self.db.configure_provider_candidate_record(
-                    f"oauth-{canonical}",
-                    name="anthropic" if is_claude else "openai_codex",
-                    auth_type="claude-oauth" if is_claude else "chatgpt-oauth",
-                    model=("claude-sonnet-4-6" if is_claude else "openai-codex/gpt-5.4"),
-                    runtime_name="anthropic" if is_claude else "openai_codex",
-                    protocol="anthropic" if is_claude else "openai",
-                    api_base=None,
-                    secret_name="anthropic" if is_claude else "openai_codex",
-                )
-                result["provider_record"] = provider_record
             result["attempt_id"] = attempt.attempt_id
             result["generation"] = attempt.generation
             if self._oauth_attempts.get(provider) is attempt:
@@ -410,8 +411,8 @@ class ProviderCommands:
 
     async def _cmd_cancel_oauth(self, connection: ServerConnection, frame: dict) -> dict:
         provider = str(frame.get("provider") or "").strip().lower()
-        if provider not in ("chatgpt", "claude"):
-            raise ValueError(f"unknown OAuth provider: {provider!r}")
+        if provider != "chatgpt":
+            raise ValueError("ChatGPT supports browser sign-in. Connect Claude with an API key.")
         attempt = self._oauth_attempts.get(provider)
         requested_id = str(frame.get("attempt_id") or "").strip()
         requested_generation = frame.get("generation")

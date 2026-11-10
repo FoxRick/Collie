@@ -1,7 +1,6 @@
-"""Sign-in flows for Collie's three auth paths (spec §2, F012-F014).
+"""ChatGPT OAuth sign-in and legacy credential cleanup.
 
 - ChatGPT OAuth  -> ``oauth_cli_kit`` Codex flow (browser + localhost callback)
-- Claude OAuth   -> same flow with the Claude Code public client
 - API key        -> held in memory via ``collie_core.settings.set_api_key``
                     (the Electron shell owns keychain persistence)
 
@@ -11,6 +10,7 @@ trip); the IPC server runs them in a thread.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import suppress
 from threading import Event, Lock
 from typing import Any
@@ -19,6 +19,7 @@ from loguru import logger
 
 __all__ = ["OAuthLoginAttempt", "login_provider", "logout_provider", "oauth_status"]
 
+CODEX_DEFAULT_MODEL = "openai-codex/gpt-5.4"
 CHATGPT = "chatgpt"
 CLAUDE = "claude"
 
@@ -33,22 +34,29 @@ def _codex_provider_and_storage():
     )
 
 
-def _claude_provider_and_storage():
-    from collie_core.providers.claude_oauth import (
-        ANTHROPIC_OAUTH_PROVIDER,
-        claude_storage,
-    )
-
-    return ANTHROPIC_OAUTH_PROVIDER, claude_storage()
-
-
 def _spec(provider: str):
     name = (provider or "").strip().lower()
     if name in (CHATGPT, "openai", "openai_codex", "codex"):
         return CHATGPT, _codex_provider_and_storage()
-    if name in (CLAUDE, "anthropic", "claude_oauth"):
-        return CLAUDE, _claude_provider_and_storage()
+    if _is_legacy_claude(name):
+        raise ValueError("Connect Claude with an API key from Claude Console.")
     raise ValueError(f"unknown OAuth provider: {provider!r}")
+
+
+def _is_legacy_claude(provider: str) -> bool:
+    return provider.strip().lower() in (CLAUDE, "anthropic", "claude_oauth")
+
+
+def get_chatgpt_token():
+    """Read and refresh the same protected token used by desktop sign-in."""
+    from oauth_cli_kit import get_token
+
+    config, storage = _codex_provider_and_storage()
+    return get_token(provider=config, storage=storage)
+
+
+class OAuthFlowError(ValueError):
+    """A safe sign-in error for the desktop."""
 
 
 class OAuthLoginCancelledError(RuntimeError):
@@ -102,6 +110,7 @@ class OAuthLoginAttempt:
     def __init__(self, provider: str) -> None:
         self.provider, (self._config, storage) = _spec(provider)
         self._cancelled = Event()
+        self._token: Any = None
         self._storage = _StagedTokenStorage(storage, self._cancelled)
 
     @property
@@ -110,7 +119,7 @@ class OAuthLoginAttempt:
 
     def cancel(self) -> None:
         self._cancelled.set()
-        self._storage.discard()
+        self.discard()
 
     def run(self) -> dict[str, Any]:
         return _login_with_storage(
@@ -118,13 +127,47 @@ class OAuthLoginAttempt:
             self._config,
             self._storage,
             cancelled=self._cancelled,
+            on_token=self._capture_token,
         )
+
+    def _capture_token(self, token: Any) -> None:
+        self._token = token
+
+    async def validate(self, model: str) -> None:
+        import asyncio
+
+        from nanobot.providers.openai_codex_provider import OpenAICodexProvider
+
+        provider = OpenAICodexProvider(default_model=model, token_loader=lambda: self._token)
+        try:
+            async with asyncio.timeout(20):
+                response = await provider.chat(
+                    [{"role": "user", "content": "Reply with OK."}],
+                    reasoning_effort="low",
+                )
+        except TimeoutError:
+            raise OAuthFlowError("ChatGPT took too long to respond. Try again.") from None
+        if response.finish_reason == "stop" and response.content:
+            return
+        status = response.error_status_code
+        if status in (401, 403):
+            raise OAuthFlowError(
+                "ChatGPT denied model access. Check your account or workspace permissions."
+            )
+        if status == 429:
+            raise OAuthFlowError(
+                "ChatGPT is rate-limited or out of plan usage. Check your plan and try again."
+            )
+        if status == 404:
+            raise OAuthFlowError("Your ChatGPT account could not access Collie's default model.")
+        raise OAuthFlowError("I couldn't verify ChatGPT model access. Try again in a moment.")
 
     def commit(self) -> bool:
         return self._storage.commit()
 
     def discard(self) -> None:
         self._storage.discard()
+        self._token = None
 
 
 def _login_oauth_cancellable(config: Any, storage: Any, cancelled: Event) -> Any:
@@ -159,12 +202,9 @@ def _login_oauth_cancellable(config: Any, storage: Any, cancelled: Event) -> Any
             "code_challenge_method": "S256",
             "state": state,
         }
-        # Codex-only parameters: the Claude endpoint rejects requests that
-        # carry them, so only the OpenAI flow sends originator/codex params.
-        if config.authorize_url.startswith("https://auth.openai.com/"):
-            params["id_token_add_organizations"] = "true"
-            params["codex_cli_simplified_flow"] = "true"
-            params["originator"] = config.default_originator
+        params["id_token_add_organizations"] = "true"
+        params["codex_cli_simplified_flow"] = "true"
+        params["originator"] = config.default_originator
         url = f"{config.authorize_url}?{urllib.parse.urlencode(params)}"
         loop = asyncio.get_running_loop()
         code_future: asyncio.Future[str] = loop.create_future()
@@ -173,15 +213,18 @@ def _login_oauth_cancellable(config: Any, storage: Any, cancelled: Event) -> Any
             if not code_future.done():
                 loop.call_soon_threadsafe(code_future.set_result, code)
 
-        server, server_error = start_callback_server(config.redirect_uri, state, on_code=notify)
+        server, _ = start_callback_server(config.redirect_uri, state, on_code=notify)
         try:
             await check_cancelled()
             should_open = oauth_flow._should_open_browser()
-            if should_open:
-                with suppress(Exception):
-                    webbrowser.open(url)
             if server is None:
-                raise RuntimeError(server_error or "Local OAuth callback server failed")
+                raise OAuthFlowError(
+                    "Collie could not start its local sign-in listener. Close any other sign-in attempts and try again."
+                )
+            if should_open and not webbrowser.open(url):
+                raise OAuthFlowError(
+                    "Collie could not open your browser. Check your default browser and try again."
+                )
 
             deadline = time.monotonic() + 120
             code: str | None = None
@@ -192,7 +235,9 @@ def _login_oauth_cancellable(config: Any, storage: Any, cancelled: Event) -> Any
                 except TimeoutError:
                     continue
             if not code:
-                raise RuntimeError("OAuth browser callback timed out.")
+                raise OAuthFlowError(
+                    "ChatGPT sign-in timed out. Try again and finish in your browser."
+                )
 
             await check_cancelled()
             exchange = asyncio.create_task(
@@ -223,11 +268,12 @@ def _login_with_storage(
     storage: Any,
     *,
     cancelled: Event | None = None,
+    on_token: Callable[[Any], None] | None = None,
 ) -> dict[str, Any]:
     try:
         from oauth_cli_kit import get_token
     except ImportError as e:
-        raise ValueError(
+        raise OAuthFlowError(
             "The OAuth sign-in helper library is not installed. "
             "Use an API key instead — it works the same way."
         ) from e
@@ -250,18 +296,17 @@ def _login_with_storage(
                 storage,
                 cancelled if cancelled is not None else Event(),
             )
-        except OAuthLoginCancelledError:
+        except (OAuthLoginCancelledError, OAuthFlowError):
             raise
         except Exception as e:
-            logger.error("OAuth interactive flow failed: {}", e)
-            raise ValueError(
-                "Could not open your browser to sign in. "
-                "Use an API key instead — it works the same way."
-            ) from e
+            logger.error("OAuth interactive flow failed: {}", type(e).__name__)
+            raise OAuthFlowError("ChatGPT sign-in could not finish. Try signing in again.") from e
     check_cancelled()
     if not (token and token.access):
-        raise ValueError("Sign-in didn't complete. Give it another go?")
+        raise OAuthFlowError("Sign-in didn't complete. Give it another go?")
 
+    if on_token is not None:
+        on_token(token)
     logger.info("OAuth sign-in complete for {}", canonical)
     return {
         "provider": canonical,
@@ -278,11 +323,13 @@ def login_provider(provider: str) -> dict[str, Any]:
 
 def logout_provider(provider: str) -> dict[str, Any]:
     """Delete stored OAuth tokens for a provider."""
-    canonical, (_cfg, storage) = _spec(provider)
-    token_path = storage.get_token_path()
-    for path in (token_path, token_path.with_suffix(".lock")):
-        with suppress(FileNotFoundError):
-            path.unlink()
+    from collie_core.providers.storage import DpapiTokenStorage
+
+    if _is_legacy_claude(provider):
+        canonical, storage = CLAUDE, DpapiTokenStorage(token_filename="claude.json")
+    else:
+        canonical, (_cfg, storage) = _spec(provider)
+    storage.delete()
     return {"provider": canonical, "signed_in": False}
 
 
@@ -290,6 +337,8 @@ def oauth_status(provider: str) -> dict[str, Any]:
     """Report whether a working token exists (refreshing if needed)."""
     from oauth_cli_kit import get_token
 
+    if _is_legacy_claude(provider):
+        return {"provider": CLAUDE, "signed_in": False, "account_id": None}
     canonical, (cfg, storage) = _spec(provider)
     token = None
     with suppress(Exception):

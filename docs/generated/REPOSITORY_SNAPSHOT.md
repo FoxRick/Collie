@@ -11,10 +11,10 @@
 
 ## Source inventory
 
-- Core Python files: **605**
-- Core Python test files: **267**
-- Desktop TypeScript/TSX files: **231**
-- Desktop test files: **89**
+- Core Python files: **603**
+- Core Python test files: **266**
+- Desktop TypeScript/TSX files: **232**
+- Desktop test files: **90**
 - Active Markdown docs: **51**
 - Archived Markdown docs: **0**
 

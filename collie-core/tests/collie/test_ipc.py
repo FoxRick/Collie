@@ -409,6 +409,9 @@ async def test_repeated_oauth_click_replaces_only_matching_generation(
             assert release[self.index].wait(2)
             return {"provider": self.provider, "signed_in": True}
 
+        async def validate(self, model: str) -> None:
+            assert model == collie_auth.CODEX_DEFAULT_MODEL
+
         def cancel(self) -> None:
             self.cancelled = True
 
@@ -482,6 +485,9 @@ async def test_cancel_oauth_discards_late_completion_and_provider_state(
             assert release.wait(2)
             return {"provider": self.provider, "signed_in": True}
 
+        async def validate(self, model: str) -> None:
+            assert model == collie_auth.CODEX_DEFAULT_MODEL
+
         def cancel(self) -> None:
             self.cancelled = True
 
@@ -494,21 +500,21 @@ async def test_cancel_oauth_discards_late_completion_and_provider_state(
 
     monkeypatch.setattr(collie_auth, "OAuthLoginAttempt", FakeAttempt)
 
-    await srv._cmd_oauth_login(connection, {"id": "login", "provider": "claude"})  # type: ignore[arg-type]
+    await srv._cmd_oauth_login(connection, {"id": "login", "provider": "chatgpt"})  # type: ignore[arg-type]
     await _wait_for_thread_event(started)
     cancelled = await srv._cmd_cancel_oauth(
         connection,  # type: ignore[arg-type]
-        {"provider": "claude", "generation": 1},
+        {"provider": "chatgpt", "generation": 1},
     )
     assert cancelled == {
         "cancelled": True,
-        "attempt_id": "claude:1",
+        "attempt_id": "chatgpt:1",
         "generation": 1,
     }
     release.set()
     await asyncio.sleep(0.05)
 
-    assert "claude" not in srv._oauth_attempts
+    assert "chatgpt" not in srv._oauth_attempts
     assert commits == []
     assert db.get_setting("provider.auth") == "api-key"
     assert db.get_setting("provider.name") == "deepseek"
@@ -516,6 +522,48 @@ async def test_cancel_oauth_discards_late_completion_and_provider_state(
         frame.get("id") == "login" and frame["type"] == "error" for frame in connection.frames
     )
     db.close()
+
+
+@pytest.mark.asyncio
+async def test_oauth_model_denial_preserves_existing_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from collie_core.providers import auth as collie_auth
+
+    db = CollieDB(tmp_path / "collie.db")
+    db.upsert_provider("api-deepseek", name="deepseek", auth_type="api-key", is_default=True)
+    srv = CollieIPCServer(db)
+    connection = _RecordingConnection()
+
+    class DeniedAttempt:
+        cancelled = False
+
+        def __init__(self, provider: str) -> None:
+            assert provider == "chatgpt"
+
+        def run(self) -> dict[str, Any]:
+            return {"provider": "chatgpt", "signed_in": True}
+
+        async def validate(self, model: str) -> None:
+            assert model == collie_auth.CODEX_DEFAULT_MODEL
+            raise collie_auth.OAuthFlowError("ChatGPT denied model access.")
+
+        def discard(self) -> None:
+            pass
+
+    monkeypatch.setattr(collie_auth, "OAuthLoginAttempt", DeniedAttempt)
+    try:
+        with pytest.raises(ValueError, match="Claude with an API key"):
+            await srv._cmd_oauth_login(connection, {"id": "claude", "provider": "claude"})  # type: ignore[arg-type]
+        await srv._cmd_oauth_login(connection, {"id": "login", "provider": "chatgpt"})  # type: ignore[arg-type]
+        await asyncio.gather(*srv._oauth_worker_tasks)
+        assert connection.frames == [
+            {"type": "error", "id": "login", "message": "ChatGPT denied model access."}
+        ]
+        assert [item["id"] for item in db.list_providers()] == ["api-deepseek"]
+        assert db.default_provider()["id"] == "api-deepseek"
+    finally:
+        db.close()
 
 
 @pytest.mark.asyncio

@@ -13,6 +13,7 @@ original plaintext file so sign-in keeps working there.
 from __future__ import annotations
 
 import os
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -73,6 +74,7 @@ class DpapiTokenStorage:
             self._plain = FileTokenStorage(
                 token_filename=self._token_filename,
                 data_dir=legacy_oauth_data_root(),
+                import_codex_cli=False,
             )
         return self._plain
 
@@ -94,3 +96,10 @@ class DpapiTokenStorage:
             self._store.save(self._service_id, token_data)
         except DpapiUnavailableError:
             self._plain_storage().save(token)
+
+    def delete(self) -> None:
+        self._store.delete(self._service_id)
+        path = self._plain_storage().get_token_path()
+        for candidate in (path, path.with_suffix(".lock"), path.with_suffix(path.suffix + ".lock")):
+            with suppress(FileNotFoundError):
+                candidate.unlink()

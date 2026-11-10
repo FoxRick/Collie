@@ -84,8 +84,8 @@ schemas; `tests/collie/test_prompt_hashes.py` covers the hash telemetry
 - **Settings**: SQLite `settings` table → `collie_core.settings.build_config`
   → engine `Config`. No JSON config files; secrets stay in the OS keychain
   (Electron `safeStorage`) and are injected per-process via IPC.
-- **Auth**: three equal paths — ChatGPT OAuth (`openai_codex` provider),
-  Claude OAuth (`collie_core/providers/claude_oauth.py`), or API key.
+- **Auth**: ChatGPT OAuth uses the `openai_codex` provider. Claude and other
+  API providers use provider-issued API keys.
 - **Tools**: engine built-ins (web_search, web_fetch, message, cron, image
   generation, MCP) + Collie tools discovered from `collie_core/tools` via
   `ToolLoader(collie_core.tools)`. In-app tools (shopping, budget, health,

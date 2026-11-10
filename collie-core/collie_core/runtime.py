@@ -21,6 +21,7 @@ import time
 import urllib.parse
 import uuid
 from contextlib import suppress
+from ipaddress import ip_address
 from types import SimpleNamespace
 from typing import Any
 
@@ -56,23 +57,20 @@ from collie_core.tools.reminders import bind_reminders_db
 from collie_core.tools.suggest_profile import bind_suggest_workspace
 from collie_core.tools.task_checklists import bind_task_checklists_db
 
+
 # A "keyless" custom endpoint (no API key) is only trusted on this machine.
 # A remote host that needs no key would let anyone use it, and a keyless remote
 # that does need a key silently breaks — so enforce loopback here. This is the
 # server-side authority; the renderer has the same rule.
-_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
-
-
 def _is_loopback_host(host: str | None) -> bool:
     if not host:
         return False
-    host = host.strip().lower()
-    return (
-        host in _LOOPBACK_HOSTS
-        or host.startswith("127.")
-        or host == "[::1]"
-        or host.endswith("localhost")
-    )
+    if host.lower() == "localhost":
+        return True
+    try:
+        return ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 __all__ = ["CollieRuntime", "main"]
@@ -624,15 +622,13 @@ class CollieRuntime:
 
             return managed_provider()
         if auth_type == "claude-oauth":
-            from collie_core.providers.claude_oauth import ClaudeOAuthProvider
-
-            model = self.db.get_setting("provider.model") or "claude-sonnet-4-6"
-            return ClaudeOAuthProvider(default_model=str(model))
+            raise ValueError("Connect Claude with an API key from Claude Console.")
         if auth_type == "chatgpt-oauth":
+            from collie_core.providers.auth import CODEX_DEFAULT_MODEL, get_chatgpt_token
             from nanobot.providers.openai_codex_provider import OpenAICodexProvider
 
-            model = self.db.get_setting("provider.model") or "openai-codex/gpt-5.4"
-            return OpenAICodexProvider(default_model=str(model))
+            model = self.db.get_setting("provider.model") or CODEX_DEFAULT_MODEL
+            return OpenAICodexProvider(default_model=str(model), token_loader=get_chatgpt_token)
         return None
 
     @staticmethod
@@ -807,7 +803,10 @@ class CollieRuntime:
             secret_name = str(normalized["secret_name"])
             previous_key = collie_settings.get_api_key(secret_name)
             supplied_key = normalized.pop("api_key")
-            if supplied_key is None and previous_key is None:
+            # The candidate validator permits a missing key with a custom
+            # endpoint only when its address is loopback.
+            keyless_local = normalized["runtime_name"] == "custom" and normalized["api_base"]
+            if supplied_key is None and previous_key is None and not keyless_local:
                 return {
                     "configured": False,
                     "error": "No API key is available for that provider.",
@@ -879,7 +878,8 @@ class CollieRuntime:
                     # escape hatch — only a definitive auth rejection (401/403)
                     # is treated as a failure there.
                     hard_fail = error_kind == "auth" or (
-                        catalogue_entry is not None and error_kind != "invalid"
+                        catalogue_entry is not None
+                        and (runtime_name == "anthropic" or error_kind != "invalid")
                     )
                     if not hard_fail:
                         logger.info(
@@ -902,6 +902,10 @@ class CollieRuntime:
                                 "I couldn't reach that provider to check the key. "
                                 "Check your connection and try again."
                             )
+                        elif error_kind == "rate_limit":
+                            message = "That provider is rate-limiting requests. Wait a moment and try again."
+                        elif error_kind == "billing":
+                            message = "Claude Console needs API credits to use this key. Check billing and try again."
                         elif error_kind == "model":
                             offered = probe.get("models") or []
                             sample = ", ".join(offered[:5])
@@ -2009,7 +2013,7 @@ class CollieRuntime:
             # up a provider. OAuth tokens live on disk, so those can configure
             # immediately; API keys arrive from the shell over IPC first.
             auth = str(self.db.get_setting("provider.auth", "") or "")
-            if auth in ("chatgpt-oauth", "claude-oauth", "collie-managed"):
+            if auth in ("chatgpt-oauth", "collie-managed"):
                 await self._configure()
             else:
                 logger.info("Waiting for the shell to deliver credentials")
