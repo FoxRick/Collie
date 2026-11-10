@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { collieClient } from './lib/ipc'
 import { initI18n, useT } from './lib/i18n'
 import { initTheme } from './lib/theme'
@@ -11,13 +11,34 @@ import { BootProbeController, type BootScreen } from './lib/boot-probe'
 
 export type Screen = BootScreen
 
+const GUEST_KEY = 'collie.guest-onboarding.v1'
+
+function hasGuestChoice(): boolean {
+  try {
+    return localStorage.getItem(GUEST_KEY) === 'done'
+  } catch {
+    return false
+  }
+}
+
 export default function App(): React.JSX.Element {
   const [screen, setScreen] = useState<Screen>('loading')
   const [view, setView] = useState<AppView>('chat')
   const [replayingOnboarding, setReplayingOnboarding] = useState(false)
   const [autoOpenStarter, setAutoOpenStarter] = useState(false)
   const [offlineMessage, setOfflineMessage] = useState('')
+  const guest = useRef(hasGuestChoice())
   const t = useT()
+
+  function continueAsGuest(): void {
+    guest.current = true
+    try {
+      localStorage.setItem(GUEST_KEY, 'done')
+    } catch {
+      // The guest choice still applies for this session.
+    }
+    setScreen('app')
+  }
 
   useEffect(() => {
     initI18n()
@@ -42,7 +63,7 @@ export default function App(): React.JSX.Element {
       isConnected: () => collieClient.connected,
       applyState: (next) => {
         if (next.offlineMessage) setOfflineMessage(next.offlineMessage)
-        setScreen(next.screen)
+        setScreen(next.screen === 'welcome' && guest.current ? 'app' : next.screen)
       }
     })
 
@@ -125,7 +146,7 @@ export default function App(): React.JSX.Element {
         </div>
         <button
           onClick={() => {
-            setScreen('welcome')
+            setScreen(guest.current ? 'app' : 'welcome')
             collieClient.connect()
           }}
           className="rounded-lg px-4 py-2 font-medium text-white transition"
@@ -137,7 +158,7 @@ export default function App(): React.JSX.Element {
     )
   }
 
-  if (screen === 'welcome') {
+  if (screen === 'welcome' || replayingOnboarding) {
     const welcome = (
       <WelcomeScreen
         onDone={() => {
@@ -146,13 +167,13 @@ export default function App(): React.JSX.Element {
           // Straight to chat: ChatScreen opens the starter conversation.
           setAutoOpenStarter(true)
         }}
-        onCancel={replayingOnboarding ? () => {
-          setScreen('app')
-          setReplayingOnboarding(false)
-        } : undefined}
+        onCancel={replayingOnboarding ? () => setReplayingOnboarding(false) : undefined}
+        onSkip={replayingOnboarding ? undefined : continueAsGuest}
       />
     )
-    return replayingOnboarding ? welcome : <AccountOnboarding>{welcome}</AccountOnboarding>
+    return replayingOnboarding ? welcome : (
+      <AccountOnboarding onGuest={continueAsGuest}>{welcome}</AccountOnboarding>
+    )
   }
 
   return (
@@ -162,7 +183,6 @@ export default function App(): React.JSX.Element {
       autoOpenStarter={autoOpenStarter}
       onRedoOnboarding={() => {
         setReplayingOnboarding(true)
-        setScreen('welcome')
       }}
     />
   )

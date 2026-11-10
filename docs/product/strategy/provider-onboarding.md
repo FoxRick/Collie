@@ -27,9 +27,12 @@ email, optional use case, clear consent, and a one-click unsubscribe route.
 Before model-provider setup on a new installation, offer **Sign in or create
 an account** using the same browser flow as Settings → Account, alongside
 **Continue as a guest**. An existing signed-in session skips this step.
-Remember either choice locally so restarting unfinished model setup does not
-repeat the account prompt. If local preferences cannot be saved, continuing
-still works for the current session.
+Guests go directly to the local app without setting up a model. Collie
+remembers this choice on the desktop, including after a restart. Chat
+explains that AI replies require a connected model and links to Settings →
+Models. Users can also connect a model during setup without a Collie
+account, or leave model setup for later. If local preferences cannot be
+saved, continuing still works for the current session.
 
 Account failures never block guest setup. Users with an already configured
 model, and users replaying model onboarding from Settings, go directly to

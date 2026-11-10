@@ -17,6 +17,7 @@ const OLLAMA_BASE_URL = 'http://localhost:11434/v1'
 interface Props {
   onDone: () => void
   onCancel?: () => void
+  onSkip?: () => void
 }
 
 export const configureWelcomeApiKey = configureApiKeyProvider
@@ -63,7 +64,7 @@ function secureStorageFix(platform: string | null | undefined): string {
   }
 }
 
-export default function WelcomeScreen({ onDone, onCancel }: Props): React.JSX.Element {
+export default function WelcomeScreen({ onDone, onCancel, onSkip }: Props): React.JSX.Element {
   const [busyOAuth, setBusyOAuth] = useState<'chatgpt' | null>(null)
   const [busyKey, setBusyKey] = useState(false)
   const [error, setError] = useState('')
@@ -426,6 +427,11 @@ export default function WelcomeScreen({ onDone, onCancel }: Props): React.JSX.El
           </p>
         </div>
 
+        {onSkip && (
+          <button type="button" className="self-center px-2 py-1 text-sm underline" onClick={onSkip}>
+            Set up a model later
+          </button>
+        )}
         <ManagedInferenceCard onActivated={onDone} />
         <button
           onClick={() => void signInOAuth('chatgpt')}
