@@ -519,8 +519,12 @@ export default function WelcomeScreen({ onDone, onCancel }: Props): React.JSX.El
                 </button>
                 {pickerOpen && (
                   <div
-                    className="absolute z-10 mt-1 w-full overflow-hidden rounded-lg border bg-white shadow-lg"
-                    style={{ borderColor: 'var(--collie-border)' }}
+                    className="absolute z-10 mt-1 w-full overflow-hidden rounded-lg border shadow-lg"
+                    style={{
+                      borderColor: 'var(--collie-border)',
+                      background: 'var(--collie-surface)',
+                      color: 'var(--collie-text)'
+                    }}
                   >
                     <input
                       autoFocus
@@ -529,7 +533,11 @@ export default function WelcomeScreen({ onDone, onCancel }: Props): React.JSX.El
                       value={pickerQuery}
                       onChange={(event) => setPickerQuery(event.target.value)}
                       className="w-full border-b px-3 py-2 outline-none"
-                      style={{ borderColor: 'var(--collie-border)' }}
+                      style={{
+                        borderColor: 'var(--collie-border)',
+                        background: 'transparent',
+                        color: 'inherit'
+                      }}
                     />
                     <div className="max-h-56 overflow-y-auto">
                       {filteredProviders.map((item) => (
@@ -537,7 +545,7 @@ export default function WelcomeScreen({ onDone, onCancel }: Props): React.JSX.El
                           key={item.id}
                           type="button"
                           onClick={() => pickProvider(item.id)}
-                          className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-black/5"
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--collie-bg)]"
                         >
                           <BrandLogo brand={item.id} size={20} />
                           <span className="flex-1">{item.name}</span>
