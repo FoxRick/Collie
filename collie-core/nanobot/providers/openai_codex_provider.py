@@ -37,10 +37,12 @@ class OpenAICodexProvider(LLMProvider):
         self,
         default_model: str = "openai-codex/gpt-5.6-sol",
         proxy: str | None = None,
+        token_loader: Callable[[], Any] | None = None,
     ):
         super().__init__(api_key=None, api_base=None)
         self.default_model = default_model
         self.proxy = proxy or None
+        self._token_loader = token_loader or (lambda: get_codex_token(proxy=self.proxy))
 
     async def _call_codex(
         self,
@@ -77,7 +79,7 @@ class OpenAICodexProvider(LLMProvider):
 
         stage = "oauth_token"
         try:
-            token = await asyncio.to_thread(get_codex_token, proxy=self.proxy)
+            token = await asyncio.to_thread(self._token_loader)
             headers = _build_headers(token.account_id, token.access)
 
             stage = "codex_request"

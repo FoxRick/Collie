@@ -20,7 +20,7 @@ class FakeToken(SimpleNamespace):
 
 @pytest.fixture()
 def fake_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """Point both providers' token storage at tmp files."""
+    """Point Codex token storage at a temporary file."""
 
     class _Storage:
         def __init__(self, name: str):
@@ -29,26 +29,24 @@ def fake_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         def get_token_path(self) -> Path:
             return self._path
 
+        def delete(self) -> None:
+            self._path.unlink(missing_ok=True)
+
     codex = _Storage("codex.json")
-    claude = _Storage("claude.json")
     monkeypatch.setattr(
         collie_auth,
         "_codex_provider_and_storage",
         lambda: (SimpleNamespace(token_filename="codex.json"), codex),
     )
-    monkeypatch.setattr(
-        collie_auth,
-        "_claude_provider_and_storage",
-        lambda: (SimpleNamespace(token_filename="claude.json"), claude),
-    )
-    return {"codex": codex, "claude": claude}
+    return {"codex": codex}
 
 
 def test_spec_aliases(fake_storage) -> None:
     assert collie_auth._spec("ChatGPT")[0] == "chatgpt"
     assert collie_auth._spec("openai_codex")[0] == "chatgpt"
-    assert collie_auth._spec("claude")[0] == "claude"
-    assert collie_auth._spec("anthropic")[0] == "claude"
+    for alias in ("claude", "anthropic", "claude_oauth"):
+        with pytest.raises(ValueError, match="Claude Console"):
+            collie_auth.OAuthLoginAttempt(alias)
     with pytest.raises(ValueError):
         collie_auth._spec("gemini")
 
@@ -85,8 +83,8 @@ def test_login_falls_back_to_oauth_flow(fake_storage, monkeypatch: pytest.Monkey
     monkeypatch.setattr(oauth_cli_kit, "get_token", fake_get_token)
     monkeypatch.setattr(collie_auth, "_login_oauth_cancellable", fake_interactive)
 
-    result = collie_auth.login_provider("claude")
-    assert result["provider"] == "claude"
+    result = collie_auth.login_provider("chatgpt")
+    assert result["provider"] == "chatgpt"
     assert result["signed_in"] is True
 
 
@@ -108,10 +106,10 @@ def test_login_failure_is_friendly(fake_storage, monkeypatch: pytest.MonkeyPatch
 
 
 def test_logout_removes_token_files(fake_storage) -> None:
-    path = fake_storage["claude"].get_token_path()
+    path = fake_storage["codex"].get_token_path()
     path.write_text("{}", encoding="utf-8")
-    result = collie_auth.logout_provider("claude")
-    assert result == {"provider": "claude", "signed_in": False}
+    result = collie_auth.logout_provider("chatgpt")
+    assert result == {"provider": "chatgpt", "signed_in": False}
     assert not path.exists()
 
 
@@ -126,18 +124,9 @@ def test_oauth_status(fake_storage, monkeypatch: pytest.MonkeyPatch) -> None:
     status = collie_auth.oauth_status("chatgpt")
     assert status == {"provider": "chatgpt", "signed_in": True, "account_id": "a-9"}
 
-    monkeypatch.setattr(oauth_cli_kit, "get_token", lambda **kwargs: None)
+    # A cached Claude token must never be used, even if the helper could read it.
     status = collie_auth.oauth_status("claude")
     assert status["signed_in"] is False
-
-
-def test_claude_oauth_provider_config() -> None:
-    from collie_core.providers.claude_oauth import ANTHROPIC_OAUTH_PROVIDER
-
-    assert ANTHROPIC_OAUTH_PROVIDER.authorize_url.startswith("https://console.anthropic.com/")
-    assert ANTHROPIC_OAUTH_PROVIDER.scope == "org:create_api_key user:profile"
-    assert ANTHROPIC_OAUTH_PROVIDER.redirect_uri == "http://localhost:54545/callback"
-    assert ANTHROPIC_OAUTH_PROVIDER.token_filename == "claude.json"
 
 
 def test_callback_server_derives_from_redirect_uri() -> None:
@@ -171,16 +160,12 @@ def test_callback_server_derives_from_redirect_uri() -> None:
         server.server_close()
 
 
-def test_oauth_authorize_url_params_per_provider(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Claude requests carry no Codex-only params; Codex requests keep them."""
+def test_codex_authorize_url_params(monkeypatch: pytest.MonkeyPatch) -> None:
     import webbrowser
 
     import oauth_cli_kit.flow as oauth_flow
 
     import collie_core.providers.callback_server as callback_server_mod
-    from collie_core.providers.claude_oauth import ANTHROPIC_OAUTH_PROVIDER
 
     opened: list[str] = []
     exchanged: list[str] = []
@@ -217,22 +202,12 @@ def test_oauth_authorize_url_params_per_provider(
     monkeypatch.setattr(callback_server_mod, "start_callback_server", fake_start)
     monkeypatch.setattr(oauth_flow, "_exchange_code_for_token_async", fake_exchange)
     monkeypatch.setattr(oauth_flow, "_should_open_browser", lambda: True)
-    monkeypatch.setattr(webbrowser, "open", opened.append)
+    def open_browser(url: str) -> bool:
+        opened.append(url)
+        return True
 
-    token = collie_auth._login_oauth_cancellable(
-        ANTHROPIC_OAUTH_PROVIDER, Storage(), threading.Event()
-    )
-    assert token.access == "tok"
-    assert exchanged == ["srv-code"]
-    assert len(opened) == 1
-    claude_url = opened[0]
-    assert claude_url.startswith("https://console.anthropic.com/oauth/authorize?")
-    assert "redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback" in claude_url
-    assert "scope=org%3Acreate_api_key+user%3Aprofile" in claude_url
-    assert "codex_cli_simplified_flow" not in claude_url
-    assert "originator" not in claude_url
+    monkeypatch.setattr(webbrowser, "open", open_browser)
 
-    opened.clear()
     from oauth_cli_kit.providers import OPENAI_CODEX_PROVIDER
 
     token = collie_auth._login_oauth_cancellable(
@@ -240,6 +215,7 @@ def test_oauth_authorize_url_params_per_provider(
     )
     assert token.access == "tok"
     assert len(opened) == 1
+    assert exchanged == ["srv-code"]
     codex_url = opened[0]
     assert codex_url.startswith("https://auth.openai.com/oauth/authorize?")
     assert "originator=nanobot" in codex_url
@@ -402,46 +378,6 @@ def test_cancelled_oauth_attempt_closes_callback_server(
     assert closed == ["shutdown", "close"]
 
 
-def test_claude_oauth_provider_defers_token_load(monkeypatch: pytest.MonkeyPatch) -> None:
-    from collie_core.providers import claude_oauth
-
-    monkeypatch.setattr(
-        claude_oauth,
-        "_current_access_token",
-        lambda: pytest.fail("constructor must not load OAuth storage"),
-    )
-
-    provider = claude_oauth.ClaudeOAuthProvider()
-
-    assert provider._client is None
-
-
-async def test_claude_oauth_provider_builds_bearer_client(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from collie_core.providers import claude_oauth
-
-    monkeypatch.setattr(
-        claude_oauth,
-        "_current_access_token",
-        lambda: claude_oauth._AccessToken("tok-abc", 2_000_000_000),
-    )
-    provider = claude_oauth.ClaudeOAuthProvider(default_model="claude-sonnet-4-6")
-    assert await provider.refresh_auth()
-    assert provider.get_default_model() == "claude-sonnet-4-6"
-    assert provider.extra_headers["anthropic-beta"] == "oauth-2025-04-20"
-    assert provider._client.auth_token == "tok-abc"
-
-    provider._access_token_expires_at = 0
-    monkeypatch.setattr(
-        claude_oauth,
-        "_current_access_token",
-        lambda: claude_oauth._AccessToken("tok-refreshed", 2_000_000_000),
-    )
-    assert await provider.refresh_auth() is True
-    assert provider._client.auth_token == "tok-refreshed"
-
-
 def test_runtime_provider_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("COLLIE_HOME", str(tmp_path / ".collie"))
     from collie_core.db import CollieDB
@@ -452,27 +388,15 @@ def test_runtime_provider_override(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert runtime._provider_override() is None
 
     runtime.db.set_setting("provider.auth", "claude-oauth")
-    from collie_core.providers import claude_oauth
+    with pytest.raises(ValueError, match="Claude Console"):
+        runtime._provider_override()
 
-    token_reads = 0
-
-    def load_token() -> claude_oauth._AccessToken:
-        nonlocal token_reads
-        token_reads += 1
-        return claude_oauth._AccessToken("tok", 2_000_000_000)
-
-    monkeypatch.setattr(
-        claude_oauth,
-        "_current_access_token",
-        load_token,
-    )
-    provider = runtime._provider_override()
-    assert type(provider).__name__ == "ClaudeOAuthProvider"
-    assert token_reads == 0
-
+    token = FakeToken(access="synthetic-test-token", account_id="test-account")
+    monkeypatch.setattr(collie_auth, "get_chatgpt_token", lambda: token)
     runtime.db.set_setting("provider.auth", "chatgpt-oauth")
     provider = runtime._provider_override()
     assert type(provider).__name__ == "OpenAICodexProvider"
+    assert provider._token_loader() is token
     runtime.db.close()
 
 

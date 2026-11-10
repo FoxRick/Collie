@@ -1046,11 +1046,11 @@ export class CollieClient {
     return this.command('delete_provider', { provider_id: providerId }, 60_000)
   }
 
-  oauthLogin(provider: 'chatgpt' | 'claude'): Promise<{ signed_in: boolean }> {
+  oauthLogin(provider: 'chatgpt'): Promise<{ signed_in: boolean }> {
     return this.command('oauth_login', { provider }, 300_000)
   }
 
-  cancelOAuthLogin(provider: 'chatgpt' | 'claude'): Promise<{ cancelled: boolean }> {
+  cancelOAuthLogin(provider: 'chatgpt'): Promise<{ cancelled: boolean }> {
     return this.command('cancel_oauth', { provider })
   }
 
@@ -1058,7 +1058,7 @@ export class CollieClient {
     return this.command('oauth_logout', { provider })
   }
 
-  authStatus(provider: 'chatgpt' | 'claude'): Promise<{ signed_in: boolean }> {
+  authStatus(provider: 'chatgpt'): Promise<{ signed_in: boolean }> {
     return this.command('auth_status', { provider })
   }
 

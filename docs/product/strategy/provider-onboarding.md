@@ -56,7 +56,7 @@ account remains separate from model-provider credentials.
 | Provider | Access experience | Product decision |
 | --- | --- | --- |
 | OpenAI / ChatGPT | Browser sign-in | Keep as a primary card, subject to the provider-supported production flow. |
-| Anthropic / Claude | Browser sign-in | Keep as a primary card, subject to the provider-supported production flow. |
+| Anthropic / Claude | Claude Console API key | Offer a direct link to the API-key form. Existing Claude subscription connections must reconnect with an API key. |
 | GitHub Copilot | Browser sign-in with GitHub OAuth | Add as a primary provider after a registered GitHub OAuth app and subscription-entitlement testing. GitHub documents this model-access pattern through its Copilot SDK. |
 | Google Gemini | API key / Google AI Studio project | Add under API providers, not as a consumer browser-login card. A Google/Gemini consumer subscription is not equivalent to Gemini API access and billing. |
 | Perplexity | API key / Perplexity API portal | Add under API providers. Current official developer documentation is API-group and API-key based; no equivalent third-party consumer sign-in flow was identified. Collie can support Sonar as a web-grounded model and later its Agent API when the runtime supports the necessary transport. |
@@ -75,19 +75,20 @@ The first run should not expose base URLs, endpoint paths, protocols, headers,
 or raw model identifiers.
 
 1. Present three simple choices:
-   - **Sign in to a provider**: ChatGPT, Claude, GitHub Copilot.
-   - **Use an API key**: Gemini, Perplexity, OpenRouter, and other providers.
+   - **Sign in to a provider**: ChatGPT. GitHub Copilot is planned.
+   - **Use an API key**: Claude, Gemini, Perplexity, OpenRouter, and other providers.
    - **Use a local model**: Ollama or another local compatible server.
 2. For an API provider, the normal form has only:
    - provider picker (searchable),
    - API key field,
    - **Connect** button.
 3. On Connect, Collie fills the protocol, base URL, required headers, and a
-   sensible default model; saves the secret to OS-protected storage; then
-   validates the connection.
+   sensible default model; validates the connection, then finalizes the key in OS-protected storage.
 4. Where supported, query the provider's model-list endpoint using the user's
    key. Otherwise, make a small read-only test request to the recommended
-   model.
+   model. Claude setup tests a one-token Messages request so billing and model
+   access failures surface during setup. ChatGPT setup tests the selected default
+   Codex model before committing the sign-in.
 5. Show a human result, for example: **Connected - using Gemini Flash**. Let
    the user change models later rather than forcing a model choice before their
    first chat.
@@ -149,6 +150,8 @@ the catalogue, provider adapters, and validation flow are the immediate need.
    them.
 
 ## Sources checked
+
+- [Claude authentication policy](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use)
 
 - [models.dev repository and API](https://github.com/anomalyco/models.dev)
 - [GitHub Copilot OAuth setup](https://docs.github.com/en/copilot/how-tos/copilot-sdk/setup/github-oauth)

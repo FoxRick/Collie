@@ -289,3 +289,48 @@ async def test_detect_provider_for_key_no_match() -> None:
     result = await detect_provider_for_key("zzz-unknown-format", catalogue=CatalogueStore())
     assert result["detected"] is False
     assert result["reason"] == "no_prefix_match"
+
+
+@pytest.mark.parametrize(
+    ("response", "expected_error"),
+    [
+        ((200, {"type": "message"}), None),
+        ((400, {"error": {"message": "Your credit balance is too low"}}), "billing"),
+        ((404, {}), "model"),
+        ((429, {}), "rate_limit"),
+        ((529, {}), "network"),
+    ],
+)
+async def test_claude_console_key_checks_messages_even_if_model_is_listed(
+    monkeypatch: pytest.MonkeyPatch, response: tuple[int, dict], expected_error: str | None
+) -> None:
+    from collie_core.providers import validation
+
+    model = "claude-sonnet-4-6"
+    requests: list[str] = []
+
+    def request(url: str, *, headers: dict, payload: dict | None = None) -> tuple[int, dict]:
+        assert headers["x-api-key"] == "synthetic-claude-key"
+        assert "Authorization" not in headers
+        assert headers["anthropic-version"] == "2023-06-01"
+        requests.append(url)
+        if payload is None:
+            return 200, {"data": [{"id": model}]}
+        assert payload["model"] == model
+        assert payload["max_tokens"] == 1
+        return response
+
+    monkeypatch.setattr(validation, "_request", request)
+    result = await probe_api_key(
+        provider_id="anthropic",
+        api_key="synthetic-claude-key",
+        protocol="anthropic",
+        model=model,
+    )
+
+    assert result["ok"] is (expected_error is None)
+    assert result.get("error") == expected_error
+    assert requests == [
+        "https://api.anthropic.com/v1/models",
+        "https://api.anthropic.com/v1/messages",
+    ]

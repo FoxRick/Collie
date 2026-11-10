@@ -162,9 +162,8 @@ export default function SettingsScreen({
   const [tab, setTab] = useState<Tab>(initialTab)
   const [status, setStatus] = useState<RuntimeStatus>({})
   const [settings, setSettings] = useState<Record<string, unknown>>({})
-  const [oauth, setOauth] = useState<{ chatgpt: boolean; claude: boolean }>({
-    chatgpt: false,
-    claude: false
+  const [oauth, setOauth] = useState<{ chatgpt: boolean }>({
+    chatgpt: false
   })
   const [notice, setNotice] = useState('')
   // Danger-zone confirm state: the panel starts EMPTY — the user types
@@ -179,15 +178,14 @@ export default function SettingsScreen({
 
   const refresh = async (): Promise<void> => {
     try {
-      const [statusData, settingsData, chatgpt, claude] = await Promise.all([
+      const [statusData, settingsData, chatgpt] = await Promise.all([
         collieClient.getStatus(),
         collieClient.getSettings(),
-        collieClient.authStatus('chatgpt').catch(() => ({ signed_in: false })),
-        collieClient.authStatus('claude').catch(() => ({ signed_in: false }))
+        collieClient.authStatus('chatgpt').catch(() => ({ signed_in: false }))
       ])
       setStatus(statusData)
       setSettings(settingsData.settings)
-      setOauth({ chatgpt: chatgpt.signed_in, claude: claude.signed_in })
+      setOauth({ chatgpt: chatgpt.signed_in })
     } catch {
       // core offline; screen shows placeholders
     }

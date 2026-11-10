@@ -191,7 +191,10 @@ async def probe_api_key(
 
     if _is_auth_failure(status):
         return {"ok": False, "error": "auth", "detail": f"models endpoint {status}"}
-    if status == 200:
+    # Claude's list can succeed even when billing blocks inference. Use the
+    # Messages endpoint to check the actual model for Claude Console keys.
+    verify_inference = provider_id == "anthropic" and api_base.rstrip("/") == "https://api.anthropic.com"
+    if status == 200 and not verify_inference:
         ids = _parse_model_ids(protocol, body)
         if model in ids:
             label = catalogue.model_label(provider_id, model) or model
@@ -224,15 +227,35 @@ async def probe_api_key(
             "models": ids,
         }
 
-    # Model list unsupported (404/405/400) — fall back to a 1-token completion.
+    if status == 429:
+        return {"ok": False, "error": "rate_limit"}
+    if status >= 500:
+        return {"ok": False, "error": "network"}
+    if status != 200 and not _is_unsupported(status):
+        return {"ok": False, "error": "invalid"}
+
+    # Verify inference directly when required or when listing is unsupported.
     try:
-        status, _body = await asyncio.to_thread(
+        status, body = await asyncio.to_thread(
             _probe_one_token, api_base, protocol, api_key, model
         )
     except (urllib.error.URLError, TimeoutError, OSError, ValueError) as error:
         return {"ok": False, "error": "network", "detail": str(error)}
     if _is_auth_failure(status):
         return {"ok": False, "error": "auth", "detail": f"completion endpoint {status}"}
+    if status == 429:
+        return {"ok": False, "error": "rate_limit"}
+    if status >= 500:
+        return {"ok": False, "error": "network"}
+    if verify_inference:
+        if status == 404:
+            return {"ok": False, "error": "model"}
+        if status == 400 and isinstance(body, dict):
+            error = body.get("error")
+            if isinstance(error, dict) and "credit balance" in str(error.get("message", "")).lower():
+                return {"ok": False, "error": "billing"}
+        if status == 200 and (not isinstance(body, dict) or body.get("type") != "message"):
+            return {"ok": False, "error": "invalid"}
     if status in (200, 201):
         label = catalogue.model_label(provider_id, model) or model
         return {"ok": True, "model": model, "model_label": label, "models": []}

@@ -161,11 +161,26 @@ describe('WelcomeScreen first-run choices', () => {
     const { container } = renderWelcome()
     const text = container.textContent!
     expect(text).toContain('I have a ChatGPT subscription')
-    expect(text).toContain('I have a Claude subscription')
+    expect(text).toContain('Use Claude with an API key')
     expect(text).toContain('I have an API key')
     expect(text).toContain("I don't have anything yet")
     // The footer now points at the real tab (review P1-5).
     expect(text).toContain('Settings → Models & API keys')
+  })
+
+  it('opens the Claude API key form without starting browser sign-in', async () => {
+    const { container } = renderWelcome()
+    const card = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent?.includes('Use Claude with an API key')
+    )!
+    await act(async () => card.click())
+    const help = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Get a Claude API key'
+    )!
+    act(() => help.click())
+    expect(window.collie.openExternal).toHaveBeenCalledWith('https://platform.claude.com/settings/keys')
+    expect(container.querySelector('input[type="password"]')).not.toBeNull()
+    expect(hooks.client.oauthLogin).not.toHaveBeenCalled()
   })
 
   it('points the "nothing yet" help at heycollie.com/get-started', () => {
