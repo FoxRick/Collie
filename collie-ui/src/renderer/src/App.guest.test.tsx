@@ -43,15 +43,6 @@ vi.mock('./lib/theme', async (importOriginal) => ({
 vi.mock('./components/CollieFace', () => ({ default: () => null }))
 vi.mock('./components/InteractiveColliePortrait', () => ({ default: () => null }))
 vi.mock('./components/MessageList', () => ({ default: () => null }))
-vi.mock('./components/ChatInput', () => ({
-  default: ({ onSend }: { onSend: (message: string, attachments: []) => Promise<boolean> }) => (
-    <>
-      <button type="button" onClick={() => void onSend('Hello', [])}>Send test message</button>
-      <button type="button" onClick={() => void onSend('/help', [])}>Send help command</button>
-    </>
-  )
-}))
-
 let container: HTMLDivElement
 let root: Root
 
@@ -66,6 +57,9 @@ beforeEach(() => {
   vi.stubGlobal('account', { getState: bridge.getAccount, startSignIn: bridge.startSignIn })
   vi.stubGlobal('collie', {
     storedSecretCount: bridge.secretCount,
+    pickAttachments: vi.fn().mockResolvedValue([{
+      name: 'sample.txt', mime: 'text/plain', size: 4, data_url: 'data:text/plain;base64,dGVzdA=='
+    }]),
     petCommand: vi.fn(),
     updateActiveWork: vi.fn(),
     setDesktopMenu: vi.fn().mockResolvedValue(undefined)
@@ -87,9 +81,19 @@ async function launch(): Promise<void> {
 }
 
 async function click(label: string): Promise<void> {
-  const button = [...container.querySelectorAll('button')].find((item) => item.textContent?.trim() === label)
+  const button = [...container.querySelectorAll('button')].find(
+    (item) => item.textContent?.trim() === label || item.getAttribute('aria-label') === label
+  )
   expect(button, label).toBeDefined()
   await act(async () => button!.click())
+}
+
+async function typeMessage(message: string): Promise<void> {
+  const composer = container.querySelector('textarea')!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(composer, message)
+    composer.dispatchEvent(new Event('input', { bubbles: true }))
+  })
 }
 
 async function coreReady(): Promise<void> {
@@ -121,19 +125,43 @@ describe('desktop guest onboarding', () => {
   it('explains unavailable AI replies and opens model settings only when requested', async () => {
     await launch()
     await click('Continue as a guest')
-    await click('Send test message')
+    await typeMessage('Hello')
+    await click('Send message')
     expect(bridge.client.chat).not.toHaveBeenCalled()
     expect(container.textContent).toContain('Connect a model to get AI replies.')
     expect(container.textContent).not.toContain('Welcome to Collie')
     expect(bridge.startSignIn).not.toHaveBeenCalled()
 
-    await click('Send help command')
+    await typeMessage('/help')
+    await click('Send message')
     expect(bridge.client.chat).toHaveBeenCalledWith(null, '/help', [], expect.anything(), undefined, expect.anything())
 
     await click('Open model settings')
     expect(container.querySelector('h1')?.textContent).toContain('Settings')
     expect(container.querySelector('h2')?.textContent).toBe('Models & API keys')
     expect(container.textContent).not.toContain('Make yourself at home')
+  })
+
+  it('keeps an unsent guest message and attachment through the model settings round trip', async () => {
+    await launch()
+    await click('Continue as a guest')
+    await typeMessage('Keep this first message')
+    await click('Attach files')
+    expect(container.textContent).toContain('sample.txt')
+    await click('Send message')
+    expect(bridge.client.chat).not.toHaveBeenCalled()
+    await click('Open model settings')
+    expect(container.querySelector('h2')?.textContent).toBe('Models & API keys')
+    bridge.client.getStatus.mockResolvedValue({ configured: true, model: 'test-model' })
+    await click('Back to chat')
+    expect(container.querySelector('textarea')?.value).toBe('Keep this first message')
+    expect(container.textContent).toContain('sample.txt')
+    bridge.client.chat.mockResolvedValue({ conversation_id: 'first-chat', command_handled: false })
+    await click('Send message')
+    expect(bridge.client.chat).toHaveBeenCalledWith(null, 'Keep this first message',
+      [expect.objectContaining({ name: 'sample.txt' })], expect.anything(), undefined, expect.anything())
+    expect(container.querySelector('textarea')?.value).toBe('')
+    expect(container.textContent).not.toContain('sample.txt')
   })
 
   it('lets people resume model setup without an account or leave it for later', async () => {

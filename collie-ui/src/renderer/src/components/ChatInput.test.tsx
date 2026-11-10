@@ -128,7 +128,7 @@ vi.mock('../lib/audio', () => ({
 
 import { startLocalDictation } from '../lib/audio'
 
-import ChatInput, {
+import ChatInputComponent, {
   buildImagePreviews,
   dataUrlDecodedBytes,
   fitWithinMaxEdge,
@@ -136,6 +136,14 @@ import ChatInput, {
   withImagePreview
 } from './ChatInput'
 import type { AttachmentDraft } from '../lib/ipc'
+
+type ComposerProps = Parameters<typeof ChatInputComponent>[0]
+
+function ChatInput(props: Omit<ComposerProps, 'text' | 'setText' | 'attachments' | 'setAttachments'>) {
+  const [text, setText] = hooks.useState('')
+  const [attachments, setAttachments] = hooks.useState<AttachmentDraft[]>([])
+  return ChatInputComponent({ ...props, text, setText, attachments, setAttachments })
+}
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void

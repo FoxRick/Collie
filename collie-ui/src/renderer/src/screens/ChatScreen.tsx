@@ -149,6 +149,8 @@ export default function ChatScreen({
   const [planChangeNotice, setPlanChangeNotice] = useState('')
   const [portraitThinking, setPortraitThinking] = useState<ThinkingState | null>(null)
   const [isTyping, setIsTyping] = useState(false)
+  const [draftText, setDraftText] = useState('')
+  const [draftAttachments, setDraftAttachments] = useState<AttachmentDraft[]>([])
   const [executionMode, setExecutionMode] = useState<ExecutionMode>(() =>
     localStorage.getItem('collie.executionMode') === 'plan' ? 'plan' : 'execute'
   )
@@ -1204,6 +1206,10 @@ export default function ChatScreen({
               recentAgents={recentAgents}
             />
             <ChatInput
+              text={draftText}
+              setText={setDraftText}
+              attachments={draftAttachments}
+              setAttachments={setDraftAttachments}
               onSend={send}
               onStop={() => void stop()}
               busy={isWorkActive}
