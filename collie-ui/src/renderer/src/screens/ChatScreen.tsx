@@ -742,7 +742,11 @@ export default function ChatScreen({
         }
         return true
       }
-      if (runtimeStatus.configured === false) {
+      // These commands are handled by the core without starting a model turn.
+      const isLocalCommand =
+        attachments.length === 0 &&
+        /^\/(?:start|get-started|help|new|status|agents|skills)(?:\s|$)/i.test(text.trim())
+      if (runtimeStatus.configured === false && !isLocalCommand) {
         return false
       }
       if (conversationId) {

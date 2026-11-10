@@ -45,7 +45,10 @@ vi.mock('./components/InteractiveColliePortrait', () => ({ default: () => null }
 vi.mock('./components/MessageList', () => ({ default: () => null }))
 vi.mock('./components/ChatInput', () => ({
   default: ({ onSend }: { onSend: (message: string, attachments: []) => Promise<boolean> }) => (
-    <button type="button" onClick={() => void onSend('Hello', [])}>Send test message</button>
+    <>
+      <button type="button" onClick={() => void onSend('Hello', [])}>Send test message</button>
+      <button type="button" onClick={() => void onSend('/help', [])}>Send help command</button>
+    </>
   )
 }))
 
@@ -123,6 +126,9 @@ describe('desktop guest onboarding', () => {
     expect(container.textContent).toContain('Connect a model to get AI replies.')
     expect(container.textContent).not.toContain('Welcome to Collie')
     expect(bridge.startSignIn).not.toHaveBeenCalled()
+
+    await click('Send help command')
+    expect(bridge.client.chat).toHaveBeenCalledWith(null, '/help', [], expect.anything(), undefined, expect.anything())
 
     await click('Open model settings')
     expect(container.querySelector('h1')?.textContent).toContain('Settings')
