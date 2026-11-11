@@ -279,6 +279,9 @@ describe('startAccountSignIn', () => {
       `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=exchange-me&state=${stateNonce}`
     )
     expect(callbackResponse.status).toBe(200)
+    expect(callbackResponse.headers.get('cache-control')).toBe('no-store')
+    expect(callbackResponse.headers.get('referrer-policy')).toBe('no-referrer')
+    expect(await callbackResponse.text()).toContain('You are signed in')
 
     const state = await signInPromise
     expect(state.signedIn).toBe(true)
@@ -355,6 +358,49 @@ describe('startAccountSignIn', () => {
 
     await rejection
     expect(getStoredSession()).toBeNull()
+  })
+
+  it('reports an expired email link without saving a session', async () => {
+    const signInPromise = startAccountSignIn()
+    const rejection = expect(signInPromise).rejects.toThrow('The sign-in link did not work')
+    await vi.waitFor(() => expect(testState.openedUrl).not.toBe(''))
+    const response = await realFetch(
+      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?error=access_denied&error_code=otp_expired&state=${openedBrowserState()}`
+    )
+    expect(response.status).toBe(400)
+    expect(await response.text()).toContain('Sign-in could not be completed')
+    await rejection
+    expect(testState.exchange).toBeNull()
+    expect(getStoredSession()).toBeNull()
+  })
+
+  it.each([
+    [400, { error: 'invalid_grant' }, 'Sign-in could not be completed (400)'],
+    [200, {}, 'Sign-in came back without a session token']
+  ])('does not show browser success for an invalid token response (%s)', async (status, body, message) => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(body), { status }))
+    const signInPromise = startAccountSignIn()
+    const rejection = expect(signInPromise).rejects.toThrow(String(message))
+    await vi.waitFor(() => expect(testState.openedUrl).not.toBe(''))
+    const response = await realFetch(
+      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=bad-code&state=${openedBrowserState()}`
+    )
+    expect(response.status).toBe(500)
+    expect(await response.text()).toContain('Sign-in could not be completed')
+    await rejection
+    expect(getStoredSession()).toBeNull()
+  })
+
+  it('releases the callback port after timeout so sign-in can be retried', async () => {
+    await expect(startAccountSignIn({ timeoutMs: 50 })).rejects.toThrow("Sign-in didn't finish")
+    testState.openedUrl = ''
+    const retry = startAccountSignIn()
+    await vi.waitFor(() => expect(testState.openedUrl).not.toBe(''))
+    const response = await realFetch(
+      `http://${CALLBACK_HOST}:${CALLBACK_PORT}/callback?code=retry-code&state=${openedBrowserState()}`
+    )
+    expect(response.status).toBe(200)
+    expect((await retry).signedIn).toBe(true)
   })
 
   it('fails with a clear message when the fixed callback port is taken', async () => {
