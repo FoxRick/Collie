@@ -4,8 +4,8 @@
  * and the app picks the session back up from a local redirect.
  *
  * Flow: Settings → "Sign in" → the app generates a PKCE verifier/challenge,
- * starts a single-use HTTP listener on 127.0.0.1:8123, opens the Supabase
- * authorize URL in the system browser, and waits. The browser redirects to
+ * starts a single-use HTTP listener on 127.0.0.1:8123 and opens Collie's
+ * email sign-in page in the system browser. The email link redirects to
  * `http://127.0.0.1:8123/callback?code=...`, the app exchanges the code for
  * tokens with Supabase's PKCE token endpoint, and the session is stored
  * encrypted at rest with Electron safeStorage (same pattern as secrets.ts).
@@ -38,6 +38,15 @@ const CALLBACK_CANCELLED_HTML =
   '<body style="font-family:system-ui,sans-serif;padding:48px;max-width:520px">' +
   '<h1>Sign-in cancelled</h1>' +
   '<p>No problem — you can close this tab and go back to Collie.</p></body></html>'
+const CALLBACK_FAILED_HTML =
+  '<!doctype html><html><head><meta charset="utf-8"><title>Collie sign-in</title></head>' +
+  '<body><h1>Sign-in could not be completed</h1>' +
+  '<p>Return to Collie and start sign-in again.</p></body></html>'
+const CALLBACK_HEADERS = {
+  'Content-Type': 'text/html; charset=utf-8',
+  'Cache-Control': 'no-store',
+  'Referrer-Policy': 'no-referrer'
+}
 
 export interface AccountState {
   signedIn: boolean
@@ -345,42 +354,26 @@ export async function getVerifiedAccount(): Promise<VerifiedAccount> {
  * Sign-in / sign-out
  * ------------------------------------------------------------------ */
 
-/** Supabase's authorize endpoint with `redirect_to` (not `redirect_uri`). */
-function buildAuthorizeUrl(
-  baseUrl: string,
-  anonKey: string,
-  challenge: string,
-  callbackUrl: string,
-  state: string
-): string {
-  const url = new URL(`${baseUrl}/auth/v1/authorize`)
-  url.searchParams.set('aud', 'authenticated')
-  url.searchParams.set('response_type', 'code')
-  url.searchParams.set('redirect_to', callbackUrl)
-  url.searchParams.set('code_challenge', challenge)
-  url.searchParams.set('code_challenge_method', 'S256')
-  url.searchParams.set('client_id', anonKey)
-  url.searchParams.set('state', state)
-  return url.toString()
-}
-
 /**
- * Single-use callback wait: resolve with the `code` from the browser's
- * redirect, close the server, or reject after `timeoutMs`. The callback is
- * bound to the flow that initiated it through the `expectedState` nonce.
+ * Accept one state-bound callback and show success only after the session
+ * has been exchanged and saved.
  */
-function waitForCallbackCode(
+function waitForAccountCallback(
   server: Server,
   timeoutMs: number,
-  expectedState: string
-): Promise<string> {
+  expectedState: string,
+  finishSignIn: (code: string) => Promise<AccountState>
+): Promise<AccountState> {
   return new Promise((resolve, reject) => {
+    let consumed = false
     const timer = setTimeout(() => {
-      server.close()
-      server.closeAllConnections()
       reject(new Error("Sign-in didn't finish. Please try again."))
     }, timeoutMs)
-    server.on('request', (req, res) => {
+    server.once('close', () => {
+      clearTimeout(timer)
+      reject(new Error('Sign-in was closed.'))
+    })
+    server.on('request', async (req, res) => {
       if (req.method !== 'GET') {
         res.writeHead(405).end('Method not allowed')
         return
@@ -390,7 +383,7 @@ function waitForCallbackCode(
       // the exact Host blocks common DNS-rebinding delivery, and rejecting an
       // Origin blocks common cross-site fetch/XHR delivery (a top-level
       // browser redirect normally sends no Origin). The per-attempt OAuth
-      // `state` nonce additionally binds the callback to THIS sign-in flow, so
+      // `state` nonce additionally binds the callback to this sign-in flow, so
       // a code minted for a different (or none) attempt is rejected before it
       // is exchanged — closing the login-CSRF / account-hijack surface.
       const host = (req.headers.host ?? '').toLowerCase()
@@ -413,38 +406,37 @@ function waitForCallbackCode(
         res.writeHead(404).end('Not found')
         return
       }
-      // Supabase redirects with `?error=...` when the user cancels in the
-      // browser — surface that as a friendly cancellation instead of a
-      // "Bad request" page and a 5-minute wait.
-      const oauthError = url.searchParams.get('error')
-      if (oauthError) {
-        clearTimeout(timer)
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-        res.end(CALLBACK_CANCELLED_HTML)
-        server.close()
-        server.closeAllConnections()
-        reject(new Error('Sign-in was cancelled.'))
-        return
-      }
-      const code = url.searchParams.get('code')
-      if (!code) {
-        res.writeHead(400).end('Missing code')
-        return
-      }
-      // Bind the callback to this flow: the browser must echo back the state
-      // nonce we placed on the authorize URL. A missing or mismatched state
-      // means this code was minted for a different (or no) sign-in attempt, so
-      // reject it and keep waiting rather than exchange it into a session.
       if (url.searchParams.get('state') !== expectedState) {
         res.writeHead(400).end('Bad request')
         return
       }
+      if (consumed) {
+        res.writeHead(409).end('Sign-in callback already received')
+        return
+      }
+      const authError = url.searchParams.get('error')
+      const code = url.searchParams.get('code') ?? ''
+      if (!authError && !code) {
+        res.writeHead(400).end('Missing code')
+        return
+      }
+      consumed = true
       clearTimeout(timer)
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-      res.end(CALLBACK_SUCCESS_HTML)
-      server.close()
-      server.closeAllConnections()
-      resolve(code)
+      if (authError) {
+        const cancelled = authError === 'access_denied' && !url.searchParams.has('error_code')
+        res.writeHead(cancelled ? 200 : 400, CALLBACK_HEADERS)
+        res.end(cancelled ? CALLBACK_CANCELLED_HTML : CALLBACK_FAILED_HTML)
+        reject(new Error(cancelled ? 'Sign-in was cancelled.' : 'The sign-in link did not work. Please try again.'))
+        return
+      }
+      try {
+        const account = await finishSignIn(code)
+        res.writeHead(200, CALLBACK_HEADERS).end(CALLBACK_SUCCESS_HTML)
+        resolve(account)
+      } catch (error) {
+        res.writeHead(500, CALLBACK_HEADERS).end(CALLBACK_FAILED_HTML)
+        reject(error)
+      }
     })
     server.on('error', (error) => {
       clearTimeout(timer)
@@ -482,7 +474,7 @@ export async function startAccountSignIn(
   const state = base64UrlEncode(randomBytes(32))
 
   const server = createServer()
-  const port = await new Promise<number>((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     server.once('error', (error: NodeJS.ErrnoException) => {
       if (error.code === 'EADDRINUSE') {
         reject(
@@ -495,21 +487,31 @@ export async function startAccountSignIn(
       }
       reject(error)
     })
-    server.listen(CALLBACK_PORT, CALLBACK_HOST, () => {
-      resolve(CALLBACK_PORT)
-    })
+    server.listen(CALLBACK_PORT, CALLBACK_HOST, resolve)
   })
 
-  const callbackUrl = `http://${CALLBACK_HOST}:${port}/callback`
+  // The fragment keeps the state and challenge out of Worker request logs.
+  const browserUrl = new URL('https://heycollie.com/account/desktop')
+  browserUrl.hash = new URLSearchParams({ state, code_challenge: challenge }).toString()
   try {
-    await shell.openExternal(buildAuthorizeUrl(baseUrl, anonKey, challenge, callbackUrl, state))
-  } catch (error) {
+    const [account] = await Promise.all([
+      waitForAccountCallback(server, timeoutMs, state, (code) =>
+        exchangeAccountCode(baseUrl, anonKey, code, verifier)
+      ),
+      shell.openExternal(browserUrl.toString())
+    ])
+    return account
+  } finally {
     closeServer(server)
-    throw error
   }
+}
 
-  const code = await waitForCallbackCode(server, timeoutMs, state)
-
+async function exchangeAccountCode(
+  baseUrl: string,
+  anonKey: string,
+  code: string,
+  verifier: string
+): Promise<AccountState> {
   const response = await fetch(`${baseUrl}/auth/v1/token?grant_type=pkce`, {
     method: 'POST',
     headers: {
@@ -517,6 +519,7 @@ export async function startAccountSignIn(
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({ auth_code: code, code_verifier: verifier }),
+    redirect: 'error',
     signal: AbortSignal.timeout(10_000)
   })
   if (!response.ok) {
